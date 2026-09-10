@@ -157,8 +157,8 @@ function persistCategorizationResults(
       status = 'pending', updated_at = excluded.updated_at, resolved_at = NULL
   `);
   const findSuggestion = database.prepare(`
-    SELECT id FROM category_suggestions
-    WHERE status = 'pending' AND lower(suggested_name) = lower(?)
+    SELECT id, status FROM category_suggestions
+    WHERE yuvomi_user_id = ? AND lower(suggested_name) = lower(?)
       AND suggested_type = ?
     LIMIT 1
   `);
@@ -167,8 +167,8 @@ function persistCategorizationResults(
   `);
   const insertSuggestion = database.prepare(`
     INSERT INTO category_suggestions (
-      suggested_name, suggested_type, reason, sample_count, status, created_at
-    ) VALUES (?, ?, ?, 1, 'pending', ?)
+      yuvomi_user_id, suggested_name, suggested_type, reason, sample_count, status, created_at
+    ) VALUES (?, ?, ?, ?, 1, 'pending', ?)
   `);
 
   let transactionOpen = false;
@@ -208,10 +208,24 @@ function persistCategorizationResults(
         pendingReview += 1;
       }
       if (suggested) {
-        const existing = findSuggestion.get(suggested.name, suggested.type) as { id: number } | undefined;
-        if (existing) incrementSuggestion.run(existing.id);
-        else insertSuggestion.run(suggested.name, suggested.type, response.reason, timestamp);
-        categorySuggestions += 1;
+        const existing = findSuggestion.get(
+          yuvomiUserId,
+          suggested.name,
+          suggested.type
+        ) as { id: number; status: string } | undefined;
+        if (existing?.status === 'pending') {
+          incrementSuggestion.run(existing.id);
+          categorySuggestions += 1;
+        } else if (!existing) {
+          insertSuggestion.run(
+            yuvomiUserId,
+            suggested.name,
+            suggested.type,
+            response.reason,
+            timestamp
+          );
+          categorySuggestions += 1;
+        }
       }
     }
     database.exec('COMMIT;');

@@ -236,6 +236,7 @@ function renderOverviewMarkup() {
         </div>
         <p class="banking-feedback" data-categorization-feedback role="status"></p>
         <div data-categorization-reviews></div>
+        <div data-categorization-suggestions></div>
       </div>
 
       <div class="banking-weekly-history">
@@ -356,6 +357,14 @@ function configureConnectionForm(container, permission, signal) {
     void runCategorization({ container, host: categorizationHost, button: runCategorizationButton, signal });
   }, { signal });
 
+  categorizationHost.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-categorization-suggestion-id]');
+    if (!button) return;
+    const action = button.dataset.action;
+    if (action !== 'accept-category-suggestion' && action !== 'dismiss-category-suggestion') return;
+    void decideCategorySuggestion({ container, host: categorizationHost, button, action, signal });
+  }, { signal });
+
   weeklyHistory.addEventListener('click', (event) => {
     const actionButton = event.target.closest('button[data-action]');
     if (actionButton?.dataset.action === 'recalculate-weekly-period') {
@@ -456,14 +465,16 @@ async function loadOverview(container, signal, canWrite) {
     weeklyBudgetResult,
     categoriesResult,
     periodsResult,
-    categorizationReviewsResult
+    categorizationReviewsResult,
+    categorySuggestionsResult
   ] = await Promise.allSettled([
     loadJson('connections', { signal }),
     loadJson('accounts', { signal }),
     loadJson('weekly-budget/current', { signal }),
     loadJson('categories', { signal }),
     loadJson('weekly-budget/periods', { signal }),
-    loadJson('categorization/reviews', { signal })
+    loadJson('categorization/reviews', { signal }),
+    loadJson('category-suggestions', { signal })
   ]);
   if (signal.aborted) return;
 
@@ -506,6 +517,11 @@ async function loadOverview(container, signal, canWrite) {
   } else {
     renderError(categorizationHost.querySelector('[data-categorization-reviews]'), categorizationReviewsResult.reason);
   }
+  if (categorySuggestionsResult.status === 'fulfilled') {
+    renderCategorySuggestions(categorizationHost, categorySuggestionsResult.value?.data, canWrite);
+  } else {
+    renderError(categorizationHost.querySelector('[data-categorization-suggestions]'), categorySuggestionsResult.reason);
+  }
 }
 
 function renderCategorizationReviews(host, reviews) {
@@ -528,6 +544,38 @@ function renderCategorizationReviews(host, reviews) {
   reviewsHost.insertAdjacentHTML('beforeend', `<ul class="banking-transaction-list">${rows}</ul>`);
 }
 
+function renderCategorySuggestions(host, suggestions, canWrite) {
+  const suggestionsHost = host.querySelector('[data-categorization-suggestions]');
+  suggestionsHost.replaceChildren();
+  suggestionsHost.insertAdjacentHTML('beforeend', `<h4>${esc(localized('categorizationSuggestionsTitle', 'Suggested categories'))}</h4>`);
+  if (!Array.isArray(suggestions) || suggestions.length === 0) {
+    suggestionsHost.insertAdjacentHTML('beforeend', `<p class="banking-muted">${esc(localized('categorizationNoSuggestions', 'No category suggestions are pending.'))}</p>`);
+    return;
+  }
+  const rows = suggestions.map((suggestion) => {
+    const id = String(suggestion?.id ?? '');
+    const name = typeof suggestion?.suggested_name === 'string' ? suggestion.suggested_name : '';
+    const type = typeof suggestion?.suggested_type === 'string' ? suggestion.suggested_type : '';
+    const samples = Number.isSafeInteger(Number(suggestion?.sample_count))
+      ? Number(suggestion.sample_count)
+      : 0;
+    const reason = typeof suggestion?.reason === 'string' ? suggestion.reason : '';
+    const details = [type, localized('categorizationSamples', '{count} samples', { count: samples }), reason]
+      .filter(Boolean)
+      .join(' · ');
+    const actions = canWrite && /^\d+$/.test(id) ? `
+      <span class="banking-categorization__actions">
+        <button class="btn btn--secondary" type="button" data-action="accept-category-suggestion" data-categorization-suggestion-id="${esc(id)}">${esc(localized('categorizationAcceptSuggestion', 'Accept category'))}</button>
+        <button class="btn btn--secondary" type="button" data-action="dismiss-category-suggestion" data-categorization-suggestion-id="${esc(id)}">${esc(localized('categorizationDismissSuggestion', 'Dismiss'))}</button>
+      </span>` : '';
+    return `<li>
+      <span><strong>${esc(name || localized('categorizationNoMatch', 'No allowed category suggested'))}</strong><small>${esc(details)}</small></span>
+      ${actions}
+    </li>`;
+  }).join('');
+  suggestionsHost.insertAdjacentHTML('beforeend', `<ul class="banking-transaction-list">${rows}</ul>`);
+}
+
 async function refreshCategorizationReviews(container, signal) {
   const host = container.querySelector('[data-banking-categorization]');
   if (!host) return;
@@ -538,6 +586,36 @@ async function refreshCategorizationReviews(container, signal) {
     if (!signal.aborted) {
       renderError(host.querySelector('[data-categorization-reviews]'), error);
     }
+  }
+}
+
+async function decideCategorySuggestion({ container, host, button, action, signal }) {
+  const suggestionId = button.dataset.categorizationSuggestionId;
+  if (!/^\d+$/.test(suggestionId || '')) return;
+  const feedback = host.querySelector('[data-categorization-feedback]');
+  button.disabled = true;
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson(`category-suggestions/${encodeURIComponent(suggestionId)}/${action === 'accept-category-suggestion' ? 'accept' : 'dismiss'}`, {
+      method: 'POST',
+      headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body: {},
+      signal
+    });
+    if (signal.aborted) return;
+    await loadOverview(container, signal, true);
+    const refreshedFeedback = container.querySelector('[data-categorization-feedback]');
+    if (refreshedFeedback) {
+      refreshedFeedback.textContent = action === 'accept-category-suggestion'
+        ? localized('categorizationSuggestionAccepted', 'Category accepted.')
+        : localized('categorizationSuggestionDismissed', 'Category suggestion dismissed.');
+    }
+  } catch (error) {
+    if (!signal.aborted && feedback) feedback.textContent = error instanceof Error
+      ? error.message
+      : localized('categorizationSuggestionFailed', 'Category suggestion could not be updated.');
+  } finally {
+    if (!signal.aborted) button.disabled = false;
   }
 }
 

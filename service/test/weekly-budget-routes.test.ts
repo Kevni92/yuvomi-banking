@@ -768,3 +768,62 @@ test('runs the categorization batch only through a protected write endpoint', as
     config.secrets.dataEncryptionKey = previousKey;
   }
 });
+
+test('only the owner can accept or dismiss a protected category suggestion', async () => {
+  const database = createFixture();
+  database.prepare(`
+    INSERT INTO category_suggestions (
+      yuvomi_user_id, suggested_name, suggested_type, reason, sample_count, status, created_at
+    ) VALUES
+      (7, 'Abonnements', 'expense', 'Recurring charge', 2, 'pending', ?),
+      (7, 'Krypto', 'expense', 'Digital asset', 1, 'pending', ?),
+      (99, 'Private other user category', 'expense', 'Other user', 1, 'pending', ?)
+  `).run(NOW.toISOString(), NOW.toISOString(), NOW.toISOString());
+  const { server, origin } = await listen(createApp({
+    database,
+    resolveSession: async () => writeUser(),
+    clock: () => NOW
+  }));
+  try {
+    const listed = await fetch(`${origin}/api/extensions/banking/category-suggestions`, {
+      headers: { cookie: 'yuvomi.sid=test' }
+    });
+    assert.equal(listed.status, 200);
+    assert.deepEqual((await listed.json()).data.map((row: { id: number }) => row.id), [1, 2]);
+
+    const csrfDenied = await fetch(
+      `${origin}/api/extensions/banking/category-suggestions/1/accept`,
+      { method: 'POST', headers: { 'content-type': 'application/json', cookie: 'yuvomi.sid=test' }, body: '{}' }
+    );
+    assert.equal(csrfDenied.status, 403);
+
+    const accepted = await fetch(
+      `${origin}/api/extensions/banking/category-suggestions/1/accept`,
+      { method: 'POST', headers: mutationHeaders(), body: '{}' }
+    );
+    assert.equal(accepted.status, 200);
+    assert.deepEqual((await accepted.json()).data, {
+      id: 1,
+      status: 'accepted',
+      category: { id: 1, name: 'Abonnements', type: 'expense', created: true }
+    });
+    assert.equal(database.prepare('SELECT status FROM category_suggestions WHERE id = 1').get()?.status, 'accepted');
+
+    const otherUser = await fetch(
+      `${origin}/api/extensions/banking/category-suggestions/3/accept`,
+      { method: 'POST', headers: mutationHeaders(), body: '{}' }
+    );
+    assert.equal(otherUser.status, 404);
+
+    const dismissed = await fetch(
+      `${origin}/api/extensions/banking/category-suggestions/2/dismiss`,
+      { method: 'POST', headers: mutationHeaders(), body: '{}' }
+    );
+    assert.equal(dismissed.status, 200);
+    assert.deepEqual((await dismissed.json()).data, { id: 2, status: 'rejected' });
+    assert.equal(database.prepare('SELECT status FROM category_suggestions WHERE id = 2').get()?.status, 'rejected');
+  } finally {
+    await close(server);
+    database.close();
+  }
+});

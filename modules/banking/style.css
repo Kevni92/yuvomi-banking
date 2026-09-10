@@ -339,6 +339,17 @@
   margin: 0;
 }
 
+.banking-categorization h4 {
+  margin: var(--space-4, 1rem) 0 0;
+}
+
+.banking-categorization__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 0.5rem);
+  justify-content: flex-end;
+}
+
 .banking-weekly-category-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

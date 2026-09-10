@@ -119,8 +119,9 @@ test('categorizes only the allowlist and leaves low-confidence results for revie
       ]
     );
     assert.deepEqual({ ...(database.prepare(`
-      SELECT suggested_name, suggested_type, status FROM category_suggestions
+      SELECT yuvomi_user_id, suggested_name, suggested_type, status FROM category_suggestions
     `).get() as Record<string, unknown>) }, {
+      yuvomi_user_id: 7,
       suggested_name: 'Abonnements',
       suggested_type: 'expense',
       status: 'pending'

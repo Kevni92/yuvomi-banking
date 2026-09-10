@@ -16,7 +16,7 @@ import {
 
 test('weekly-budget migrations add settings, overrides, history, and revisions', () => {
   const database = new DatabaseSync(':memory:');
-  assert.deepEqual(migrateDatabase(database), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  assert.deepEqual(migrateDatabase(database), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
   const categoryColumns = database.prepare('PRAGMA table_info(categories)').all() as Array<{
     name: string;
@@ -26,6 +26,10 @@ test('weekly-budget migrations add settings, overrides, history, and revisions',
     categoryColumns.find((column) => column.name === 'weekly_budget_default')?.dflt_value,
     '0'
   );
+  const categorySuggestionColumns = new Set((database.prepare(
+    'PRAGMA table_info(category_suggestions)'
+  ).all() as Array<{ name: string }>).map((row) => row.name));
+  assert.ok(categorySuggestionColumns.has('yuvomi_user_id'));
   const transactionColumns = database.prepare('PRAGMA table_info(transactions)').all() as Array<{
     name: string;
     dflt_value: string | null;
@@ -123,7 +127,7 @@ test('weekly-budget migrations preserve legacy transfer suggestions', () => {
               'legacy-like', 'proposed', '2026-09-14', '2026-09-14')
   `).run();
 
-  assert.deepEqual(migrateDatabase(database), [7, 8, 9, 10, 11]);
+  assert.deepEqual(migrateDatabase(database), [7, 8, 9, 10, 11, 12]);
   const preservedSuggestion = database.prepare(`
     SELECT source_account_id, target_account_id, period_id, calculation_version
     FROM transfer_suggestions

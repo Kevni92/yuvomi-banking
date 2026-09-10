@@ -14,6 +14,7 @@ import {
   parseMaximumConsentValidity
 } from '../enable-banking/consent.js';
 import { importTransactions } from '../enable-banking/importer.js';
+import { persistAccountBalanceSnapshots } from '../enable-banking/balances.js';
 import { createEncryptionService } from '../security/encryption.js';
 import { maskIban, normalizeIban } from '../services/counterparty.js';
 import type { YuvomiUser } from '../auth/yuvomi-session.js';
@@ -255,8 +256,28 @@ export function createEnableBankingRouter({
     }
     try {
       const balances = await client.getAccountBalances(account.provider_account_id);
+      const persisted = persistAccountBalanceSnapshots({
+        database,
+        accountId: account.id,
+        balances: balances.balances,
+        expectedCurrency: account.currency
+      });
       noStore(response);
-      response.json({ data: balances.balances });
+      response.json({
+        data: balances.balances,
+        meta: {
+          fetched_at: persisted.snapshots[0]?.fetchedAt ?? null,
+          usable_balance: persisted.usableBalance
+            ? {
+                snapshot_id: persisted.usableBalance.id,
+                amount_cents: persisted.usableBalance.amountCents,
+                currency: persisted.usableBalance.currency,
+                balance_type: persisted.usableBalance.providerBalanceType,
+                observed_at: persisted.usableBalance.observedAt
+              }
+            : null
+        }
+      });
     } catch {
       safeProviderError(response);
     }
@@ -374,15 +395,20 @@ function ownedAccount(
   database: DatabaseSync,
   accountId: string,
   userId: number
-): { id: number; provider_account_id: string } | undefined {
+): { id: number; provider_account_id: string; currency: string | null } | undefined {
   if (!/^\d+$/.test(accountId)) return undefined;
   return database.prepare(`
-    SELECT bank_accounts.id, bank_accounts.provider_account_id
+    SELECT bank_accounts.id, bank_accounts.provider_account_id,
+           bank_accounts.currency
     FROM bank_accounts
     JOIN enable_banking_connections
       ON enable_banking_connections.id = bank_accounts.connection_id
     WHERE bank_accounts.id = ? AND enable_banking_connections.yuvomi_user_id = ?
-  `).get(Number(accountId), userId) as { id: number; provider_account_id: string } | undefined;
+  `).get(Number(accountId), userId) as {
+    id: number;
+    provider_account_id: string;
+    currency: string | null;
+  } | undefined;
 }
 
 function listPublicTransactions(database: DatabaseSync, accountId: number): Array<Record<string, unknown>> {

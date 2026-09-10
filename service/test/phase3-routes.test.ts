@@ -638,3 +638,66 @@ test('returns imported transactions without exposing raw banking payloads', asyn
     database.close();
   }
 });
+
+test('normalizes and stores balances while keeping the existing balance response shape', async () => {
+  const database = new DatabaseSync(':memory:');
+  migrateDatabase(database);
+  database.prepare(`
+    INSERT INTO enable_banking_connections (
+      yuvomi_user_id, status, created_at, updated_at
+    ) VALUES (7, 'authorized', '2026-09-10', '2026-09-10')
+  `).run();
+  database.prepare(`
+    INSERT INTO bank_accounts (
+      connection_id, provider_account_id, display_name, currency,
+      created_at, updated_at
+    ) VALUES (1, 'n26-provider-account', 'N26', 'EUR', '2026-09-10', '2026-09-10')
+  `).run();
+  const providerBalances = [{
+    balance_amount: { amount: '100.00', currency: 'EUR' },
+    balance_type: 'ITAV',
+    last_change_date_time: '2026-09-10T12:00:00Z'
+  }, {
+    balance_amount: { amount: '105.00', currency: 'EUR' },
+    balance_type: 'CLBD',
+    reference_date: '2026-09-09'
+  }];
+  const client = {
+    getAccountBalances: async (accountId: string) => {
+      assert.equal(accountId, 'n26-provider-account');
+      return { balances: providerBalances };
+    }
+  } as unknown as EnableBankingClient;
+  const { server, origin } = await listen(createApp({
+    database,
+    enableBankingClient: client,
+    resolveSession: async () => readOnlyUser()
+  }));
+
+  try {
+    const response = await fetch(`${origin}/api/extensions/banking/accounts/1/balances`, {
+      headers: { cookie: 'yuvomi.sid=read-only' }
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const body = await response.json();
+    assert.deepEqual(body.data, providerBalances);
+    assert.deepEqual(body.meta.usable_balance, {
+      snapshot_id: 1,
+      amount_cents: 10000,
+      currency: 'EUR',
+      balance_type: 'ITAV',
+      observed_at: '2026-09-10T12:00:00.000Z'
+    });
+    assert.equal(database.prepare(
+      'SELECT count(*) AS count FROM account_balance_snapshots'
+    ).get()?.count, 2);
+    assert.equal(database.prepare(`
+      SELECT amount_cents FROM account_balance_snapshots
+      WHERE usable_for_weekly_budget = 1
+    `).get()?.amount_cents, 10000);
+  } finally {
+    await close(server);
+    database.close();
+  }
+});

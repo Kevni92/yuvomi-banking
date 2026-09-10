@@ -142,3 +142,92 @@ test('correlates the callback with state and encrypts returned account data', as
     database.close();
   }
 });
+
+test('returns imported transactions without exposing raw banking payloads', async () => {
+  const database = new DatabaseSync(':memory:');
+  migrateDatabase(database);
+  const previousKey = config.secrets.dataEncryptionKey;
+  const previousHmac = config.secrets.counterpartyHmac;
+  config.secrets.dataEncryptionKey = TEST_KEY;
+  config.secrets.counterpartyHmac = 'transaction-route-test-secret';
+  database.prepare(`
+    INSERT INTO enable_banking_connections (
+      yuvomi_user_id, status, created_at, updated_at
+    ) VALUES (?, 'authorized', ?, ?)
+  `).run(7, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+  const connectionId = Number(database.prepare(
+    'SELECT id FROM enable_banking_connections'
+  ).get()?.id);
+  database.prepare(`
+    INSERT INTO bank_accounts (
+      connection_id, provider_account_id, display_name, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)
+  `).run(connectionId, 'provider-account-1', 'Checking', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+
+  let providerCalls = 0;
+  const client = {
+    getAllAccountTransactions: async (accountId: string) => {
+      providerCalls += 1;
+      assert.equal(accountId, 'provider-account-1');
+      return {
+        pages: 1,
+        transactions: [{
+          entry_reference: 'route-transaction-1',
+          transaction_amount: { amount: '42.50', currency: 'EUR' },
+          credit_debit_indicator: 'DBIT',
+          booking_date: '2026-01-02',
+          creditor: { name: 'Safe Merchant' },
+          creditor_account: { iban: 'DE89370400440532013000' },
+          remittance_information: ['Order 123']
+        }]
+      };
+    }
+  } as unknown as EnableBankingClient;
+  const { server, origin } = await listen(createApp({
+    database,
+    enableBankingClient: client,
+    resolveSession: async () => user()
+  }));
+
+  try {
+    const denied = await fetch(`${origin}/api/extensions/banking/accounts/1/sync`, {
+      method: 'POST',
+      headers: { origin: config.publicOrigin, cookie: 'yuvomi.sid=test' }
+    });
+    assert.equal(denied.status, 403);
+    assert.equal(providerCalls, 0);
+
+    const response = await fetch(`${origin}/api/extensions/banking/accounts/1/sync`, {
+      method: 'POST',
+      headers: {
+        origin: config.publicOrigin,
+        cookie: 'yuvomi.sid=test; banking.csrf=csrf-token',
+        'x-banking-csrf': 'csrf-token'
+      }
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body.data.imported, { inserted: 1, updated: 0 });
+    assert.equal(body.data.transactions.length, 1);
+    assert.deepEqual(body.data.transactions[0], {
+      id: 1,
+      booking_date: '2026-01-02',
+      value_date: null,
+      amount: 42.5,
+      currency: 'EUR',
+      direction: 'outgoing',
+      counterparty_name: 'Safe Merchant',
+      purpose: 'Order 123',
+      merchant_name: null,
+      category_id: null,
+      category_source: null,
+      category_confidence: null
+    });
+    assert.doesNotMatch(JSON.stringify(body), /DE89370400440532013000|raw_payload_encrypted/);
+  } finally {
+    config.secrets.dataEncryptionKey = previousKey;
+    config.secrets.counterpartyHmac = previousHmac;
+    await close(server);
+    database.close();
+  }
+});

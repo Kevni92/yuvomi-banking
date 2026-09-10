@@ -1,7 +1,6 @@
 -- Yuvomi Banking - Initial schema
 --
--- Noch NICHT automatisch ausgeführt.
--- Codex soll in Phase 2 Migration Runner + konkrete SQLite-Schicht implementieren.
+-- Wird vom append-only Migration Runner automatisch ausgeführt.
 
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version INTEGER PRIMARY KEY,

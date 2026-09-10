@@ -78,7 +78,7 @@ yuvomi-banking/
 4. `docs/LOCAL_DEVELOPMENT.md` lesen.
 5. Danach den ersten Prompt aus `docs/CODEX_PROMPTS.md` an Codex geben.
 
-Das enthaltene Sidecar ist bewusst nur eine minimale technische Basis. Enable Banking, OpenAI, Datenmigrationen und die eigentliche Banking-UI werden phasenweise ergänzt.
+Das Sidecar enthält die technische Basis, die Sicherheitsdienste und den Enable-Banking-Adapter. Die echte Sandbox-Verbindung und weitere Banking-Funktionen werden phasenweise ergänzt.
 
 ## Phase 1 lokal starten
 

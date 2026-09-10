@@ -12,6 +12,17 @@ Geheim:
 
 - RSA Private Key
 
+## Aktueller Implementierungsstand
+
+Der Sidecar enthält bereits JWT-Signierung, ASPSP-Abfrage, Consent-Start,
+Callback, Session-Verarbeitung, Konten-, Salden- und Umsatzabruf sowie
+idempotenten Import. Diese Pfade sind mit Mock-Provider-Tests abgesichert.
+
+Für den echten Sandbox-Flow fehlen noch die Enable-Banking-Application-ID,
+der serverseitige Private Key und ein End-to-End-Test mit einer Sandbox-Bank.
+Ohne diese Werte bleiben Health, Yuvomi-Session und die lokale UI erreichbar;
+Provider-Aufrufe werden kontrolliert als nicht verfügbar gemeldet.
+
 ## Geplanter Ablauf
 
 1. Banken/ASPSPs laden

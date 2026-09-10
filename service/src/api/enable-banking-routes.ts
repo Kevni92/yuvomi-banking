@@ -273,6 +273,18 @@ export function createEnableBankingRouter({
       response.status(404).json({ error: 'Bank account not found.' });
       return;
     }
+    noStore(response);
+    response.json({ data: { transactions: listPublicTransactions(database, account.id) } });
+  });
+
+  router.post('/accounts/:accountId/sync', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'write');
+    if (!user || !mutationIsAllowed(request, response)) return;
+    const account = ownedAccount(database, request.params.accountId, user.id);
+    if (!account) {
+      response.status(404).json({ error: 'Bank account not found.' });
+      return;
+    }
     try {
       const result = await client.getAllAccountTransactions(account.provider_account_id, {
         dateFrom: queryString(request.query.date_from),
@@ -291,7 +303,13 @@ export function createEnableBankingRouter({
         'UPDATE bank_accounts SET last_synced_at = ?, updated_at = ? WHERE id = ?'
       ).run(new Date().toISOString(), new Date().toISOString(), account.id);
       noStore(response);
-      response.json({ data: { pages: result.pages, imported: importResult } });
+      response.json({
+        data: {
+          pages: result.pages,
+          imported: importResult,
+          transactions: listPublicTransactions(database, account.id)
+        }
+      });
     } catch {
       safeProviderError(response);
     }
@@ -368,6 +386,18 @@ function ownedAccount(
       ON enable_banking_connections.id = bank_accounts.connection_id
     WHERE bank_accounts.id = ? AND enable_banking_connections.yuvomi_user_id = ?
   `).get(Number(accountId), userId) as { id: number; provider_account_id: string } | undefined;
+}
+
+function listPublicTransactions(database: DatabaseSync, accountId: number): Array<Record<string, unknown>> {
+  return database.prepare(`
+    SELECT id, booking_date, value_date, amount, currency, direction,
+           counterparty_name, purpose, merchant_name, category_id,
+           category_source, category_confidence
+    FROM transactions
+    WHERE account_id = ?
+    ORDER BY COALESCE(booking_date, value_date) DESC, id DESC
+    LIMIT 100
+  `).all(accountId) as Array<Record<string, unknown>>;
 }
 
 function maskedStoredIban(value: unknown): string | null {

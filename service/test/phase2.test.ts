@@ -26,13 +26,13 @@ test('opens only the Banking database and applies migrations idempotently', () =
 
   try {
     const inMemory = new DatabaseSync(':memory:');
-    assert.deepEqual(migrateDatabase(inMemory), [1, 2, 3, 4, 5]);
+    assert.deepEqual(migrateDatabase(inMemory), [1, 2, 3, 4, 5, 6]);
     assert.deepEqual(migrateDatabase(inMemory), []);
     assert.equal(inMemory.prepare('PRAGMA foreign_keys').get()?.foreign_keys, 1);
     const appliedVersions = inMemory
       .prepare('SELECT version FROM schema_migrations ORDER BY version')
       .all() as Array<{ version: number }>;
-    assert.deepEqual(appliedVersions.map((row) => Number(row.version)), [1, 2, 3, 4, 5]);
+    assert.deepEqual(appliedVersions.map((row) => Number(row.version)), [1, 2, 3, 4, 5, 6]);
     assert.equal(
       inMemory.prepare(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transactions'"
@@ -135,6 +135,52 @@ test('migrates legacy REAL money columns and keeps relational data intact', () =
   assert.equal(transfer.computed_amount_cents, 325);
   assert.equal(transfer.deducted_amount_cents, 50);
   assert.deepEqual(database.prepare('PRAGMA foreign_key_check').all(), []);
+  database.close();
+});
+
+test('applies the phase-6 migration to an existing phase-5 database', () => {
+  const database = new DatabaseSync(':memory:');
+  database.exec('PRAGMA foreign_keys = ON;');
+  for (const [version, filename] of [
+    [1, '001_init.sql'],
+    [2, '002_phase2_indexes.sql'],
+    [3, '003_enable_banking_flow.sql'],
+    [4, '004_account_identity_and_consent_state.sql'],
+    [5, '005_integer_money_and_transaction_keys.sql']
+  ] as const) {
+    database.exec(readFileSync(join(process.cwd(), 'migrations', filename), 'utf8'));
+    database.prepare(
+      'INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)'
+    ).run(version, '2026-01-01T00:00:00.000Z');
+  }
+  database.prepare(`
+    INSERT INTO enable_banking_connections (yuvomi_user_id, status, created_at, updated_at)
+    VALUES (?, 'authorized', ?, ?)
+  `).run(1, '2026-01-01', '2026-01-01');
+  const connectionId = Number(database.prepare(
+    'SELECT id FROM enable_banking_connections'
+  ).get()?.id);
+  database.prepare(`
+    INSERT INTO bank_accounts (connection_id, provider_account_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?)
+  `).run(connectionId, 'phase5-account', '2026-01-01', '2026-01-01');
+  const accountId = Number(database.prepare('SELECT id FROM bank_accounts').get()?.id);
+  database.prepare(`
+    INSERT INTO transactions (
+      account_id, provider_transaction_id, amount_cents, currency, direction,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(accountId, 'phase5-transaction', 100, 'EUR', 'outgoing', '2026-01-01', '2026-01-01');
+
+  assert.deepEqual(migrateDatabase(database), [6]);
+  const transaction = database.prepare(
+    'SELECT status, transaction_date FROM transactions'
+  ).get() as { status: string; transaction_date: string | null };
+  assert.equal(transaction.status, 'UNKNOWN');
+  assert.equal(transaction.transaction_date, null);
+  assert.equal(database.prepare(
+    'SELECT aspsp_maximum_consent_validity FROM enable_banking_connections'
+  ).get()?.aspsp_maximum_consent_validity, null);
   database.close();
 });
 

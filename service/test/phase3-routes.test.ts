@@ -9,6 +9,16 @@ import { config } from '../src/config.js';
 
 const TEST_KEY = 'ef'.repeat(32);
 
+function mockAspsps(maximumConsentValidity = 180 * 24 * 60 * 60) {
+  return async () => ({
+    aspsps: [{
+      name: 'Mock Bank',
+      country: 'DE',
+      maximum_consent_validity: maximumConsentValidity
+    }]
+  });
+}
+
 async function listen(app: ReturnType<typeof createApp>): Promise<{ server: Server; origin: string }> {
   const server = createServer(app);
   await new Promise<void>((resolve, reject) => {
@@ -49,6 +59,7 @@ test('protects the authorization start route with Origin and double-submit CSRF'
   migrateDatabase(database);
   let called = false;
   const client = {
+    getAspsps: mockAspsps(),
     startAuthorization: async () => {
       called = true;
       return { url: 'https://auth.enablebanking.com/ais/start?sessionid=test', authorization_id: 'authorization-1' };
@@ -95,6 +106,7 @@ test('correlates the callback with state and encrypts returned account data', as
   config.secrets.dataEncryptionKey = TEST_KEY;
   let startRequest: StartAuthorizationRequest | undefined;
   const client = {
+    getAspsps: mockAspsps(),
     startAuthorization: async (request: StartAuthorizationRequest) => {
       startRequest = request;
       return {
@@ -135,10 +147,24 @@ test('correlates the callback with state and encrypts returned account data', as
         cookie: 'yuvomi.sid=test; banking.csrf=csrf-token',
         'x-banking-csrf': 'csrf-token'
       },
-      body: JSON.stringify({ country: 'DE', name: 'Mock Bank' })
+      body: JSON.stringify({
+        country: 'DE',
+        name: 'Mock Bank',
+        maximum_consent_validity: 1,
+        valid_until: '2999-12-31T00:00:00.000Z'
+      })
     });
     assert.equal(start.status, 201);
     assert.ok(startRequest?.state);
+    const requestedValidUntil = Date.parse(startRequest!.access.valid_until);
+    assert.ok(requestedValidUntil >= Date.now() + 89 * 24 * 60 * 60 * 1_000);
+    assert.ok(requestedValidUntil <= Date.now() + 90 * 24 * 60 * 60 * 1_000 + 1_000);
+    assert.equal(
+      database.prepare(
+        'SELECT aspsp_maximum_consent_validity FROM enable_banking_connections'
+      ).get()?.aspsp_maximum_consent_validity,
+      180 * 24 * 60 * 60
+    );
 
     const callback = await fetch(
       `${origin}/api/extensions/banking/enablebanking/callback?code=one-time-code&state=${encodeURIComponent(startRequest!.state)}`,
@@ -147,6 +173,10 @@ test('correlates the callback with state and encrypts returned account data', as
     assert.equal(callback.status, 303);
     assert.match(callback.headers.get('location') ?? '', /banking=connected/);
     assert.equal(database.prepare("SELECT status FROM enable_banking_connections").get()?.status, 'authorized');
+    assert.equal(
+      database.prepare('SELECT valid_until FROM enable_banking_connections').get()?.valid_until,
+      startRequest!.access.valid_until
+    );
     const stored = database.prepare('SELECT iban_encrypted FROM bank_accounts').get() as { iban_encrypted: string };
     assert.ok(stored.iban_encrypted);
     assert.ok(!stored.iban_encrypted.includes('DE89370400440532013000'));
@@ -184,6 +214,7 @@ test('rejects unknown and expired authorization states', async () => {
   const database = new DatabaseSync(':memory:');
   migrateDatabase(database);
   const client = {
+    getAspsps: mockAspsps(),
     startAuthorization: async (request: StartAuthorizationRequest) => ({
       url: 'https://auth.enablebanking.com/ais/start?sessionid=test',
       authorization_id: request.state
@@ -207,6 +238,7 @@ test('rejects unknown and expired authorization states', async () => {
 
     let state = '';
     const startClient = {
+      getAspsps: mockAspsps(),
       startAuthorization: async (request: StartAuthorizationRequest) => {
         state = request.state;
         return { url: 'https://auth.enablebanking.com/ais/start?sessionid=test', authorization_id: 'authorization-1' };
@@ -345,6 +377,7 @@ test('re-consent matches the existing account by identification_hash for the sam
     }
   ];
   const client = {
+    getAspsps: mockAspsps(),
     startAuthorization: async (request: StartAuthorizationRequest) => {
       states.push(request.state);
       return {
@@ -448,6 +481,7 @@ test('best-effort closes a provider session when local persistence fails', async
   let state = '';
   let deleteCalls = 0;
   const client = {
+    getAspsps: mockAspsps(),
     startAuthorization: async (request: StartAuthorizationRequest) => {
       state = request.state;
       return {
@@ -584,12 +618,14 @@ test('returns imported transactions without exposing raw banking payloads', asyn
       id: 1,
       booking_date: '2026-01-02',
       value_date: null,
+      transaction_date: null,
       amount: '42.50',
       currency: 'EUR',
       direction: 'outgoing',
       counterparty_name: 'Safe Merchant',
       purpose: 'Order 123',
       merchant_name: null,
+      status: 'UNKNOWN',
       category_id: null,
       category_source: null,
       category_confidence: null

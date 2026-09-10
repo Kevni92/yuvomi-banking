@@ -13,6 +13,7 @@ Bezug zu:
 - Yuvomi Benutzer
 - Bank/ASPSP
 - Ablaufdatum
+- beim Bankauswahl-Flow gelieferte `aspsp_maximum_consent_validity` in Sekunden
 
 ### Bank Account
 
@@ -47,6 +48,16 @@ Die normalisierten Felder sind die Arbeitsgrundlage der UI und Kategorisierung.
 `provider_transaction_id` enthaelt den lokalen Deduplizierungsschluessel
 (`entry_reference` oder stabiler Fingerprint); der veraenderliche Providerwert
 `transaction_id` wird separat fuer Detailabrufe gespeichert.
+Der Feldname ist historisch und bedeutet nicht "Enable Banking transaction_id":
+`transaction_id` darf niemals als lokale Primary Identity verwendet werden.
+`entry_reference` wird bei Bekanntwerden zum bevorzugten lokalen Schlüssel.
+`transaction_date` unterstützt die zeitliche Pending/Booked-Reconciliation.
+`status` enthält mindestens `PDNG` und `BOOK`; unbekannte Providerwerte werden
+robust als `UNKNOWN` gespeichert.
+
+Pending/Booked-Datensätze werden nur bei einem eindeutigen Match über Account,
+Betrag, Währung, Richtung, Gegenpartei, normalisierten Verwendungszweck,
+optionalen MCC und ein plausibles Buchungsfenster zusammengeführt.
 
 ### Category
 

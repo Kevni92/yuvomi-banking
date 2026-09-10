@@ -193,6 +193,7 @@ function configureConnectionForm(container, permission, signal) {
   const connectButton = container.querySelector('[data-action="connect-bank"]');
   const feedback = container.querySelector('[data-banking-connect-feedback]');
   const reloadButton = container.querySelector('[data-action="reload-connections"]');
+  const aspspsByName = new Map();
 
   if (permission !== 'write') {
     const message = permission === 'read'
@@ -203,12 +204,12 @@ function configureConnectionForm(container, permission, signal) {
   }
 
   loadButton.addEventListener('click', () => {
-    void loadBanks({ country, bank, connectButton, loadButton, feedback, signal });
+    void loadBanks({ country, bank, connectButton, loadButton, feedback, aspspsByName, signal });
   }, { signal });
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
-    void startConnection({ country, bank, connectButton, loadButton, feedback, signal });
+    void startConnection({ country, bank, connectButton, loadButton, feedback, aspspsByName, signal });
   }, { signal });
 
   reloadButton.addEventListener('click', () => {
@@ -217,6 +218,7 @@ function configureConnectionForm(container, permission, signal) {
 
   country.addEventListener('change', () => {
     bank.replaceChildren(createOption('', localized('loadBanksFirst', 'Load banks first')));
+    aspspsByName.clear();
     bank.disabled = true;
     connectButton.disabled = true;
   }, { signal });
@@ -233,7 +235,7 @@ function configureConnectionForm(container, permission, signal) {
   }, { signal });
 }
 
-async function loadBanks({ country, bank, connectButton, loadButton, feedback, signal }) {
+async function loadBanks({ country, bank, connectButton, loadButton, feedback, aspspsByName, signal }) {
   loadButton.disabled = true;
   connectButton.disabled = true;
   feedback.textContent = localized('loadingBanks', 'Loading banks ...');
@@ -241,9 +243,13 @@ async function loadBanks({ country, bank, connectButton, loadButton, feedback, s
     const payload = await loadJson(`aspsps?country=${encodeURIComponent(country.value)}`, { signal });
     const aspsps = Array.isArray(payload?.data) ? payload.data : [];
     const unique = new Map();
+    aspspsByName.clear();
     for (const aspsp of aspsps) {
       const name = typeof aspsp?.name === 'string' ? aspsp.name.trim() : '';
-      if (name && !unique.has(name)) unique.set(name, aspsp);
+      if (name && !unique.has(name)) {
+        unique.set(name, aspsp);
+        aspspsByName.set(name, aspsp);
+      }
     }
 
     bank.replaceChildren();
@@ -269,8 +275,8 @@ async function loadBanks({ country, bank, connectButton, loadButton, feedback, s
   }
 }
 
-async function startConnection({ country, bank, connectButton, loadButton, feedback, signal }) {
-  if (!bank.value) return;
+async function startConnection({ country, bank, connectButton, loadButton, feedback, aspspsByName, signal }) {
+  if (!bank.value || !aspspsByName.has(bank.value)) return;
   connectButton.disabled = true;
   loadButton.disabled = true;
   feedback.textContent = localized('startingConnection', 'Starting bank connection ...');
@@ -510,11 +516,17 @@ function renderTransactions(host, transactions) {
     const currency = transaction?.currency;
     const title = transaction?.merchant_name || transaction?.counterparty_name || transaction?.purpose || localized('unknownTransaction', 'Transaction');
     const subtitle = transaction?.purpose && transaction.purpose !== title ? transaction.purpose : '';
+    const statusText = {
+      PDNG: localized('transactionPending', 'Pending'),
+      BOOK: localized('transactionBooked', 'Booked'),
+      UNKNOWN: localized('transactionStatusUnknown', 'Status unknown')
+    }[transaction?.status] || localized('transactionStatusUnknown', 'Status unknown');
+    const transactionDate = transaction?.booking_date || transaction?.value_date || transaction?.transaction_date;
     return `
       <li class="banking-transaction-row">
         <div>
           <strong>${esc(String(title))}</strong>
-          <span>${esc(formatDate(transaction?.booking_date || transaction?.value_date) || '')}${subtitle ? ` · ${esc(String(subtitle))}` : ''}</span>
+          <span>${esc(formatDate(transactionDate) || '')}${subtitle ? ` · ${esc(String(subtitle))}` : ''} · ${esc(statusText)}</span>
         </div>
         <strong class="banking-transaction-row__amount" data-direction="${esc(direction)}">${esc(formatMoney(signedAmount, currency))}</strong>
       </li>

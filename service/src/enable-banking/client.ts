@@ -11,6 +11,7 @@ export type EnableBankingFetch = (
 export interface Aspsp {
   name: string;
   country: string;
+  maximum_consent_validity?: unknown;
   [key: string]: unknown;
 }
 
@@ -181,10 +182,10 @@ export class EnableBankingClient {
     );
     if (!filters.name?.trim()) return result;
 
-    const name = filters.name.trim().toLocaleLowerCase();
+    const name = normalizeLookupValue(filters.name);
     return {
       aspsps: result.aspsps.filter((aspsp) =>
-        aspsp.name.toLocaleLowerCase().includes(name)
+        normalizeLookupValue(aspsp.name).includes(name)
       )
     };
   }
@@ -306,4 +307,8 @@ function encodePathId(value: string): string {
     throw new Error('Enable Banking resource ID is invalid.');
   }
   return encodeURIComponent(value);
+}
+
+function normalizeLookupValue(value: string): string {
+  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 }

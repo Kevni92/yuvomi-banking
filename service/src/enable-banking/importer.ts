@@ -3,9 +3,12 @@ import type { DatabaseSync } from 'node:sqlite';
 import { counterpartyId, normalizeIban } from '../services/counterparty.js';
 import type { EncryptionService } from '../security/encryption.js';
 
+export type TransactionStatus = 'PDNG' | 'BOOK' | 'UNKNOWN';
+
 export interface ProviderTransaction {
   entry_reference?: unknown;
   transaction_id?: unknown;
+  status?: unknown;
   merchant_category_code?: unknown;
   transaction_amount?: {
     amount?: unknown;
@@ -57,9 +60,30 @@ export function importTransactions({
   }
 
   const result: ImportTransactionsResult = { inserted: 0, updated: 0 };
-  const findExisting = database.prepare(
-    'SELECT id FROM transactions WHERE account_id = ? AND provider_transaction_id = ?'
+  const findByEntryReference = database.prepare(
+    'SELECT id FROM transactions WHERE account_id = ? AND entry_reference = ? LIMIT 1'
   );
+  const findByStableFingerprint = database.prepare(
+    `SELECT id FROM transactions
+     WHERE account_id = ? AND provider_transaction_id = ?
+       AND (? IS NULL OR entry_reference IS NULL OR entry_reference = ?)
+     LIMIT 1`
+  );
+  const findReconciliationCandidates = database.prepare(`
+    SELECT transactions.id, transactions.provider_transaction_id,
+           transactions.status, transactions.entry_reference, transactions.transaction_id,
+           transactions.booking_date, transactions.value_date, transactions.transaction_date,
+           transactions.amount_cents, transactions.currency, transactions.direction,
+           transactions.counterparty_name, transactions.purpose, transactions.mcc,
+           counterparties.counterparty_id
+    FROM transactions
+    LEFT JOIN counterparties ON counterparties.id = transactions.counterparty_ref
+    WHERE transactions.account_id = ?
+      AND (
+        transactions.status = 'PDNG'
+        OR transactions.provider_transaction_id LIKE 'fallback-%'
+      )
+  `);
   const findCounterparty = database.prepare(
     'SELECT id FROM counterparties WHERE counterparty_id = ?'
   );
@@ -72,32 +96,55 @@ export function importTransactions({
       iban_encrypted = COALESCE(counterparties.iban_encrypted, excluded.iban_encrypted),
       updated_at = excluded.updated_at
   `);
-  const upsertTransaction = database.prepare(`
+  const insertTransaction = database.prepare(`
     INSERT INTO transactions (
       account_id, provider_transaction_id, entry_reference, transaction_id,
-      booking_date, value_date, amount_cents, currency, direction,
-      counterparty_ref, counterparty_name, purpose, mcc, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(account_id, provider_transaction_id) DO UPDATE SET
-      entry_reference = COALESCE(excluded.entry_reference, transactions.entry_reference),
-      transaction_id = COALESCE(excluded.transaction_id, transactions.transaction_id),
-      booking_date = excluded.booking_date,
-      value_date = excluded.value_date,
-      amount_cents = excluded.amount_cents,
-      currency = excluded.currency,
-      direction = excluded.direction,
-      counterparty_ref = excluded.counterparty_ref,
-      counterparty_name = excluded.counterparty_name,
-      purpose = excluded.purpose,
-      mcc = excluded.mcc,
-      updated_at = excluded.updated_at
+      booking_date, value_date, transaction_date, amount_cents, currency, direction,
+      counterparty_ref, counterparty_name, purpose, mcc, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const updateTransaction = database.prepare(`
+    UPDATE transactions SET
+      provider_transaction_id = ?,
+      entry_reference = COALESCE(?, entry_reference),
+      transaction_id = COALESCE(?, transaction_id),
+      booking_date = COALESCE(?, booking_date),
+      value_date = COALESCE(?, value_date),
+      transaction_date = COALESCE(?, transaction_date),
+      amount_cents = ?,
+      currency = ?,
+      direction = ?,
+      counterparty_ref = COALESCE(?, counterparty_ref),
+      counterparty_name = COALESCE(?, counterparty_name),
+      purpose = COALESCE(?, purpose),
+      mcc = COALESCE(?, mcc),
+      status = CASE
+        WHEN ? = 'UNKNOWN' AND status IN ('PDNG', 'BOOK') THEN status
+        ELSE ?
+      END,
+      updated_at = ?
+    WHERE id = ?
   `);
 
   database.exec('BEGIN IMMEDIATE;');
   try {
     for (const transaction of transactions) {
       const normalized = normalizeTransaction(transaction, hmacSecret, encryption);
-      const existing = findExisting.get(accountId, normalized.deduplicationKey);
+      let existing = normalized.entryReference
+        ? findByEntryReference.get(accountId, normalized.entryReference) as { id: number } | undefined
+        : undefined;
+      if (!existing) {
+        existing = findByStableFingerprint.get(
+          accountId,
+          normalized.stableFingerprint,
+          normalized.entryReference,
+          normalized.entryReference
+        ) as { id: number } | undefined;
+      }
+      if (!existing) {
+        const candidates = findReconciliationCandidates.all(accountId) as unknown as ExistingTransaction[];
+        existing = findReconciliationCandidate(candidates, normalized);
+      }
       let counterpartyRef: number | null = null;
 
       if (normalized.counterparty) {
@@ -114,23 +161,47 @@ export function importTransactions({
       }
 
       const timestamp = new Date().toISOString();
-      upsertTransaction.run(
-        accountId,
-        normalized.deduplicationKey,
-        normalized.entryReference,
-        normalized.transactionId,
-        normalized.bookingDate,
-        normalized.valueDate,
-        normalized.amountCents,
-        normalized.currency,
-        normalized.direction,
-        counterpartyRef,
-        normalized.counterparty?.name ?? null,
-        normalized.purpose,
-        normalized.mcc,
-        timestamp,
-        timestamp
-      );
+      if (existing) {
+        updateTransaction.run(
+          normalized.deduplicationKey,
+          normalized.entryReference,
+          normalized.transactionId,
+          normalized.bookingDate,
+          normalized.valueDate,
+          normalized.transactionDate,
+          normalized.amountCents,
+          normalized.currency,
+          normalized.direction,
+          counterpartyRef,
+          normalized.counterparty?.name ?? null,
+          normalized.purpose,
+          normalized.mcc,
+          normalized.status,
+          normalized.status,
+          timestamp,
+          existing.id
+        );
+      } else {
+        insertTransaction.run(
+          accountId,
+          normalized.deduplicationKey,
+          normalized.entryReference,
+          normalized.transactionId,
+          normalized.bookingDate,
+          normalized.valueDate,
+          normalized.transactionDate,
+          normalized.amountCents,
+          normalized.currency,
+          normalized.direction,
+          counterpartyRef,
+          normalized.counterparty?.name ?? null,
+          normalized.purpose,
+          normalized.mcc,
+          normalized.status,
+          timestamp,
+          timestamp
+        );
+      }
 
       if (existing) result.updated += 1;
       else result.inserted += 1;
@@ -150,8 +221,10 @@ export function importTransactions({
 
 interface NormalizedTransaction {
   deduplicationKey: string;
+  stableFingerprint: string;
   entryReference: string | null;
   transactionId: string | null;
+  status: TransactionStatus;
   bookingDate: string | null;
   valueDate: string | null;
   amountCents: number;
@@ -169,6 +242,24 @@ interface NormalizedTransaction {
   referenceNumberSchema: string | null;
   counterpartyAdditionalIdentification: string | null;
   bankTransactionCode: string | null;
+}
+
+interface ExistingTransaction {
+  id: number;
+  provider_transaction_id: string;
+  status: TransactionStatus;
+  entry_reference: string | null;
+  transaction_id: string | null;
+  booking_date: string | null;
+  value_date: string | null;
+  transaction_date: string | null;
+  amount_cents: number;
+  currency: string;
+  direction: 'incoming' | 'outgoing';
+  counterparty_id: string | null;
+  counterparty_name: string | null;
+  purpose: string | null;
+  mcc: string | null;
 }
 
 function normalizeTransaction(
@@ -206,6 +297,7 @@ function normalizeTransaction(
   const mcc = stringValue(transaction.merchant_category_code);
   const entryReference = stringValue(transaction.entry_reference);
   const transactionId = stringValue(transaction.transaction_id);
+  const status = transactionStatus(transaction.status);
   const referenceNumber = stringValue(transaction.reference_number);
   const referenceNumberSchema = stringValue(transaction.reference_number_schema);
   const counterpartyAdditionalIdentification = additionalIdentificationValue(
@@ -216,8 +308,10 @@ function normalizeTransaction(
   const bankTransactionCode = stableValue(transaction.bank_transaction_code);
   const normalized: NormalizedTransaction = {
     deduplicationKey: '',
+    stableFingerprint: '',
     entryReference,
     transactionId,
+    status,
     bookingDate,
     valueDate,
     amountCents,
@@ -233,9 +327,8 @@ function normalizeTransaction(
     bankTransactionCode
   };
 
-  normalized.deduplicationKey = entryReference
-    ? entryReference
-    : fallbackTransactionKey(normalized);
+  normalized.stableFingerprint = fallbackTransactionKey(normalized);
+  normalized.deduplicationKey = entryReference ?? normalized.stableFingerprint;
   return normalized;
 }
 
@@ -287,6 +380,84 @@ function fallbackTransactionKey(value: NormalizedTransaction): string {
   return `fingerprint:${crypto.createHash('sha256').update(canonical, 'utf8').digest('hex')}`;
 }
 
+function findReconciliationCandidate(
+  candidates: ExistingTransaction[],
+  incoming: NormalizedTransaction
+): { id: number } | undefined {
+  const matches = candidates.filter((candidate) => {
+    if (isLegacyFallbackKey(candidate.provider_transaction_id)) {
+      return matchesStrongly(candidate, incoming);
+    }
+    return incoming.status === 'BOOK'
+      && candidate.status === 'PDNG'
+      && matchesStrongly(candidate, incoming);
+  });
+  return matches.length === 1 ? { id: matches[0].id } : undefined;
+}
+
+/**
+ * Pending/Booked reconciliation is intentionally conservative. A matching
+ * amount alone is never enough: the exact party and purpose are required,
+ * while MCC (when both sides provide it) acts as an additional consistency
+ * check. Ambiguous candidates are left untouched and a second local row is
+ * safer than silently combining two real payments.
+ */
+function matchesStrongly(
+  existing: ExistingTransaction,
+  incoming: NormalizedTransaction
+): boolean {
+  if (
+    existing.amount_cents !== incoming.amountCents
+    || existing.currency !== incoming.currency
+    || existing.direction !== incoming.direction
+  ) return false;
+
+  const sameCounterparty = existing.counterparty_id && incoming.counterparty?.id
+    ? existing.counterparty_id === incoming.counterparty.id
+    : normalizeForFingerprint(existing.counterparty_name) !== null
+      && normalizeForFingerprint(existing.counterparty_name)
+        === normalizeForFingerprint(incoming.counterparty?.name ?? null);
+  if (!sameCounterparty) return false;
+
+  const existingPurpose = normalizeForFingerprint(existing.purpose);
+  const incomingPurpose = normalizeForFingerprint(incoming.purpose);
+  if (!existingPurpose || !incomingPurpose || existingPurpose !== incomingPurpose) return false;
+
+  const existingMcc = normalizeForFingerprint(existing.mcc);
+  const incomingMcc = normalizeForFingerprint(incoming.mcc);
+  if (existingMcc && incomingMcc && existingMcc !== incomingMcc) return false;
+
+  return datesArePlausible(existing, incoming);
+}
+
+function datesArePlausible(
+  existing: ExistingTransaction,
+  incoming: NormalizedTransaction
+): boolean {
+  const existingDates = [existing.booking_date, existing.value_date, existing.transaction_date]
+    .map(parseDate)
+    .filter((value): value is number => value !== null);
+  const incomingDates = [incoming.bookingDate, incoming.valueDate, incoming.transactionDate]
+    .map(parseDate)
+    .filter((value): value is number => value !== null);
+  if (existingDates.length === 0 || incomingDates.length === 0) return false;
+
+  const windowMs = 7 * 24 * 60 * 60 * 1_000;
+  return existingDates.some((existingDate) => incomingDates.some((incomingDate) =>
+    Math.abs(existingDate - incomingDate) <= windowMs
+  ));
+}
+
+function parseDate(value: string | null): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isLegacyFallbackKey(value: string): boolean {
+  return value.startsWith('fallback-');
+}
+
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
@@ -306,10 +477,16 @@ function purposeValue(value: unknown): string | null {
     .slice(0, 2_000) || null;
 }
 
-function normalizeForFingerprint(value: string | null): string | null {
+export function normalizeForFingerprint(value: string | null): string | null {
   return value
-    ? value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+    ? value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
     : null;
+}
+
+function transactionStatus(value: unknown): TransactionStatus {
+  const status = stringValue(value)?.toUpperCase();
+  if (status === 'PDNG' || status === 'BOOK') return status;
+  return 'UNKNOWN';
 }
 
 function additionalIdentificationValue(value: unknown): string | null {

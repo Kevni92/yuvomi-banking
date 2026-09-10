@@ -28,6 +28,24 @@ Insbesondere werden `POST /sessions` (`AccountResource[]`) und
 `GET /sessions/{session_id}` (Account-IDs plus `accounts_data`) getrennt
 modelliert.
 
+### Consent-Dauer
+
+`GET /aspsps` liefert pro ASPSP `maximum_consent_validity` in Sekunden. Die
+Bankauswahl behält die vollständigen ASPSP-Objekte im Browser, aber der
+Consent-Start lädt die Liste serverseitig erneut und akzeptiert ausschließlich
+die exakte Kombination aus ASPSP-Name und Land. Werte aus dem Browser können
+die Dauer daher nicht beeinflussen.
+
+Die gewünschte Standarddauer beträgt 90 Tage. Ist ein gültiges Maximum
+vorhanden, wird serverseitig `min(90 Tage, maximum_consent_validity)`
+angefordert. Fehlt das Maximum oder ist es ungültig, wird vorsorglich nur eine
+30-tägige Dauer verwendet. Die verwendete Provider-Grenze wird zusätzlich an
+der Verbindung gespeichert. Enable Banking kann zu kurze Werte wegen einer
+ASPSP-Mindestdauer anpassen; das ist Providerverhalten und keine Erlaubnis,
+die gespeicherte Obergrenze zu überschreiten. Beim Callback wird deshalb der
+serverseitig berechnete Wert beibehalten und nicht durch einen Providerwert
+verlängert.
+
 ## Geplanter Ablauf
 
 1. Banken/ASPSPs laden (`country`, `psu_type=personal`, `service=AIS`; eine Namenssuche erfolgt lokal)
@@ -66,6 +84,20 @@ Deduplizierungsschluessel:
 Fingerprint aus stabilen Umsatzmerkmalen. `transaction_id` wird separat fuer
 spaetere Detailabrufe gespeichert und darf nicht Teil des Fallback-Fingerprints
 sein, weil Enable Banking diesen Wert bei spaeteren Abrufen aendern kann.
+
+`entry_reference` und `transaction_id` sind Providerwerte. Sobald eine echte
+`entry_reference` bekannt ist, ersetzt sie den lokalen Fingerprint als
+`provider_transaction_id`. Alte `fallback-*`-Schlüssel werden beim Sync nur
+bei einer eindeutigen, streng geprüften Zuordnung auf den neuen Schlüssel
+umgestellt; bei Mehrdeutigkeit bleibt der alte Datensatz unangetastet.
+
+Der Providerstatus wird in `transactions.status` als `PDNG`, `BOOK` oder
+`UNKNOWN` gespeichert. Beim erneuten Abruf wird ein eindeutiger Übergang von
+`PDNG` zu `BOOK` reconciled: gleicher Account, Betrag, Währung und Richtung
+sowie ein exakt normalisierter Empfänger und Verwendungszweck sind zwingend;
+MCC und ein plausibles Sieben-Tage-Fenster werden zusätzlich geprüft.
+Mehrere passende Datensätze gelten als Mehrdeutigkeit und werden nicht
+automatisch zusammengeführt.
 
 Geldbetraege werden in `amount_cents` bzw. den `*_amount_cents`-Feldern als
 SQLite-`INTEGER` gespeichert. Die HTTP-Antwort formatiert sie nur fuer die UI.

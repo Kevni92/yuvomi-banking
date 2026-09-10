@@ -6,7 +6,7 @@
 |---|---|---|
 | 1 | Erledigt | Yuvomi-Modul, Sidecar, Reverse Proxy, Session- und Permission-Prüfung |
 | 2 | Erledigt | Eigene SQLite-Datenbank, Migrationen, Verschlüsselung, HMAC und Tests |
-| 3 | Teilweise erledigt | JWT, ASPSP-, Consent-, Callback-, Konto-, Saldo- und Import-Adapter inklusive Mock-Tests; echte Sandbox-Anmeldedaten und End-to-End-Test offen |
+| 3 | Teilweise erledigt | JWT, ASPSP-, Consent-, Callback-, Konto-, Saldo- und lifecycle-sicherer Import-Adapter inklusive Mock- und Migrations-Tests; echte Sandbox-Anmeldedaten und End-to-End-Test offen |
 | 4 | In Arbeit | Bankauswahl, Consent-Start, Verbindungsübersicht, Konten-, Saldo- und Umsatzdarstellung begonnen; vollständige UI offen |
 | 5 | Offen | OpenAI-Kategorisierung |
 | 6 | Offen | Händlernormalisierung und Logos |
@@ -51,7 +51,8 @@ Noch keine Bankdaten.
 - Salden
 - Umsätze
 - Pagination
-- Import-Deduplizierung
+- Import-Deduplizierung inklusive `PDNG`/`BOOK`-Reconciliation und stabilem Fingerprint-Upgrade
+- ASPSP-abhängige Consent-Obergrenze (`maximum_consent_validity`)
 
 Erst Mock/Sandbox.
 

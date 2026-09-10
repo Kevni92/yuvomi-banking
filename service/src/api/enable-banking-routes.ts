@@ -4,10 +4,15 @@ import express, { type Request, type Response } from 'express';
 import { config } from '../config.js';
 import {
   EnableBankingClient,
+  type Aspsp,
   type AccountResource,
   type AuthorizeSessionResponse,
   type StartAuthorizationRequest
 } from '../enable-banking/client.js';
+import {
+  calculateConsentValidUntil,
+  parseMaximumConsentValidity
+} from '../enable-banking/consent.js';
 import { importTransactions } from '../enable-banking/importer.js';
 import { createEncryptionService } from '../security/encryption.js';
 import { maskIban, normalizeIban } from '../services/counterparty.js';
@@ -73,17 +78,41 @@ export function createEnableBankingRouter({
       return;
     }
 
+    let aspsp: Aspsp | undefined;
+    try {
+      // Do not trust the browser's selected metadata. The provider response is
+      // fetched again on the server immediately before the consent is built.
+      const available = await client.getAspsps({
+        country,
+        psuType: 'personal',
+        service: 'AIS'
+      });
+      aspsp = selectAspsp(available.aspsps, country, name);
+    } catch {
+      safeProviderError(response);
+      return;
+    }
+    if (!aspsp) {
+      response.status(400).json({ error: 'Selected ASPSP is not available for AIS.' });
+      return;
+    }
+
     const state = crypto.randomUUID();
     const stateHash = hashState(state);
     const stateExpiresAt = new Date(Date.now() + 15 * 60 * 1_000).toISOString();
-    const validUntil = new Date(Date.now() + 90 * 24 * 60 * 60 * 1_000).toISOString();
+    const maximumConsentValidity = parseMaximumConsentValidity(aspsp.maximum_consent_validity);
+    const validUntil = calculateConsentValidUntil({
+      now: new Date(),
+      maximumConsentValidity
+    });
     const now = new Date().toISOString();
     const redirectUrl = new URL(CALLBACK_PATH, `${config.publicOrigin}/`).toString();
     const insert = database.prepare(`
       INSERT INTO enable_banking_connections (
-        yuvomi_user_id, aspsp_name, aspsp_country, valid_until,
+        yuvomi_user_id, aspsp_name, aspsp_country,
+        aspsp_maximum_consent_validity, valid_until,
         state_hash, state_expires_at, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
     `);
 
     let connectionId: number | undefined;
@@ -92,6 +121,7 @@ export function createEnableBankingRouter({
         user.id,
         name,
         country,
+        maximumConsentValidity,
         validUntil,
         stateHash,
         stateExpiresAt,
@@ -357,8 +387,8 @@ function ownedAccount(
 
 function listPublicTransactions(database: DatabaseSync, accountId: number): Array<Record<string, unknown>> {
   const rows = database.prepare(`
-    SELECT id, booking_date, value_date, amount_cents, currency, direction,
-           counterparty_name, purpose, merchant_name, category_id,
+    SELECT id, booking_date, value_date, transaction_date, amount_cents, currency, direction,
+           counterparty_name, purpose, merchant_name, status, category_id,
            category_source, category_confidence
     FROM transactions
     WHERE account_id = ?
@@ -372,6 +402,21 @@ function listPublicTransactions(database: DatabaseSync, accountId: number): Arra
     // calculating money as a floating-point value.
     amount: formatMinorUnits(amount_cents, row.currency)
   }));
+}
+
+function selectAspsp(aspsps: Aspsp[], country: string, name: string): Aspsp | undefined {
+  if (!Array.isArray(aspsps)) return undefined;
+  const normalizedCountry = normalizeLookupValue(country);
+  const normalizedName = normalizeLookupValue(name);
+  const matches = aspsps.filter((aspsp) =>
+    normalizeLookupValue(stringOrNull(aspsp?.country) ?? '') === normalizedCountry
+    && normalizeLookupValue(stringOrNull(aspsp?.name) ?? '') === normalizedName
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function normalizeLookupValue(value: string): string {
+  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function maskedStoredIban(value: unknown): string | null {
@@ -523,12 +568,10 @@ function persistAuthorizedSession(
   try {
     const connectionUpdate = database.prepare(`
       UPDATE enable_banking_connections
-      SET provider_session_id = ?, valid_until = COALESCE(?, valid_until),
-          status = 'authorized', updated_at = ?
+      SET provider_session_id = ?, status = 'authorized', updated_at = ?
       WHERE id = ? AND yuvomi_user_id = ? AND status = 'exchanging'
     `).run(
       session.session_id,
-      session.access?.valid_until ?? null,
       now,
       connection.id,
       connection.yuvomi_user_id

@@ -223,6 +223,11 @@ function renderOverviewMarkup() {
         <p class="banking-panel__description">${esc(localized('weeklyBudgetCategoriesDescription', 'A transaction-specific setting overrides its category.'))}</p>
         <div data-weekly-budget-categories></div>
       </div>
+
+      <div class="banking-weekly-history">
+        <h3>${esc(localized('weeklyBudgetHistory', 'Weekly-budget history'))}</h3>
+        <div data-weekly-budget-history></div>
+      </div>
     </section>
 
     <section class="banking-panel">
@@ -266,6 +271,7 @@ function configureConnectionForm(container, permission, signal) {
   const reloadButton = container.querySelector('[data-action="reload-connections"]');
   const weeklySettings = container.querySelector('[data-weekly-budget-settings]');
   const weeklyCategories = container.querySelector('[data-weekly-budget-categories]');
+  const weeklyHistory = container.querySelector('[data-weekly-budget-history]');
   const reloadWeeklyBudget = container.querySelector('[data-action="reload-weekly-budget"]');
   const aspspsByName = new Map();
 
@@ -323,6 +329,12 @@ function configureConnectionForm(container, permission, signal) {
     const checkbox = event.target.closest('input[data-weekly-category-id]');
     if (!checkbox) return;
     void updateCategoryWeeklyBudget({ container, checkbox, signal });
+  }, { signal });
+
+  weeklyHistory.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-weekly-period-id]');
+    if (!button) return;
+    void toggleWeeklyBudgetPeriodDetails({ button, signal });
   }, { signal });
 
   reloadWeeklyBudget.addEventListener('click', () => {
@@ -402,11 +414,19 @@ async function loadOverview(container, signal, canWrite) {
   const accountsHost = container.querySelector('[data-banking-accounts]');
   const weeklyBudgetHost = container.querySelector('[data-weekly-budget-current]');
   const categoriesHost = container.querySelector('[data-weekly-budget-categories]');
-  const [connectionsResult, accountsResult, weeklyBudgetResult, categoriesResult] = await Promise.allSettled([
+  const historyHost = container.querySelector('[data-weekly-budget-history]');
+  const [
+    connectionsResult,
+    accountsResult,
+    weeklyBudgetResult,
+    categoriesResult,
+    periodsResult
+  ] = await Promise.allSettled([
     loadJson('connections', { signal }),
     loadJson('accounts', { signal }),
     loadJson('weekly-budget/current', { signal }),
-    loadJson('categories', { signal })
+    loadJson('categories', { signal }),
+    loadJson('weekly-budget/periods', { signal })
   ]);
   if (signal.aborted) return;
 
@@ -438,6 +458,11 @@ async function loadOverview(container, signal, canWrite) {
     renderWeeklyBudgetCategories(categoriesHost, categoriesResult.value?.data, canWrite);
   } else {
     renderError(categoriesHost, categoriesResult.reason);
+  }
+  if (periodsResult.status === 'fulfilled') {
+    renderWeeklyBudgetHistory(historyHost, periodsResult.value?.data);
+  } else {
+    renderError(historyHost, periodsResult.reason);
   }
 }
 
@@ -634,13 +659,171 @@ function renderWeeklyBudgetCategories(host, categories, canWrite) {
   host.insertAdjacentHTML('beforeend', `<div class="banking-weekly-category-list">${rows}</div>`);
 }
 
+function renderWeeklyBudgetHistory(host, periods) {
+  host.replaceChildren();
+  if (!Array.isArray(periods) || periods.length === 0) {
+    host.insertAdjacentHTML('beforeend', `
+      <p class="banking-muted">${esc(localized('weeklyBudgetNoHistory', 'No finalized weekly budgets yet.'))}</p>
+    `);
+    return;
+  }
+  const rows = periods.map((period) => {
+    const suggestion = period?.latest_suggestion;
+    const formula = [
+      formatCents(period?.target_amount_cents, period?.currency),
+      '-',
+      formatCents(period?.direct_expense_cents, period?.currency),
+      '-',
+      formatCents(period?.target_balance_cents, period?.currency),
+      '=',
+      formatCents(period?.computed_amount_cents, period?.currency)
+    ].join(' ');
+    return `
+      <article class="banking-weekly-period" data-weekly-period-card>
+        <div class="banking-weekly-period__summary">
+          <span>
+            <strong>${esc(formatDate(period?.period_start_date))} – ${esc(formatDate(period?.period_end_date))}</strong>
+            <small>${esc(`${period?.trigger || ''} · ${weeklyBudgetTransferStateLabel(suggestion?.transfer_state || period?.status)}`)}</small>
+          </span>
+          <strong>${esc(formatCents(period?.computed_amount_cents, period?.currency))}</strong>
+        </div>
+        <p class="banking-weekly-period__formula">${esc(formula)}</p>
+        <div class="banking-weekly-period__actions">
+          <button class="btn btn--secondary" type="button" data-weekly-period-id="${esc(String(period?.id ?? ''))}">${esc(localized('weeklyBudgetShowDetails', 'Show details'))}</button>
+          ${suggestion?.girocode_url ? `<a class="btn btn--secondary" href="${esc(suggestion.girocode_url)}" target="_blank" rel="noopener">${esc(localized('weeklyBudgetOpenGiroCode', 'Open GiroCode'))}</a>` : ''}
+        </div>
+        <div class="banking-weekly-period__details" data-weekly-period-details hidden></div>
+      </article>
+    `;
+  }).join('');
+  host.insertAdjacentHTML('beforeend', `<div class="banking-weekly-history-list">${rows}</div>`);
+}
+
+async function toggleWeeklyBudgetPeriodDetails({ button, signal }) {
+  const card = button.closest('[data-weekly-period-card]');
+  const details = card?.querySelector('[data-weekly-period-details]');
+  if (!details) return;
+  if (details.dataset.loaded === 'true') {
+    details.hidden = !details.hidden;
+    button.textContent = details.hidden
+      ? localized('weeklyBudgetShowDetails', 'Show details')
+      : localized('weeklyBudgetHideDetails', 'Hide details');
+    return;
+  }
+  const periodId = button.dataset.weeklyPeriodId;
+  if (!/^\d+$/.test(periodId || '')) return;
+  button.disabled = true;
+  details.hidden = false;
+  details.textContent = localized('loading', 'Loading ...');
+  try {
+    const payload = await loadJson(`weekly-budget/periods/${encodeURIComponent(periodId)}`, { signal });
+    details.replaceChildren();
+    details.insertAdjacentHTML('beforeend', weeklyBudgetPeriodDetailsMarkup(payload?.data));
+    details.dataset.loaded = 'true';
+    button.textContent = localized('weeklyBudgetHideDetails', 'Hide details');
+  } catch (error) {
+    details.textContent = error instanceof Error
+      ? error.message
+      : localized('weeklyBudgetHistoryFailed', 'Weekly-budget details could not be loaded.');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function weeklyBudgetPeriodDetailsMarkup(period) {
+  const transactions = Array.isArray(period?.transactions) ? period.transactions : [];
+  const suggestions = Array.isArray(period?.suggestions) ? period.suggestions : [];
+  const balances = Array.isArray(period?.balance_snapshots) ? period.balance_snapshots : [];
+  const syncRuns = Array.isArray(period?.sync_runs) ? period.sync_runs : [];
+  const activeSuggestion = suggestions[0];
+  const balanceRows = balances.length > 0
+    ? balances.map((balance) => {
+        const account = balance?.account_role === 'source'
+          ? period?.source_account?.display_name
+          : period?.target_account?.display_name;
+        const observed = formatDateTime(balance?.observed_at || balance?.fetched_at);
+        return `
+          <li>
+            <span>${esc(account || localized('unknownAccount', 'Bank account'))}<small>${esc(`${balance?.normalized_balance_type || balance?.provider_balance_type || ''}${observed ? ` · ${observed}` : ''}`)}</small></span>
+            <strong>${esc(formatCents(balance?.amount_cents, balance?.currency))}</strong>
+          </li>
+        `;
+      }).join('')
+    : `<li class="banking-muted">${esc(localized('weeklyBudgetNoBalanceSnapshots', 'No balance snapshots available.'))}</li>`;
+  const transactionRows = transactions.length > 0
+    ? transactions.map((transaction) => `
+        <li>
+          <span>${esc(transaction?.counterparty_name || localized('unknownTransaction', 'Transaction'))}<small>${esc(transaction?.category_name || transaction?.decision_source || '')}</small></span>
+          <strong>${esc(formatCents(transaction?.amount_cents, transaction?.currency))}</strong>
+        </li>
+      `).join('')
+    : `<li class="banking-muted">${esc(localized('weeklyBudgetNoDirectExpenses', 'No direct expenses in this period.'))}</li>`;
+  const revisionRows = suggestions.length > 0
+    ? suggestions.map((suggestion) => `
+        <li>
+          <span>
+            ${esc(localized('weeklyBudgetRevision', 'Revision {revision}', { revision: suggestion?.revision ?? '' }))}
+            <small>${esc(`${weeklyBudgetTransferStateLabel(suggestion?.transfer_state || suggestion?.status)}${suggestion?.purpose ? ` · ${suggestion.purpose}` : ''}`)}</small>
+          </span>
+          <strong>${esc(formatCents(suggestion?.computed_amount_cents, period?.currency))}</strong>
+          ${suggestion?.girocode?.png_url ? `<a class="btn btn--secondary" href="${esc(suggestion.girocode.png_url)}" target="_blank" rel="noopener">${esc(localized('weeklyBudgetOpenGiroCode', 'Open GiroCode'))}</a>` : ''}
+        </li>
+      `).join('')
+    : `<li class="banking-muted">${esc(localized('weeklyBudgetNoRevisions', 'No transfer revision available.'))}</li>`;
+  const syncRows = syncRuns.length > 0
+    ? syncRuns.map((run) => `
+        <li>
+          <span>${esc(`${run?.trigger || ''} · ${run?.status || ''}`)}<small>${esc(formatDateTime(run?.finished_at || run?.started_at || run?.scheduled_for))}</small></span>
+          <small>${esc(`${localized('weeklyBudgetSource', 'Source account')}: ${run?.source_sync_status || '–'} · ${localized('weeklyBudgetTarget', 'Target account')}: ${run?.target_sync_status || '–'}`)}</small>
+        </li>
+      `).join('')
+    : `<li class="banking-muted">${esc(localized('weeklyBudgetNoSyncHistory', 'No synchronization history available.'))}</li>`;
+  return `
+    <dl class="banking-weekly-period__calculation">
+      <div><dt>${esc(localized('weeklyBudgetAmount', 'Weekly target'))}</dt><dd>${esc(formatCents(period?.target_amount_cents, period?.currency))}</dd></div>
+      <div><dt>${esc(localized('weeklyBudgetClosingBalance', 'Target closing balance'))}</dt><dd>${esc(formatCents(period?.target_balance_cents, period?.currency))}</dd></div>
+      <div><dt>${esc(localized('weeklyBudgetDirect', 'Direct expenses'))}</dt><dd>${esc(formatCents(period?.direct_expense_cents, period?.currency))}</dd></div>
+      <div><dt>${esc(localized('weeklyBudgetTransferAmount', 'Transfer'))}</dt><dd>${esc(formatCents(period?.computed_amount_cents, period?.currency))}</dd></div>
+      <div><dt>${esc(localized('weeklyBudgetActualTransfer', 'Detected transfer'))}</dt><dd>${esc(activeSuggestion?.matched_source_transaction_id || activeSuggestion?.matched_target_transaction_id ? formatCents(activeSuggestion?.computed_amount_cents, period?.currency) : '–')}</dd></div>
+      <div><dt>${esc(localized('weeklyBudgetOverfunded', 'Overfunding'))}</dt><dd>${esc(formatCents(period?.overfunded_cents, period?.currency))}</dd></div>
+    </dl>
+    <h4>${esc(localized('balances', 'Balances'))}</h4>
+    <ul>${balanceRows}</ul>
+    <h4>${esc(localized('weeklyBudgetDirectExpenses', 'Direct expenses'))}</h4>
+    <ul>${transactionRows}</ul>
+    <h4>${esc(localized('weeklyBudgetRevisions', 'Transfer revisions'))}</h4>
+    <ul>${revisionRows}</ul>
+    <h4>${esc(localized('weeklyBudgetSynchronization', 'Synchronization'))}</h4>
+    <ul>${syncRows}</ul>
+  `;
+}
+
+function weeklyBudgetTransferStateLabel(state) {
+  return {
+    proposed: localized('weeklyBudgetStatusProposed', 'Proposed'),
+    shown: localized('weeklyBudgetStatusShown', 'Shown'),
+    notified: localized('weeklyBudgetStatusNotified', 'Notified'),
+    source_booked: localized('weeklyBudgetStatusSourceBooked', 'Booked at source'),
+    target_booked: localized('weeklyBudgetStatusTargetBooked', 'Arrived at target'),
+    target_arrived: localized('weeklyBudgetStatusTargetArrived', 'Transfer completed'),
+    completed: localized('weeklyBudgetStatusTargetArrived', 'Transfer completed'),
+    zero: localized('weeklyBudgetStatusZero', 'No transfer'),
+    no_transfer: localized('weeklyBudgetStatusZero', 'No transfer'),
+    dismissed: localized('weeklyBudgetStatusDismissed', 'Dismissed'),
+    superseded: localized('weeklyBudgetStatusSuperseded', 'Superseded'),
+    failed: localized('failed', 'Failed')
+  }[state] ?? String(state || '');
+}
+
 async function refreshWeeklyBudget(container, signal, canWrite = container.dataset.bankingPermission === 'write') {
   const host = container.querySelector('[data-weekly-budget-current]');
   const categoriesHost = container.querySelector('[data-weekly-budget-categories]');
-  const [currentResult, accountsResult, categoriesResult] = await Promise.allSettled([
+  const historyHost = container.querySelector('[data-weekly-budget-history]');
+  const [currentResult, accountsResult, categoriesResult, periodsResult] = await Promise.allSettled([
     loadJson('weekly-budget/current', { signal }),
     loadJson('accounts', { signal }),
-    loadJson('categories', { signal })
+    loadJson('categories', { signal }),
+    loadJson('weekly-budget/periods', { signal })
   ]);
   if (signal.aborted) return;
   if (currentResult.status === 'fulfilled' && accountsResult.status === 'fulfilled') {
@@ -659,6 +842,11 @@ async function refreshWeeklyBudget(container, signal, canWrite = container.datas
     renderWeeklyBudgetCategories(categoriesHost, categoriesResult.value?.data, canWrite);
   } else {
     renderError(categoriesHost, categoriesResult.reason);
+  }
+  if (periodsResult.status === 'fulfilled') {
+    renderWeeklyBudgetHistory(historyHost, periodsResult.value?.data);
+  } else {
+    renderError(historyHost, periodsResult.reason);
   }
 }
 

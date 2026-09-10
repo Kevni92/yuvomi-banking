@@ -97,6 +97,103 @@ function settingsBody(): Record<string, unknown> {
   };
 }
 
+function seedFinalizedPeriod(database: DatabaseSync): void {
+  const encryption = createEncryptionService(TEST_KEY);
+  const periodKey = 'weekly-budget:1:2026-09-13T16:30:00.000Z';
+  database.prepare(`
+    INSERT INTO weekly_budget_configs (
+      yuvomi_user_id, enabled, source_account_id, target_account_id,
+      target_amount_cents, currency, cutoff_weekday, cutoff_time, timezone,
+      sync_time_1, sync_time_2, balance_stale_after_minutes,
+      notification_enabled, notification_qr_preview, purpose_prefix,
+      effective_from_date, target_beneficiary_name, created_at, updated_at
+    ) VALUES (7, 1, 1, 2, 45000, 'EUR', 7, '18:30', 'Europe/Berlin',
+              '06:00', '18:00', 840, 0, 0, 'WB', '2026-09-06',
+              'Weekly Budget User', ?, ?)
+  `).run(NOW.toISOString(), NOW.toISOString());
+  database.prepare(`
+    INSERT INTO account_balance_snapshots (
+      account_id, sync_run_key, provider_balance_type,
+      normalized_balance_type, amount_cents, currency, observed_at,
+      fetched_at, usable_for_weekly_budget, created_at
+    ) VALUES
+      (1, ?, 'ITAV', 'interim_available', 200000, 'EUR', ?, ?, 1, ?),
+      (2, ?, 'ITAV', 'interim_available', 10000, 'EUR', ?, ?, 1, ?)
+  `).run(
+    `${periodKey}:source`, NOW.toISOString(), NOW.toISOString(), NOW.toISOString(),
+    `${periodKey}:target`, NOW.toISOString(), NOW.toISOString(), NOW.toISOString()
+  );
+  database.prepare(`
+    INSERT INTO transactions (
+      account_id, provider_transaction_id, entry_reference, booking_date,
+      amount_cents, currency, direction, counterparty_name,
+      weekly_budget_override, status, created_at, updated_at
+    ) VALUES (1, 'history-lidl', 'history-lidl', '2026-09-10', 3000,
+              'EUR', 'outgoing', 'LIDL', 'include', 'BOOK', ?, ?)
+  `).run(NOW.toISOString(), NOW.toISOString());
+  database.prepare(`
+    INSERT INTO weekly_budget_periods (
+      config_id, period_key, period_start_date, period_end_date,
+      scheduled_cutoff_at, finalized_at, trigger, status,
+      source_account_id, source_account_name, target_account_id,
+      target_account_name, target_amount_cents, currency,
+      target_balance_snapshot_id, target_balance_cents,
+      direct_expense_cents, raw_computed_amount_cents,
+      computed_amount_cents, overfunded_cents, calculation_version,
+      source_sync_completed_at, target_sync_completed_at,
+      cutoff_weekday, cutoff_time, timezone, purpose_prefix,
+      target_beneficiary_name, target_iban_encrypted, created_at, updated_at
+    ) VALUES (
+      1, ?, '2026-09-06', '2026-09-13', '2026-09-13T16:30:00.000Z',
+      ?, 'scheduled', 'finalized', 1, 'Sparkasse Girokonto', 2, 'N26',
+      45000, 'EUR', 2, 10000, 3000, 32000, 32000, 0, 'weekly-budget-v1',
+      ?, ?, 7, '18:30', 'Europe/Berlin', 'WB', 'Weekly Budget User', ?, ?, ?
+    )
+  `).run(
+    periodKey,
+    NOW.toISOString(),
+    NOW.toISOString(),
+    NOW.toISOString(),
+    encryption.encrypt(TARGET_IBAN),
+    NOW.toISOString(),
+    NOW.toISOString()
+  );
+  database.prepare(`
+    INSERT INTO weekly_budget_period_transactions (
+      period_id, transaction_id, transaction_key, revision, state,
+      amount_cents, currency, booking_date, counterparty_name,
+      weekly_budget_override, decision_source, created_at
+    ) VALUES (1, 1, 'history-lidl', 1, 'included', 3000, 'EUR',
+              '2026-09-10', 'LIDL', 'include', 'transaction_override', ?)
+  `).run(NOW.toISOString());
+  database.prepare(`
+    INSERT INTO transfer_suggestions (
+      period_id, revision, source_account_id, target_account_id,
+      target_amount_cents, target_balance_cents, computed_amount_cents,
+      deducted_amount_cents, raw_computed_amount_cents, overfunded_cents,
+      week_start, week_end, purpose, calculation_version, status,
+      generated_at, created_at, updated_at
+    ) VALUES (1, 1, 1, 2, 45000, 10000, 32000, 3000, 32000, 0,
+              '2026-09-06', '2026-09-13',
+              'WB 2026-09-13: 450,00 - 30,00 Direkt - 100,00 N26 = 320,00 EUR',
+              'weekly-budget-v1', 'proposed', ?, ?, ?)
+  `).run(NOW.toISOString(), NOW.toISOString(), NOW.toISOString());
+  database.prepare(`
+    INSERT INTO weekly_budget_job_runs (
+      config_id, period_id, run_key, trigger, attempt, status,
+      scheduled_for, started_at, finished_at, source_sync_status,
+      target_sync_status, created_at, updated_at
+    ) VALUES (1, 1, ?, 'scheduled', 1, 'succeeded',
+              '2026-09-13T16:30:00.000Z', ?, ?, 'succeeded', 'succeeded', ?, ?)
+  `).run(
+    periodKey,
+    NOW.toISOString(),
+    NOW.toISOString(),
+    NOW.toISOString(),
+    NOW.toISOString()
+  );
+}
+
 test('protects and stores weekly-budget settings without exposing an IBAN', async () => {
   const previousKey = config.secrets.dataEncryptionKey;
   config.secrets.dataEncryptionKey = TEST_KEY;
@@ -106,7 +203,6 @@ test('protects and stores weekly-budget settings without exposing an IBAN', asyn
     resolveSession: async () => writeUser(),
     clock: () => NOW
   }));
-
   try {
     const denied = await fetch(`${origin}/api/extensions/banking/weekly-budget/settings`, {
       method: 'PUT',
@@ -323,7 +419,6 @@ test('does not allow a user to override another users transaction', async () => 
     resolveSession: async () => writeUser(),
     clock: () => NOW
   }));
-
   try {
     const crossUserSettings = await fetch(
       `${origin}/api/extensions/banking/weekly-budget/settings`,
@@ -352,6 +447,78 @@ test('does not allow a user to override another users transaction', async () => 
     ).get()?.weekly_budget_override, 'inherit');
   } finally {
     await close(server);
+    database.close();
+    config.secrets.dataEncryptionKey = previousKey;
+  }
+});
+
+test('serves auditable weekly-budget history only through the owning user', async () => {
+  const previousKey = config.secrets.dataEncryptionKey;
+  config.secrets.dataEncryptionKey = TEST_KEY;
+  const database = createFixture();
+  seedFinalizedPeriod(database);
+  const { server, origin } = await listen(createApp({
+    database,
+    resolveSession: async () => writeUser(),
+    clock: () => NOW
+  }));
+  const { server: otherServer, origin: otherOrigin } = await listen(createApp({
+    database,
+    resolveSession: async () => ({ ...writeUser(), id: 99 }),
+    clock: () => NOW
+  }));
+
+  try {
+    const listResponse = await fetch(
+      `${origin}/api/extensions/banking/weekly-budget/periods?limit=1`,
+      { headers: { cookie: 'yuvomi.sid=test' } }
+    );
+    assert.equal(listResponse.status, 200);
+    assert.match(listResponse.headers.get('cache-control') ?? '', /no-store/);
+    const list = (await listResponse.json()).data;
+    assert.equal(list.length, 1);
+    assert.equal(list[0].computed_amount_cents, 32000);
+    assert.equal(list[0].latest_suggestion.revision, 1);
+    assert.match(list[0].latest_suggestion.girocode_url, /\/1\/girocode\.png$/);
+
+    const detailResponse = await fetch(
+      `${origin}/api/extensions/banking/weekly-budget/periods/1`,
+      { headers: { cookie: 'yuvomi.sid=test' } }
+    );
+    assert.equal(detailResponse.status, 200);
+    const detail = (await detailResponse.json()).data;
+    assert.equal(detail.target_account.iban_masked, 'DE89••••••3000');
+    assert.equal(detail.balance_snapshots.length, 2);
+    assert.deepEqual(
+      detail.balance_snapshots.map((snapshot: Record<string, unknown>) => snapshot.account_role),
+      ['source', 'target']
+    );
+    assert.equal(detail.transactions[0].counterparty_name, 'LIDL');
+    assert.equal(detail.suggestions[0].girocode.amount_cents, 32000);
+    assert.equal(detail.sync_runs[0].source_sync_status, 'succeeded');
+    assert.doesNotMatch(JSON.stringify(detail), new RegExp(TARGET_IBAN));
+    assert.doesNotMatch(JSON.stringify(detail), /target_iban_encrypted/);
+
+    const missingResponse = await fetch(
+      `${origin}/api/extensions/banking/weekly-budget/periods/999`,
+      { headers: { cookie: 'yuvomi.sid=test' } }
+    );
+    assert.equal(missingResponse.status, 404);
+
+    const otherListResponse = await fetch(
+      `${otherOrigin}/api/extensions/banking/weekly-budget/periods`,
+      { headers: { cookie: 'yuvomi.sid=other' } }
+    );
+    assert.equal(otherListResponse.status, 200);
+    assert.deepEqual((await otherListResponse.json()).data, []);
+    const otherDetailResponse = await fetch(
+      `${otherOrigin}/api/extensions/banking/weekly-budget/periods/1`,
+      { headers: { cookie: 'yuvomi.sid=other' } }
+    );
+    assert.equal(otherDetailResponse.status, 404);
+  } finally {
+    await close(server);
+    await close(otherServer);
     database.close();
     config.secrets.dataEncryptionKey = previousKey;
   }

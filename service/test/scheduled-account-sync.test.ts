@@ -72,6 +72,88 @@ test('synchronizes both configured accounts atomically and only once per slot', 
   }
 });
 
+test('a scheduled sync links unique source and target transfer bookings', async () => {
+  const previousKey = config.secrets.dataEncryptionKey;
+  const previousHmac = config.secrets.counterpartyHmac;
+  config.secrets.dataEncryptionKey = TEST_KEY;
+  config.secrets.counterpartyHmac = TEST_HMAC;
+  const database = syncFixture();
+  const purpose = 'WB 2026-09-06: 450,00 - 30,00 Direkt - 100,00 N26 = 320,00 EUR';
+  database.prepare(`
+    INSERT INTO weekly_budget_periods (
+      config_id, period_key, period_start_date, period_end_date,
+      scheduled_cutoff_at, finalized_at, trigger, status,
+      source_account_id, target_account_id, target_amount_cents,
+      target_balance_cents, direct_expense_cents, raw_computed_amount_cents,
+      computed_amount_cents, calculation_version, timezone, created_at, updated_at
+    ) VALUES (1, 'weekly-budget:1:2026-09-06T16:30:00.000Z',
+              '2026-08-30', '2026-09-06', '2026-09-06T16:30:00.000Z',
+              '2026-09-06T16:31:00.000Z', 'scheduled', 'finalized',
+              1, 2, 45000, 10000, 3000, 32000, 32000,
+              'weekly-budget-v1', 'Europe/Berlin',
+              '2026-09-06T16:31:00.000Z', '2026-09-06T16:31:00.000Z')
+  `).run();
+  database.prepare(`
+    INSERT INTO transfer_suggestions (
+      period_id, revision, source_account_id, target_account_id,
+      target_amount_cents, target_balance_cents, computed_amount_cents,
+      deducted_amount_cents, raw_computed_amount_cents, week_start, week_end,
+      purpose, calculation_version, status, generated_at, created_at, updated_at
+    ) VALUES (1, 1, 1, 2, 45000, 10000, 32000, 3000, 32000,
+              '2026-08-30', '2026-09-06', ?, 'weekly-budget-v1', 'proposed',
+              '2026-09-06T16:31:00.000Z', '2026-09-06T16:31:00.000Z',
+              '2026-09-06T16:31:00.000Z')
+  `).run(purpose);
+  const client = {
+    getAllAccountTransactions: async (accountId: string) => ({
+      pages: 1,
+      transactions: accountId === 'source' ? [{
+        status: 'BOOK',
+        entry_reference: 'weekly-transfer-source',
+        transaction_amount: { amount: '320.00', currency: 'EUR' },
+        credit_debit_indicator: 'DBIT',
+        booking_date: '2026-09-09',
+        remittance_information: [purpose],
+        creditor: { name: 'N26' },
+        creditor_account: { iban: 'DE89370400440532013000' }
+      }] : [{
+        status: 'BOOK',
+        entry_reference: 'weekly-transfer-target',
+        transaction_amount: { amount: '320.00', currency: 'EUR' },
+        credit_debit_indicator: 'CRDT',
+        booking_date: '2026-09-09',
+        remittance_information: [purpose],
+        debtor: { name: 'Sparkasse' },
+        debtor_account: { iban: 'DE12500105170648489890' }
+      }]
+    }),
+    getAccountBalances: async () => ({ balances: [{
+      balance_amount: { amount: '100.00', currency: 'EUR' },
+      balance_type: 'ITAV',
+      last_change_date_time: RUN_TIME.toISOString()
+    }] })
+  } as unknown as EnableBankingClient;
+
+  try {
+    const outcomes = await runDueScheduledAccountSyncJobs({ database, client, now: RUN_TIME });
+    assert.equal(outcomes[0].state, 'succeeded');
+    assert.deepEqual({ ...(database.prepare(`
+      SELECT status, matched_source_transaction_id,
+             matched_target_transaction_id, completed_at
+      FROM transfer_suggestions WHERE id = 1
+    `).get() as Record<string, unknown>) }, {
+      status: 'completed',
+      matched_source_transaction_id: 1,
+      matched_target_transaction_id: 2,
+      completed_at: RUN_TIME.toISOString()
+    });
+  } finally {
+    database.close();
+    config.secrets.dataEncryptionKey = previousKey;
+    config.secrets.counterpartyHmac = previousHmac;
+  }
+});
+
 test('rolls back a partial provider result and waits before retrying', async () => {
   const previousKey = config.secrets.dataEncryptionKey;
   const previousHmac = config.secrets.counterpartyHmac;

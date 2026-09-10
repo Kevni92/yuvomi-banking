@@ -333,7 +333,9 @@
   border-top: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.08));
 }
 
-.banking-weekly-categories h3 {
+.banking-weekly-categories h3,
+.banking-weekly-history h3,
+.banking-weekly-period__details h4 {
   margin: 0;
 }
 
@@ -389,6 +391,102 @@
 .banking-transaction-budget {
   margin-top: var(--space-2, 0.5rem);
   max-width: 14rem;
+}
+
+.banking-weekly-history {
+  margin-top: var(--space-4, 1rem);
+  padding-top: var(--space-4, 1rem);
+  border-top: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+.banking-weekly-history-list,
+.banking-weekly-period__details {
+  display: grid;
+  gap: var(--space-3, 0.75rem);
+}
+
+.banking-weekly-history-list {
+  margin-top: var(--space-3, 0.75rem);
+}
+
+.banking-weekly-period {
+  display: grid;
+  gap: var(--space-2, 0.5rem);
+  padding-block: var(--space-3, 0.75rem);
+  border-top: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+.banking-weekly-period:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.banking-weekly-period__summary,
+.banking-weekly-period__summary > span,
+.banking-weekly-period__details li > span {
+  display: grid;
+  gap: var(--space-1, 0.25rem);
+}
+
+.banking-weekly-period__summary {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.banking-weekly-period__summary small,
+.banking-weekly-period__details small,
+.banking-weekly-period__formula {
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.banking-weekly-period__formula {
+  margin: 0;
+}
+
+.banking-weekly-period__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 0.5rem);
+}
+
+.banking-weekly-period__details {
+  margin-top: var(--space-2, 0.5rem);
+  padding: var(--space-3, 0.75rem);
+  border-radius: var(--radius-md, 12px);
+  background: var(--color-surface-3, rgba(0, 0, 0, 0.04));
+}
+
+.banking-weekly-period__details ul,
+.banking-weekly-period__calculation {
+  display: grid;
+  gap: var(--space-2, 0.5rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.banking-weekly-period__details li,
+.banking-weekly-period__calculation > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  padding-top: var(--space-2, 0.5rem);
+  border-top: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+.banking-weekly-period__details li:first-child,
+.banking-weekly-period__calculation > div:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.banking-weekly-period__calculation dt {
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.banking-weekly-period__calculation dd {
+  margin: 0;
+  text-align: right;
 }
 
 @media (max-width: 767px) {

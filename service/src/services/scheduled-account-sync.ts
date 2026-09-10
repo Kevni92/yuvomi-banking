@@ -14,6 +14,7 @@ import {
   instantForLocalDateTime,
   localDateForInstant
 } from './weekly-budget-schedule.js';
+import { matchWeeklyBudgetTransfers } from './weekly-budget-transfer-matcher.js';
 
 const RETRY_DELAYS_MS = [5, 15, 30].map((minutes) => minutes * 60_000);
 
@@ -261,6 +262,7 @@ export async function runScheduledAccountSync({
       encryption,
       manageTransaction: false
     });
+    matchWeeklyBudgetTransfers(database, configId, syncedAt);
     persistAccountBalanceSnapshots({
       database,
       accountId: source.id,

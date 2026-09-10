@@ -13,7 +13,9 @@ test('banking page exposes weekly-budget settings and both override controls', (
     "loadJson('weekly-budget/current'",
     "loadJson('weekly-budget/settings'",
     "loadJson('categories'",
+    "loadJson('weekly-budget/periods'",
     'data-weekly-category-id',
+    'data-weekly-period-id',
     'data-weekly-budget-override',
     "weekly_budget_override: select.value",
     'target_amount_cents: targetAmountCents',
@@ -23,6 +25,7 @@ test('banking page exposes weekly-budget settings and both override controls', (
   ]) assert.ok(source.includes(marker), `Missing frontend contract marker: ${marker}`);
 
   assert.doesNotMatch(source, /https?:\/\//i);
+  assert.doesNotMatch(source, /\.innerHTML\s*=/);
 });
 
 test('dashboard widget reads the local current-weekly-budget endpoint', () => {
@@ -46,6 +49,10 @@ test('weekly-budget locale keys exist in German and English', () => {
     'weeklyBudgetWeekday',
     'weeklyBudgetTime',
     'weeklyBudgetCategories',
+    'weeklyBudgetHistory',
+    'weeklyBudgetShowDetails',
+    'weeklyBudgetClosingBalance',
+    'weeklyBudgetRevisions',
     'weeklyBudgetInherit',
     'weeklyBudgetInclude',
     'weeklyBudgetExclude'

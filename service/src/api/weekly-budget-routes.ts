@@ -19,6 +19,11 @@ import {
   renderGiroCodePng
 } from '../services/girocode.js';
 import {
+  WeeklyBudgetPeriodNotFoundError,
+  getWeeklyBudgetPeriod,
+  listWeeklyBudgetPeriods
+} from '../services/weekly-budget-history.js';
+import {
   mutationIsAllowed,
   noStore,
   resolveAuthorizedUser,
@@ -177,6 +182,43 @@ export function createWeeklyBudgetRouter({
     } catch {
       noStore(response);
       response.status(500).json({ error: 'Current weekly budget could not be calculated.' });
+    }
+  });
+
+  router.get('/weekly-budget/periods', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'read');
+    if (!user) return;
+    try {
+      const requestedLimit = typeof request.query.limit === 'string'
+        ? Number(request.query.limit)
+        : 52;
+      const periods = listWeeklyBudgetPeriods(database, user.id, requestedLimit);
+      noStore(response);
+      response.json({ data: periods });
+    } catch {
+      noStore(response);
+      response.status(500).json({ error: 'Weekly-budget periods could not be loaded.' });
+    }
+  });
+
+  router.get('/weekly-budget/periods/:periodId', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'read');
+    if (!user) return;
+    try {
+      const period = getWeeklyBudgetPeriod(
+        database,
+        user.id,
+        positivePathId(request.params.periodId) ?? 0
+      );
+      noStore(response);
+      response.json({ data: period });
+    } catch (error) {
+      noStore(response);
+      response.status(error instanceof WeeklyBudgetPeriodNotFoundError ? 404 : 500).json({
+        error: error instanceof WeeklyBudgetPeriodNotFoundError
+          ? error.message
+          : 'Weekly-budget period could not be loaded.'
+      });
     }
   });
 

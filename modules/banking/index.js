@@ -222,9 +222,14 @@ function configureConnectionForm(container, permission, signal) {
   }, { signal });
 
   container.querySelector('[data-banking-accounts]').addEventListener('click', (event) => {
-    const button = event.target.closest('[data-action="sync-account"]');
+    const button = event.target.closest('button[data-action]');
     if (!button) return;
-    void syncAccount({ card: button.closest('[data-banking-account-card]'), button, signal });
+    const card = button.closest('[data-banking-account-card]');
+    if (button.dataset.action === 'show-account') {
+      void loadAccountDetails({ card, button, signal });
+    } else if (button.dataset.action === 'sync-account') {
+      void syncAccount({ card, button, signal });
+    }
   }, { signal });
 }
 
@@ -355,9 +360,14 @@ function renderAccounts(host, accounts, canWrite) {
             <h3>${esc(account?.display_name || localized('unknownAccount', 'Bank account'))}</h3>
             <p>${esc(account?.iban_masked || account?.account_type || '')} ${esc(account?.currency || '')}</p>
           </div>
-          <button class="btn btn--secondary" type="button" data-action="sync-account" data-account-id="${esc(id)}"${canWrite ? '' : ' disabled'}>
-            ${esc(localized('syncAccount', 'Sync account'))}
-          </button>
+          <div class="banking-account-card__actions">
+            <button class="btn btn--secondary" type="button" data-action="show-account" data-account-id="${esc(id)}">
+              ${esc(localized('showAccount', 'Show details'))}
+            </button>
+            ${canWrite ? `<button class="btn btn--primary" type="button" data-action="sync-account" data-account-id="${esc(id)}">
+              ${esc(localized('syncAccount', 'Synchronize'))}
+            </button>` : ''}
+          </div>
         </div>
         <p class="banking-feedback" data-account-feedback role="status"></p>
         <div class="banking-account-card__details" data-account-details hidden>
@@ -372,6 +382,48 @@ function renderAccounts(host, accounts, canWrite) {
         </div>
       </article>
     `);
+  }
+}
+
+async function loadAccountDetails({ card, button, signal }) {
+  if (!card) return;
+  const accountId = card.dataset.accountId;
+  if (!/^\d+$/.test(accountId)) return;
+  const feedback = card.querySelector('[data-account-feedback]');
+  const balancesHost = card.querySelector('[data-account-balances]');
+  const transactionsHost = card.querySelector('[data-account-transactions]');
+  const details = card.querySelector('[data-account-details]');
+  button.disabled = true;
+  card.setAttribute('aria-busy', 'true');
+  feedback.textContent = localized('loadingDetails', 'Loading account details ...');
+  try {
+    const [balancesResult, transactionsResult] = await Promise.allSettled([
+      loadJson(`accounts/${encodeURIComponent(accountId)}/balances`, { signal }),
+      loadJson(`accounts/${encodeURIComponent(accountId)}/transactions`, { signal })
+    ]);
+    if (signal.aborted) return;
+
+    details.hidden = false;
+    if (balancesResult.status === 'fulfilled') renderBalances(balancesHost, balancesResult.value?.data);
+    else renderError(balancesHost, balancesResult.reason);
+    if (transactionsResult.status === 'fulfilled') {
+      renderTransactions(transactionsHost, transactionsResult.value?.data?.transactions);
+      feedback.textContent = localized('detailsLoaded', 'Account details loaded.');
+    } else {
+      renderError(transactionsHost, transactionsResult.reason);
+      feedback.textContent = transactionsResult.reason instanceof Error
+        ? transactionsResult.reason.message
+        : localized('detailsFailed', 'Account details could not be loaded.');
+    }
+  } catch (error) {
+    if (!signal.aborted) feedback.textContent = error instanceof Error
+      ? error.message
+      : localized('detailsFailed', 'Account details could not be loaded.');
+  } finally {
+    if (!signal.aborted) {
+      button.disabled = false;
+      card.removeAttribute('aria-busy');
+    }
   }
 }
 

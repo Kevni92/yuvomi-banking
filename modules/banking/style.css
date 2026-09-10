@@ -169,6 +169,13 @@
   margin: 0;
 }
 
+.banking-account-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 0.5rem);
+  justify-content: flex-end;
+}
+
 .banking-account-card__details {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -230,6 +237,10 @@
   .banking-account-card__header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .banking-account-card__actions {
+    justify-content: flex-start;
   }
 
   .banking-connection-row__status {

@@ -19,7 +19,13 @@ export interface ProviderTransaction {
   booking_date?: unknown;
   value_date?: unknown;
   transaction_date?: unknown;
+  reference_number?: unknown;
+  reference_number_schema?: unknown;
   remittance_information?: unknown;
+  creditor_account_additional_identification?: unknown;
+  debtor_account_additional_identification?: unknown;
+  bank_transaction_code?: unknown;
+  note?: unknown;
   [key: string]: unknown;
 }
 
@@ -68,14 +74,16 @@ export function importTransactions({
   `);
   const upsertTransaction = database.prepare(`
     INSERT INTO transactions (
-      account_id, provider_transaction_id, booking_date, value_date,
-      amount, currency, direction, counterparty_ref, counterparty_name,
-      purpose, mcc, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      account_id, provider_transaction_id, entry_reference, transaction_id,
+      booking_date, value_date, amount_cents, currency, direction,
+      counterparty_ref, counterparty_name, purpose, mcc, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(account_id, provider_transaction_id) DO UPDATE SET
+      entry_reference = COALESCE(excluded.entry_reference, transactions.entry_reference),
+      transaction_id = COALESCE(excluded.transaction_id, transactions.transaction_id),
       booking_date = excluded.booking_date,
       value_date = excluded.value_date,
-      amount = excluded.amount,
+      amount_cents = excluded.amount_cents,
       currency = excluded.currency,
       direction = excluded.direction,
       counterparty_ref = excluded.counterparty_ref,
@@ -89,7 +97,7 @@ export function importTransactions({
   try {
     for (const transaction of transactions) {
       const normalized = normalizeTransaction(transaction, hmacSecret, encryption);
-      const existing = findExisting.get(accountId, normalized.providerTransactionId);
+      const existing = findExisting.get(accountId, normalized.deduplicationKey);
       let counterpartyRef: number | null = null;
 
       if (normalized.counterparty) {
@@ -108,10 +116,12 @@ export function importTransactions({
       const timestamp = new Date().toISOString();
       upsertTransaction.run(
         accountId,
-        normalized.providerTransactionId,
+        normalized.deduplicationKey,
+        normalized.entryReference,
+        normalized.transactionId,
         normalized.bookingDate,
         normalized.valueDate,
-        normalized.amount,
+        normalized.amountCents,
         normalized.currency,
         normalized.direction,
         counterpartyRef,
@@ -139,10 +149,12 @@ export function importTransactions({
 }
 
 interface NormalizedTransaction {
-  providerTransactionId: string;
+  deduplicationKey: string;
+  entryReference: string | null;
+  transactionId: string | null;
   bookingDate: string | null;
   valueDate: string | null;
-  amount: number;
+  amountCents: number;
   currency: string;
   direction: 'incoming' | 'outgoing';
   counterparty: {
@@ -152,6 +164,11 @@ interface NormalizedTransaction {
   } | null;
   purpose: string | null;
   mcc: string | null;
+  transactionDate: string | null;
+  referenceNumber: string | null;
+  referenceNumberSchema: string | null;
+  counterpartyAdditionalIdentification: string | null;
+  bankTransactionCode: string | null;
 }
 
 function normalizeTransaction(
@@ -159,17 +176,12 @@ function normalizeTransaction(
   hmacSecret: string,
   encryption: EncryptionService
 ): NormalizedTransaction {
-  const amountValue = transaction.transaction_amount?.amount;
-  const amount = typeof amountValue === 'number' ? amountValue : Number(amountValue);
-  if (!Number.isFinite(amount) || Math.abs(amount) > 1_000_000_000_000) {
-    throw new Error('Provider transaction amount is invalid.');
-  }
-
   const currency = stringValue(transaction.transaction_amount?.currency)?.toUpperCase();
   if (!currency || !/^[A-Z]{3}$/.test(currency)) {
     throw new Error('Provider transaction currency is invalid.');
   }
 
+  const amountCents = parseMinorUnits(transaction.transaction_amount?.amount, currency);
   const indicator = stringValue(transaction.credit_debit_indicator);
   if (indicator !== 'CRDT' && indicator !== 'DBIT') {
     throw new Error('Provider transaction direction is invalid.');
@@ -189,35 +201,90 @@ function normalizeTransaction(
     : null;
   const bookingDate = dateValue(transaction.booking_date);
   const valueDate = dateValue(transaction.value_date);
+  const transactionDate = dateValue(transaction.transaction_date);
   const purpose = purposeValue(transaction.remittance_information);
   const mcc = stringValue(transaction.merchant_category_code);
-  const providerReference = stringValue(transaction.entry_reference);
-
-  return {
-    providerTransactionId: providerReference ?? fallbackTransactionId({
-      amount,
-      currency,
-      direction,
-      bookingDate,
-      valueDate,
-      counterpartyId: counterparty?.id ?? null,
-      name,
-      purpose,
-      transactionId: stringValue(transaction.transaction_id)
-    }),
+  const entryReference = stringValue(transaction.entry_reference);
+  const transactionId = stringValue(transaction.transaction_id);
+  const referenceNumber = stringValue(transaction.reference_number);
+  const referenceNumberSchema = stringValue(transaction.reference_number_schema);
+  const counterpartyAdditionalIdentification = additionalIdentificationValue(
+    direction === 'incoming'
+      ? transaction.debtor_account_additional_identification
+      : transaction.creditor_account_additional_identification
+  );
+  const bankTransactionCode = stableValue(transaction.bank_transaction_code);
+  const normalized: NormalizedTransaction = {
+    deduplicationKey: '',
+    entryReference,
+    transactionId,
     bookingDate,
     valueDate,
-    amount,
+    amountCents,
     currency,
     direction,
     counterparty,
     purpose,
-    mcc
+    mcc,
+    transactionDate,
+    referenceNumber,
+    referenceNumberSchema,
+    counterpartyAdditionalIdentification,
+    bankTransactionCode
   };
+
+  normalized.deduplicationKey = entryReference
+    ? entryReference
+    : fallbackTransactionKey(normalized);
+  return normalized;
 }
 
-function fallbackTransactionId(value: Record<string, unknown>): string {
-  return `fallback-${crypto.createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex')}`;
+/** Parse provider decimal strings exactly into integer minor units. */
+function parseMinorUnits(value: unknown, currency: string): number {
+  const text = typeof value === 'number'
+    ? (Number.isFinite(value) ? value.toString() : '')
+    : stringValue(value) ?? '';
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?$/.exec(text);
+  if (!match) throw new Error('Provider transaction amount is invalid.');
+
+  // Banking currently stores EUR accounts, whose minor unit is the cent. Keep
+  // the explicit currency argument so adding other currencies is deliberate.
+  const minorDigits = currency === 'JPY' ? 0 : 2;
+  const fraction = match[3] ?? '';
+  if (fraction.length > minorDigits && /[^0]/.test(fraction.slice(minorDigits))) {
+    throw new Error('Provider transaction amount has unsupported precision.');
+  }
+  const major = BigInt(match[2]);
+  const minor = BigInt(
+    fraction.slice(0, minorDigits).padEnd(minorDigits, '0') || '0'
+  );
+  const units = major * (10n ** BigInt(minorDigits)) + minor;
+  const signedUnits = match[1] === '-' ? -units : units;
+  const result = Number(signedUnits);
+  if (!Number.isSafeInteger(result) || Math.abs(result) > 100_000_000_000_000) {
+    throw new Error('Provider transaction amount is invalid.');
+  }
+  return result;
+}
+
+function fallbackTransactionKey(value: NormalizedTransaction): string {
+  const canonical = JSON.stringify({
+    amount_cents: value.amountCents,
+    currency: value.currency,
+    direction: value.direction,
+    booking_date: value.bookingDate,
+    value_date: value.valueDate,
+    transaction_date: value.transactionDate,
+    counterparty_id: value.counterparty?.id ?? null,
+    counterparty_name: normalizeForFingerprint(value.counterparty?.name ?? null),
+    purpose: normalizeForFingerprint(value.purpose),
+    mcc: value.mcc,
+    reference_number: value.referenceNumber,
+    reference_number_schema: value.referenceNumberSchema,
+    counterparty_additional_identification: value.counterpartyAdditionalIdentification,
+    bank_transaction_code: value.bankTransactionCode
+  });
+  return `fingerprint:${crypto.createHash('sha256').update(canonical, 'utf8').digest('hex')}`;
 }
 
 function stringValue(value: unknown): string | null {
@@ -237,4 +304,28 @@ function purposeValue(value: unknown): string | null {
     .filter(Boolean)
     .join(' ')
     .slice(0, 2_000) || null;
+}
+
+function normalizeForFingerprint(value: string | null): string | null {
+  return value
+    ? value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+    : null;
+}
+
+function additionalIdentificationValue(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  return [stringValue(record.scheme_name), stringValue(record.identification)]
+    .filter((part): part is string => Boolean(part))
+    .join(':') || null;
+}
+
+function stableValue(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return stringValue(value);
+  const record = value as Record<string, unknown>;
+  return JSON.stringify({
+    code: stringValue(record.code),
+    sub_code: stringValue(record.sub_code),
+    description: normalizeForFingerprint(stringValue(record.description))
+  });
 }

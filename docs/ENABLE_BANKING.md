@@ -23,14 +23,19 @@ der serverseitige Private Key und ein End-to-End-Test mit einer Sandbox-Bank.
 Ohne diese Werte bleiben Health, Yuvomi-Session und die lokale UI erreichbar;
 Provider-Aufrufe werden kontrolliert als nicht verfügbar gemeldet.
 
+Die Response-Formen und Filter folgen der [offiziellen Enable-Banking-API-Referenz](https://enablebanking.com/docs/api/reference/).
+Insbesondere werden `POST /sessions` (`AccountResource[]`) und
+`GET /sessions/{session_id}` (Account-IDs plus `accounts_data`) getrennt
+modelliert.
+
 ## Geplanter Ablauf
 
-1. Banken/ASPSPs laden
+1. Banken/ASPSPs laden (`country`, `psu_type=personal`, `service=AIS`; eine Namenssuche erfolgt lokal)
 2. Auth-Request erstellen
 3. Benutzer zur Bank weiterleiten
 4. Callback im Sidecar empfangen
 5. Session erzeugen
-6. Konten speichern
+6. Konten speichern; `POST /sessions` liefert AccountResource-Objekte direkt
 7. Salden laden
 8. Umsätze laden
 9. Pagination über `continuation_key`
@@ -54,15 +59,35 @@ Beispiel:
 
 Import muss idempotent sein.
 
-Unique Key mindestens:
+Der lokale Schluessel `provider_transaction_id` ist dabei nur der
+Deduplizierungsschluessel:
 
-`(account_id, provider_transaction_id)`
+`<entry_reference>` oder, wenn `entry_reference` fehlt, ein kanonischer
+Fingerprint aus stabilen Umsatzmerkmalen. `transaction_id` wird separat fuer
+spaetere Detailabrufe gespeichert und darf nicht Teil des Fallback-Fingerprints
+sein, weil Enable Banking diesen Wert bei spaeteren Abrufen aendern kann.
 
-Wenn die Bank keine stabile Transaction-ID liefert, wird später ein kontrollierter Fallback-Fingerprint benötigt.
+Geldbetraege werden in `amount_cents` bzw. den `*_amount_cents`-Feldern als
+SQLite-`INTEGER` gespeichert. Die HTTP-Antwort formatiert sie nur fuer die UI.
 
 ## Re-Consent
 
 `valid_until` je Verbindung speichern.
+
+Enable Banking vergibt bei jeder neuen Session neue Account-UIDs. Das Banking
+matcht deshalb innerhalb desselben Yuvomi-Benutzers ueber
+`identification_hash` und aktualisiert die Provider-UID am bestehenden
+`bank_accounts.id`. So bleiben Umsaetze und Budget-Mappings erhalten.
+
+Der OAuth-State wird mit `state_expires_at` etwa 15 Minuten gueltig gemacht und
+im Callback atomar genau einmal von `pending` nach `exchanging` ueberfuehrt.
+Danach ist der Hash ungueltig. Nach erfolgreicher lokaler Speicherung folgt
+`authorized`, bei Fehlern `failed`.
+
+Die vollstaendigen Providerdaten werden vor der lokalen SQLite-Schreibtransaktion
+normalisiert. Ein zusaetzlicher `/details`-Abruf ist im Callback daher nicht
+noetig. Wenn die lokale Speicherung nach einem erfolgreichen `POST /sessions`
+fehlschlaegt, wird `DELETE /sessions/{session_id}` best effort ausgefuehrt.
 
 UI soll rechtzeitig anzeigen:
 
@@ -71,6 +96,10 @@ UI soll rechtzeitig anzeigen:
 ## Sync
 
 Kein aggressives Polling.
+
+`GET /accounts/:id/transactions` liest die bereits lokal gespeicherten
+Umsaetze und ist fuer `read` und `write` verfuegbar. Ausschliesslich
+`POST /accounts/:id/sync` ruft den Provider ab und benoetigt `write`.
 
 Der Sidecar soll:
 

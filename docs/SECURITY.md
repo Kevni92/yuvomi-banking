@@ -70,6 +70,11 @@ Für State Changes zusätzlich:
 
 ## Datenverschlüsselung
 
+Browserantworten enthalten bei Konten nur die interne numerische
+`bank_accounts.id` sowie fuer die Darstellung noetige Felder. Enable-Banking-UIDs
+und andere Provider-IDs bleiben serverseitig; Klartext-IBANs und verschluesselte
+DB-Felder werden nie an den Browser gesendet.
+
 Mindestens folgende Felder verschlüsseln:
 
 - IBAN

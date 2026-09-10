@@ -14,6 +14,51 @@ export interface Aspsp {
   [key: string]: unknown;
 }
 
+export interface GenericIdentification {
+  identification?: string;
+  scheme_name?: string;
+  [key: string]: unknown;
+}
+
+export interface AccountIdentification {
+  iban?: string;
+  other?: GenericIdentification;
+  [key: string]: unknown;
+}
+
+/**
+ * AccountResource returned by POST /sessions and GET /accounts/{uid}/details.
+ *
+ * This is intentionally different from SessionAccount, which is returned by
+ * GET /sessions/{session_id} in accounts_data.
+ */
+export interface AccountResource {
+  account_id?: AccountIdentification;
+  all_account_ids?: GenericIdentification[];
+  account_servicer?: Record<string, unknown>;
+  name?: string;
+  details?: string;
+  usage?: string;
+  cash_account_type: string;
+  product?: string;
+  currency: string;
+  psu_status?: string;
+  credit_limit?: { currency?: string; amount?: string };
+  legal_age?: boolean | null;
+  postal_address?: Record<string, unknown>;
+  uid?: string;
+  identification_hash: string;
+  identification_hashes: string[];
+  [key: string]: unknown;
+}
+
+export interface SessionAccount {
+  uid: string;
+  identification_hash: string;
+  identification_hashes: string[];
+  [key: string]: unknown;
+}
+
 export interface StartAuthorizationRequest {
   access: {
     valid_until: string;
@@ -40,27 +85,26 @@ export interface StartAuthorizationResponse {
 export interface AuthorizeSessionResponse {
   session_id: string;
   access?: { valid_until?: string };
-  accounts?: string[];
+  accounts: AccountResource[];
   aspsp?: Aspsp;
+  psu_type?: 'personal' | 'business';
   [key: string]: unknown;
 }
 
-export interface SessionResponse {
+export interface GetSessionResponse {
   access?: { valid_until?: string };
-  accounts?: string[];
+  accounts: string[];
+  accounts_data: SessionAccount[];
   aspsp?: Aspsp;
   status?: string;
+  authorized?: string;
+  created?: string;
+  psu_type?: 'personal' | 'business';
   [key: string]: unknown;
 }
 
-export interface AccountDetailsResponse {
-  uid?: string;
-  account_id?: string;
-  iban?: string;
-  name?: string;
-  currency?: string;
-  [key: string]: unknown;
-}
+export type SessionResponse = GetSessionResponse;
+export type AccountDetailsResponse = AccountResource;
 
 export interface BalancesResponse {
   balances: Array<Record<string, unknown>>;
@@ -120,11 +164,29 @@ export class EnableBankingClient {
     this.fetcher = options.fetcher ?? fetch;
   }
 
-  async getAspsps(filters: { country?: string; name?: string } = {}): Promise<{ aspsps: Aspsp[] }> {
+  async getAspsps(filters: {
+    country?: string;
+    psuType?: 'personal' | 'business';
+    service?: 'AIS' | 'PIS';
+    paymentType?: string;
+    name?: string;
+  } = {}): Promise<{ aspsps: Aspsp[] }> {
     const query = new URLSearchParams();
     if (filters.country) query.set('country', filters.country);
-    if (filters.name) query.set('name', filters.name);
-    return this.request(`/aspsps${query.size ? `?${query}` : ''}`);
+    if (filters.psuType) query.set('psu_type', filters.psuType);
+    if (filters.service) query.set('service', filters.service);
+    if (filters.paymentType) query.set('payment_type', filters.paymentType);
+    const result = await this.request<{ aspsps: Aspsp[] }>(
+      `/aspsps${query.size ? `?${query}` : ''}`
+    );
+    if (!filters.name?.trim()) return result;
+
+    const name = filters.name.trim().toLocaleLowerCase();
+    return {
+      aspsps: result.aspsps.filter((aspsp) =>
+        aspsp.name.toLocaleLowerCase().includes(name)
+      )
+    };
   }
 
   startAuthorization(body: StartAuthorizationRequest): Promise<StartAuthorizationResponse> {

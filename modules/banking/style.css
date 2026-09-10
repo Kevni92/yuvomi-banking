@@ -222,13 +222,133 @@
   white-space: nowrap;
 }
 
+.banking-weekly-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3, 0.75rem);
+  margin-bottom: var(--space-4, 1rem);
+}
+
+.banking-weekly-summary__card {
+  display: grid;
+  gap: var(--space-1, 0.25rem);
+  min-width: 0;
+  padding: var(--space-3, 0.75rem);
+  border-radius: var(--radius-md, 12px);
+  background: var(--color-surface-3, rgba(0, 0, 0, 0.04));
+}
+
+.banking-weekly-summary__card span,
+.banking-weekly-summary__card small {
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.banking-weekly-summary__card strong {
+  font-size: 1.2rem;
+  overflow-wrap: anywhere;
+}
+
+.banking-weekly-settings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3, 0.75rem);
+  padding-top: var(--space-4, 1rem);
+  border-top: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+.banking-field--checkbox {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  flex-direction: row;
+}
+
+.banking-field--checkbox input,
+.banking-weekly-category input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--color-primary, #2f6b55);
+}
+
+.banking-weekly-settings__actions,
+.banking-weekly-settings > .banking-feedback {
+  grid-column: 1 / -1;
+}
+
+.banking-weekly-categories {
+  margin-top: var(--space-4, 1rem);
+  padding-top: var(--space-4, 1rem);
+  border-top: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+.banking-weekly-categories h3 {
+  margin: 0;
+}
+
+.banking-weekly-category-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2, 0.5rem);
+  margin-top: var(--space-3, 0.75rem);
+}
+
+.banking-weekly-category {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  border-radius: var(--radius-sm, 10px);
+  background: var(--color-surface-3, rgba(0, 0, 0, 0.04));
+}
+
+.banking-weekly-category > span,
+.banking-transaction-budget {
+  display: grid;
+  gap: var(--space-1, 0.25rem);
+}
+
+.banking-weekly-widget {
+  display: grid;
+  gap: var(--space-2, 0.5rem);
+}
+
+.banking-weekly-widget p,
+.banking-weekly-widget small {
+  margin: 0;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.banking-weekly-widget__amount {
+  font-size: 1.65rem;
+  line-height: 1.1;
+}
+
+.banking-weekly-category small,
+.banking-transaction-budget > span {
+  color: var(--color-text-secondary, #6b7280);
+  font-size: 0.8rem;
+}
+
+.banking-weekly-category.is-inactive {
+  opacity: 0.6;
+}
+
+.banking-transaction-budget {
+  margin-top: var(--space-2, 0.5rem);
+  max-width: 14rem;
+}
+
 @media (max-width: 767px) {
   .banking-integration-grid {
     grid-template-columns: 1fr;
   }
 
   .banking-connect-form,
-  .banking-account-card__details {
+  .banking-account-card__details,
+  .banking-weekly-summary,
+  .banking-weekly-settings,
+  .banking-weekly-category-list {
     grid-template-columns: 1fr;
   }
 

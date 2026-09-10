@@ -151,6 +151,17 @@ test('protects and stores weekly-budget settings without exposing an IBAN', asyn
     assert.equal(database.prepare(
       'SELECT weekly_budget_default FROM categories WHERE id = 1'
     ).get()?.weekly_budget_default, 1);
+    const categories = await fetch(`${origin}/api/extensions/banking/categories`, {
+      headers: { cookie: 'yuvomi.sid=test' }
+    });
+    assert.equal(categories.status, 200);
+    assert.deepEqual((await categories.json()).data, [{
+      id: 1,
+      name: 'Lebensmittel',
+      type: 'expense',
+      active: true,
+      weekly_budget_default: true
+    }]);
   } finally {
     await close(server);
     database.close();

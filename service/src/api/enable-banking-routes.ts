@@ -360,12 +360,20 @@ function ownedAccount(
 
 function listPublicTransactions(database: DatabaseSync, accountId: number): Array<Record<string, unknown>> {
   const rows = database.prepare(`
-    SELECT id, booking_date, value_date, transaction_date, amount_cents, currency, direction,
-           counterparty_name, purpose, merchant_name, status, category_id,
-           category_source, category_confidence
+    SELECT transactions.id, transactions.booking_date, transactions.value_date,
+           transactions.transaction_date, transactions.amount_cents,
+           transactions.currency, transactions.direction,
+           transactions.counterparty_name, transactions.purpose,
+           transactions.merchant_name, transactions.status,
+           transactions.category_id, transactions.category_source,
+           transactions.category_confidence,
+           transactions.weekly_budget_override,
+           categories.weekly_budget_default AS category_weekly_budget_default
     FROM transactions
-    WHERE account_id = ?
-    ORDER BY COALESCE(booking_date, value_date) DESC, id DESC
+    LEFT JOIN categories ON categories.id = transactions.category_id
+    WHERE transactions.account_id = ?
+    ORDER BY COALESCE(transactions.booking_date, transactions.value_date) DESC,
+             transactions.id DESC
     LIMIT 100
   `).all(accountId) as Array<Record<string, unknown>>;
 

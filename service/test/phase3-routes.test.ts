@@ -628,7 +628,9 @@ test('returns imported transactions without exposing raw banking payloads', asyn
       status: 'UNKNOWN',
       category_id: null,
       category_source: null,
-      category_confidence: null
+      category_confidence: null,
+      weekly_budget_override: 'inherit',
+      category_weekly_budget_default: null
     });
     assert.doesNotMatch(JSON.stringify(body), /DE89370400440532013000|raw_payload_encrypted/);
   } finally {

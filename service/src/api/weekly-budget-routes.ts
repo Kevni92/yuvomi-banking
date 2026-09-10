@@ -167,6 +167,24 @@ export function createWeeklyBudgetRouter({
     }
   });
 
+  router.get('/categories', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'read');
+    if (!user) return;
+    const categories = database.prepare(`
+      SELECT id, name, type, active, weekly_budget_default
+      FROM categories
+      ORDER BY active DESC, type, name, id
+    `).all() as Array<Record<string, unknown>>;
+    noStore(response);
+    response.json({
+      data: categories.map((category) => ({
+        ...category,
+        active: Boolean(category.active),
+        weekly_budget_default: Boolean(category.weekly_budget_default)
+      }))
+    });
+  });
+
   router.patch('/categories/:categoryId/weekly-budget', async (request, response) => {
     const user = await resolveAuthorizedUser(request, response, resolveSession, 'write');
     if (!user || !mutationIsAllowed(request, response)) return;

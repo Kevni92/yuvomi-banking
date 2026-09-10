@@ -154,6 +154,73 @@ function renderOverviewMarkup() {
       </div>
     </section>
 
+    <section class="banking-panel" data-banking-weekly-budget>
+      <div class="banking-panel__header">
+        <div>
+          <h2>${esc(localized('weeklyBudgetTitle', 'Weekly budget'))}</h2>
+          <p class="banking-panel__description">${esc(localized('weeklyBudgetDescription', 'Sparkasse expenses and the current N26 balance determine the next refill.'))}</p>
+        </div>
+        <button class="btn btn--secondary" type="button" data-action="reload-weekly-budget">
+          ${esc(localized('reload', 'Reload'))}
+        </button>
+      </div>
+
+      <div data-weekly-budget-current aria-live="polite">
+        <p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p>
+      </div>
+
+      <form class="banking-weekly-settings" data-weekly-budget-settings>
+        <label class="banking-field banking-field--checkbox">
+          <input type="checkbox" data-weekly-enabled>
+          <span>${esc(localized('weeklyBudgetEnabled', 'Enable weekly budget'))}</span>
+        </label>
+        <label class="banking-field">
+          <span>${esc(localized('weeklyBudgetSource', 'Source account'))}</span>
+          <select class="form-input" data-weekly-source required></select>
+        </label>
+        <label class="banking-field">
+          <span>${esc(localized('weeklyBudgetTarget', 'Target account'))}</span>
+          <select class="form-input" data-weekly-target required></select>
+        </label>
+        <label class="banking-field">
+          <span>${esc(localized('weeklyBudgetAmount', 'Weekly target in euros'))}</span>
+          <input class="form-input" inputmode="decimal" placeholder="450,00" data-weekly-amount required>
+        </label>
+        <label class="banking-field">
+          <span>${esc(localized('weeklyBudgetWeekday', 'Cutoff weekday'))}</span>
+          <select class="form-input" data-weekly-weekday required>${weekdayOptions()}</select>
+        </label>
+        <label class="banking-field">
+          <span>${esc(localized('weeklyBudgetTime', 'Cutoff time'))}</span>
+          <input class="form-input" type="time" data-weekly-time required>
+        </label>
+        <label class="banking-field">
+          <span>${esc(localized('weeklyBudgetTimezone', 'Timezone'))}</span>
+          <input class="form-input" value="Europe/Berlin" data-weekly-timezone required>
+        </label>
+        <label class="banking-field">
+          <span>${esc(localized('weeklyBudgetSyncOne', 'First daily sync'))}</span>
+          <input class="form-input" type="time" data-weekly-sync-one required>
+        </label>
+        <label class="banking-field">
+          <span>${esc(localized('weeklyBudgetSyncTwo', 'Second daily sync'))}</span>
+          <input class="form-input" type="time" data-weekly-sync-two required>
+        </label>
+        <div class="banking-weekly-settings__actions">
+          <button class="btn btn--primary" type="submit" data-action="save-weekly-budget">
+            ${esc(localized('weeklyBudgetSave', 'Save settings'))}
+          </button>
+        </div>
+        <p class="banking-feedback" data-weekly-budget-feedback role="status"></p>
+      </form>
+
+      <div class="banking-weekly-categories">
+        <h3>${esc(localized('weeklyBudgetCategories', 'Weekly-budget categories'))}</h3>
+        <p class="banking-panel__description">${esc(localized('weeklyBudgetCategoriesDescription', 'A transaction-specific setting overrides its category.'))}</p>
+        <div data-weekly-budget-categories></div>
+      </div>
+    </section>
+
     <section class="banking-panel">
       <div class="banking-panel__header">
         <div>
@@ -193,6 +260,9 @@ function configureConnectionForm(container, permission, signal) {
   const connectButton = container.querySelector('[data-action="connect-bank"]');
   const feedback = container.querySelector('[data-banking-connect-feedback]');
   const reloadButton = container.querySelector('[data-action="reload-connections"]');
+  const weeklySettings = container.querySelector('[data-weekly-budget-settings]');
+  const weeklyCategories = container.querySelector('[data-weekly-budget-categories]');
+  const reloadWeeklyBudget = container.querySelector('[data-action="reload-weekly-budget"]');
   const aspspsByName = new Map();
 
   if (permission !== 'write') {
@@ -232,6 +302,27 @@ function configureConnectionForm(container, permission, signal) {
     } else if (button.dataset.action === 'sync-account') {
       void syncAccount({ card, button, signal });
     }
+  }, { signal });
+
+  container.querySelector('[data-banking-accounts]').addEventListener('change', (event) => {
+    const select = event.target.closest('select[data-weekly-budget-override]');
+    if (!select) return;
+    void updateTransactionWeeklyBudget({ container, select, signal });
+  }, { signal });
+
+  weeklySettings.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void saveWeeklyBudgetSettings({ container, form: weeklySettings, signal });
+  }, { signal });
+
+  weeklyCategories.addEventListener('change', (event) => {
+    const checkbox = event.target.closest('input[data-weekly-category-id]');
+    if (!checkbox) return;
+    void updateCategoryWeeklyBudget({ container, checkbox, signal });
+  }, { signal });
+
+  reloadWeeklyBudget.addEventListener('click', () => {
+    void refreshWeeklyBudget(container, signal, permission === 'write');
   }, { signal });
 }
 
@@ -305,9 +396,13 @@ async function startConnection({ country, bank, connectButton, loadButton, feedb
 async function loadOverview(container, signal, canWrite) {
   const connectionsHost = container.querySelector('[data-banking-connections]');
   const accountsHost = container.querySelector('[data-banking-accounts]');
-  const [connectionsResult, accountsResult] = await Promise.allSettled([
+  const weeklyBudgetHost = container.querySelector('[data-weekly-budget-current]');
+  const categoriesHost = container.querySelector('[data-weekly-budget-categories]');
+  const [connectionsResult, accountsResult, weeklyBudgetResult, categoriesResult] = await Promise.allSettled([
     loadJson('connections', { signal }),
-    loadJson('accounts', { signal })
+    loadJson('accounts', { signal }),
+    loadJson('weekly-budget/current', { signal }),
+    loadJson('categories', { signal })
   ]);
   if (signal.aborted) return;
 
@@ -321,6 +416,328 @@ async function loadOverview(container, signal, canWrite) {
   } else {
     renderError(accountsHost, accountsResult.reason);
   }
+  const accounts = accountsResult.status === 'fulfilled' && Array.isArray(accountsResult.value?.data)
+    ? accountsResult.value.data
+    : [];
+  if (weeklyBudgetResult.status === 'fulfilled') {
+    renderWeeklyBudget(
+      weeklyBudgetHost,
+      container.querySelector('[data-weekly-budget-settings]'),
+      weeklyBudgetResult.value?.data,
+      accounts,
+      canWrite
+    );
+  } else {
+    renderError(weeklyBudgetHost, weeklyBudgetResult.reason);
+  }
+  if (categoriesResult.status === 'fulfilled') {
+    renderWeeklyBudgetCategories(categoriesHost, categoriesResult.value?.data, canWrite);
+  } else {
+    renderError(categoriesHost, categoriesResult.reason);
+  }
+}
+
+function renderWeeklyBudget(host, form, current, accounts, canWrite) {
+  host.replaceChildren();
+  const configured = current?.configured === true;
+  const enabled = configured && current?.enabled !== false;
+  const settings = configured ? current?.settings : null;
+
+  if (!configured) {
+    host.insertAdjacentHTML('beforeend', `
+      <p class="banking-muted">${esc(localized('weeklyBudgetNotConfigured', 'Weekly budget is not configured yet.'))}</p>
+    `);
+  } else if (!enabled) {
+    host.insertAdjacentHTML('beforeend', `
+      <p class="banking-muted">${esc(localized('weeklyBudgetDisabled', 'Weekly budget is currently disabled.'))}</p>
+    `);
+  } else {
+    const calculation = current?.provisional_calculation;
+    const balance = current?.balance;
+    host.insertAdjacentHTML('beforeend', `
+      <div class="banking-weekly-summary">
+        ${weeklySummaryCard(
+          localized('weeklyBudgetAvailable', 'Available on N26'),
+          formatCents(current?.available_to_spend_cents, settings?.currency),
+          balance?.stale ? localized('weeklyBudgetStale', 'Balance is stale') : formatDateTime(balance?.fetched_at)
+        )}
+        ${weeklySummaryCard(
+          localized('weeklyBudgetDirect', 'Sparkasse direct expenses'),
+          formatCents(current?.direct_expense_cents, settings?.currency),
+          localized('weeklyBudgetDirectCount', '{count} included transactions', {
+            count: Array.isArray(current?.direct_expenses) ? current.direct_expenses.length : 0
+          })
+        )}
+        ${weeklySummaryCard(
+          localized('weeklyBudgetNextTransfer', 'Current refill calculation'),
+          calculation
+            ? formatCents(calculation.transfer_amount_cents, settings?.currency)
+            : localized('weeklyBudgetNoCalculation', 'No reliable calculation'),
+          localized('weeklyBudgetNextCutoff', 'Next cutoff: {date}', {
+            date: formatDateTime(current?.period?.next_cutoff_at)
+          })
+        )}
+      </div>
+    `);
+  }
+
+  fillAccountSelect(
+    form.querySelector('[data-weekly-source]'),
+    accounts,
+    settings?.source_account?.id,
+    localized('weeklyBudgetChooseSource', 'Choose source account')
+  );
+  fillAccountSelect(
+    form.querySelector('[data-weekly-target]'),
+    accounts,
+    settings?.target_account?.id,
+    localized('weeklyBudgetChooseTarget', 'Choose target account')
+  );
+  form.querySelector('[data-weekly-enabled]').checked = settings?.enabled ?? true;
+  form.querySelector('[data-weekly-amount]').value = settings
+    ? centsToInput(settings.target_amount_cents)
+    : '450,00';
+  form.querySelector('[data-weekly-weekday]').value = String(settings?.cutoff_weekday ?? 7);
+  form.querySelector('[data-weekly-time]').value = settings?.cutoff_time ?? '18:30';
+  form.querySelector('[data-weekly-timezone]').value = settings?.timezone ?? 'Europe/Berlin';
+  form.querySelector('[data-weekly-sync-one]').value = settings?.sync_time_1 ?? '06:00';
+  form.querySelector('[data-weekly-sync-two]').value = settings?.sync_time_2 ?? '18:00';
+  form.dataset.balanceStaleAfterMinutes = String(settings?.balance_stale_after_minutes ?? 840);
+  form.dataset.notificationEnabled = String(settings?.notification_enabled ?? false);
+  form.dataset.notificationUserId = settings?.notification_user_id == null
+    ? ''
+    : String(settings.notification_user_id);
+  form.dataset.notificationQrPreview = String(settings?.notification_qr_preview ?? false);
+  form.dataset.purposePrefix = settings?.purpose_prefix ?? 'WB';
+
+  const noAccountChoice = accounts.length < 2;
+  for (const control of form.elements) {
+    control.disabled = !canWrite || noAccountChoice;
+  }
+  const feedback = form.querySelector('[data-weekly-budget-feedback]');
+  if (noAccountChoice) {
+    feedback.textContent = localized(
+      'weeklyBudgetNeedsAccounts',
+      'Connect at least two EUR accounts before configuring the weekly budget.'
+    );
+  } else if (!canWrite) {
+    feedback.textContent = localized('readOnly', 'Your Banking permission is read-only.');
+  } else {
+    feedback.textContent = '';
+  }
+}
+
+function weeklySummaryCard(label, value, detail) {
+  return `
+    <article class="banking-weekly-summary__card">
+      <span>${esc(label)}</span>
+      <strong>${esc(value)}</strong>
+      <small>${esc(detail || '')}</small>
+    </article>
+  `;
+}
+
+function renderWeeklyBudgetCategories(host, categories, canWrite) {
+  host.replaceChildren();
+  if (!Array.isArray(categories) || categories.length === 0) {
+    host.insertAdjacentHTML('beforeend', `
+      <p class="banking-muted">${esc(localized('weeklyBudgetNoCategories', 'No Banking categories available yet.'))}</p>
+    `);
+    return;
+  }
+  const rows = categories.map((category) => `
+    <label class="banking-weekly-category${category?.active === false ? ' is-inactive' : ''}">
+      <span>
+        <strong>${esc(category?.name || localized('unknownTransaction', 'Category'))}</strong>
+        <small>${esc(String(category?.type || ''))}</small>
+      </span>
+      <input type="checkbox" data-weekly-category-id="${esc(String(category?.id ?? ''))}"
+        data-current-value="${category?.weekly_budget_default ? 'true' : 'false'}"
+        ${category?.weekly_budget_default ? 'checked' : ''} ${canWrite ? '' : 'disabled'}>
+    </label>
+  `).join('');
+  host.insertAdjacentHTML('beforeend', `<div class="banking-weekly-category-list">${rows}</div>`);
+}
+
+async function refreshWeeklyBudget(container, signal, canWrite = container.dataset.bankingPermission === 'write') {
+  const host = container.querySelector('[data-weekly-budget-current]');
+  const categoriesHost = container.querySelector('[data-weekly-budget-categories]');
+  const [currentResult, accountsResult, categoriesResult] = await Promise.allSettled([
+    loadJson('weekly-budget/current', { signal }),
+    loadJson('accounts', { signal }),
+    loadJson('categories', { signal })
+  ]);
+  if (signal.aborted) return;
+  if (currentResult.status === 'fulfilled' && accountsResult.status === 'fulfilled') {
+    const accounts = Array.isArray(accountsResult.value?.data) ? accountsResult.value.data : [];
+    renderWeeklyBudget(
+      host,
+      container.querySelector('[data-weekly-budget-settings]'),
+      currentResult.value?.data,
+      accounts,
+      canWrite
+    );
+  } else {
+    renderError(host, currentResult.status === 'rejected' ? currentResult.reason : accountsResult.reason);
+  }
+  if (categoriesResult.status === 'fulfilled') {
+    renderWeeklyBudgetCategories(categoriesHost, categoriesResult.value?.data, canWrite);
+  } else {
+    renderError(categoriesHost, categoriesResult.reason);
+  }
+}
+
+async function saveWeeklyBudgetSettings({ container, form, signal }) {
+  const feedback = form.querySelector('[data-weekly-budget-feedback]');
+  const saveButton = form.querySelector('[data-action="save-weekly-budget"]');
+  saveButton.disabled = true;
+  feedback.textContent = localized('weeklyBudgetSaving', 'Saving weekly-budget settings ...');
+  try {
+    const targetAmountCents = parseEuroCents(form.querySelector('[data-weekly-amount]').value);
+    const sourceAccountId = Number(form.querySelector('[data-weekly-source]').value);
+    const targetAccountId = Number(form.querySelector('[data-weekly-target]').value);
+    if (!Number.isSafeInteger(sourceAccountId) || !Number.isSafeInteger(targetAccountId)) {
+      throw new Error(localized('weeklyBudgetChooseAccounts', 'Choose a source and target account.'));
+    }
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson('weekly-budget/settings', {
+      method: 'PUT',
+      headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body: {
+        enabled: form.querySelector('[data-weekly-enabled]').checked,
+        source_account_id: sourceAccountId,
+        target_account_id: targetAccountId,
+        target_amount_cents: targetAmountCents,
+        cutoff_weekday: Number(form.querySelector('[data-weekly-weekday]').value),
+        cutoff_time: form.querySelector('[data-weekly-time]').value,
+        timezone: form.querySelector('[data-weekly-timezone]').value,
+        sync_time_1: form.querySelector('[data-weekly-sync-one]').value,
+        sync_time_2: form.querySelector('[data-weekly-sync-two]').value,
+        balance_stale_after_minutes: Number(form.dataset.balanceStaleAfterMinutes || 840),
+        notification_enabled: form.dataset.notificationEnabled === 'true',
+        notification_user_id: form.dataset.notificationUserId
+          ? Number(form.dataset.notificationUserId)
+          : null,
+        notification_qr_preview: form.dataset.notificationQrPreview === 'true',
+        purpose_prefix: form.dataset.purposePrefix || 'WB'
+      },
+      signal
+    });
+    feedback.textContent = localized('weeklyBudgetSaved', 'Weekly-budget settings saved.');
+    await refreshWeeklyBudget(container, signal, true);
+  } catch (error) {
+    if (!signal.aborted) {
+      feedback.textContent = error instanceof Error
+        ? error.message
+        : localized('weeklyBudgetSaveFailed', 'Weekly-budget settings could not be saved.');
+    }
+  } finally {
+    if (!signal.aborted) saveButton.disabled = false;
+  }
+}
+
+async function updateCategoryWeeklyBudget({ container, checkbox, signal }) {
+  const categoryId = checkbox.dataset.weeklyCategoryId;
+  if (!/^\d+$/.test(categoryId)) return;
+  const previous = checkbox.dataset.currentValue === 'true';
+  checkbox.disabled = true;
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson(`categories/${encodeURIComponent(categoryId)}/weekly-budget`, {
+      method: 'PATCH',
+      headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body: { weekly_budget_default: checkbox.checked },
+      signal
+    });
+    checkbox.dataset.currentValue = String(checkbox.checked);
+    await refreshWeeklyBudget(container, signal, true);
+  } catch {
+    checkbox.checked = previous;
+    checkbox.disabled = false;
+  }
+}
+
+async function updateTransactionWeeklyBudget({ container, select, signal }) {
+  const transactionId = select.dataset.transactionId;
+  if (!/^\d+$/.test(transactionId)) return;
+  const previous = select.dataset.currentValue || 'inherit';
+  select.disabled = true;
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson(`transactions/${encodeURIComponent(transactionId)}/weekly-budget`, {
+      method: 'PATCH',
+      headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body: { weekly_budget_override: select.value },
+      signal
+    });
+    select.dataset.currentValue = select.value;
+    await refreshWeeklyBudget(container, signal, true);
+  } catch {
+    select.value = previous;
+  } finally {
+    if (!signal.aborted) select.disabled = false;
+  }
+}
+
+function fillAccountSelect(select, accounts, selectedId, placeholder) {
+  select.replaceChildren(createOption('', placeholder));
+  if (Array.isArray(accounts)) {
+    for (const account of accounts) {
+      const id = String(account?.id ?? '');
+      if (!/^\d+$/.test(id)) continue;
+      const label = `${account?.display_name || localized('unknownAccount', 'Bank account')} · ${account?.iban_masked || ''}`;
+      select.append(createOption(id, label));
+    }
+  }
+  select.value = selectedId == null ? '' : String(selectedId);
+}
+
+function weekdayOptions() {
+  const names = [
+    localized('monday', 'Monday'),
+    localized('tuesday', 'Tuesday'),
+    localized('wednesday', 'Wednesday'),
+    localized('thursday', 'Thursday'),
+    localized('friday', 'Friday'),
+    localized('saturday', 'Saturday'),
+    localized('sunday', 'Sunday')
+  ];
+  return names.map((name, index) => `<option value="${index + 1}">${esc(name)}</option>`).join('');
+}
+
+function parseEuroCents(value) {
+  const normalized = String(value ?? '').trim().replace(',', '.');
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(normalized);
+  if (!match) throw new Error(localized('weeklyBudgetInvalidAmount', 'Enter a valid positive euro amount.'));
+  const cents = BigInt(match[1]) * 100n + BigInt((match[2] || '').padEnd(2, '0') || '0');
+  const result = Number(cents);
+  if (!Number.isSafeInteger(result) || result <= 0) {
+    throw new Error(localized('weeklyBudgetInvalidAmount', 'Enter a valid positive euro amount.'));
+  }
+  return result;
+}
+
+function centsToInput(value) {
+  const cents = Number(value);
+  if (!Number.isSafeInteger(cents) || cents < 0) return '';
+  return `${Math.floor(cents / 100)},${String(cents % 100).padStart(2, '0')}`;
+}
+
+function formatCents(value, currency = 'EUR') {
+  const cents = Number(value);
+  return Number.isSafeInteger(cents)
+    ? formatMoney(cents / 100, currency)
+    : localized('unknownAmount', 'Amount unavailable');
+}
+
+function formatDateTime(value) {
+  if (typeof value !== 'string') return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'short',
+    timeStyle: 'short'
+  }).format(date);
 }
 
 function renderConnections(host, connections) {
@@ -360,7 +777,7 @@ function renderAccounts(host, accounts, canWrite) {
   for (const account of accounts) {
     const id = String(account?.id ?? '');
     host.insertAdjacentHTML('beforeend', `
-      <article class="banking-account-card" data-banking-account-card data-account-id="${esc(id)}">
+      <article class="banking-account-card" data-banking-account-card data-account-id="${esc(id)}" data-can-write="${canWrite ? 'true' : 'false'}">
         <div class="banking-account-card__header">
           <div>
             <h3>${esc(account?.display_name || localized('unknownAccount', 'Bank account'))}</h3>
@@ -413,7 +830,11 @@ async function loadAccountDetails({ card, button, signal }) {
     if (balancesResult.status === 'fulfilled') renderBalances(balancesHost, balancesResult.value?.data);
     else renderError(balancesHost, balancesResult.reason);
     if (transactionsResult.status === 'fulfilled') {
-      renderTransactions(transactionsHost, transactionsResult.value?.data?.transactions);
+      renderTransactions(
+        transactionsHost,
+        transactionsResult.value?.data?.transactions,
+        card.dataset.canWrite === 'true'
+      );
       feedback.textContent = localized('detailsLoaded', 'Account details loaded.');
     } else {
       renderError(transactionsHost, transactionsResult.reason);
@@ -462,7 +883,7 @@ async function syncAccount({ card, button, signal }) {
     else renderError(balancesHost, balancesResult.reason);
     if (syncResult.status === 'fulfilled') {
       const data = syncResult.value?.data;
-      renderTransactions(transactionsHost, data?.transactions);
+      renderTransactions(transactionsHost, data?.transactions, card.dataset.canWrite === 'true');
       const imported = data?.imported;
       feedback.textContent = imported
         ? localized('syncComplete', 'Sync complete: {inserted} new, {updated} updated.', {
@@ -503,7 +924,7 @@ function renderBalances(host, balances) {
   host.insertAdjacentHTML('beforeend', `<ul class="banking-balance-list">${list}</ul>`);
 }
 
-function renderTransactions(host, transactions) {
+function renderTransactions(host, transactions, canWrite = false) {
   host.replaceChildren();
   if (!Array.isArray(transactions) || transactions.length === 0) {
     host.insertAdjacentHTML('beforeend', `<p class="banking-muted">${esc(localized('noTransactions', 'No transactions returned.'))}</p>`);
@@ -522,11 +943,23 @@ function renderTransactions(host, transactions) {
       UNKNOWN: localized('transactionStatusUnknown', 'Status unknown')
     }[transaction?.status] || localized('transactionStatusUnknown', 'Status unknown');
     const transactionDate = transaction?.booking_date || transaction?.value_date || transaction?.transaction_date;
+    const transactionId = String(transaction?.id ?? '');
+    const override = ['inherit', 'include', 'exclude'].includes(transaction?.weekly_budget_override)
+      ? transaction.weekly_budget_override
+      : 'inherit';
     return `
       <li class="banking-transaction-row">
         <div>
           <strong>${esc(String(title))}</strong>
           <span>${esc(formatDate(transactionDate) || '')}${subtitle ? ` · ${esc(String(subtitle))}` : ''} · ${esc(statusText)}</span>
+          ${/^\d+$/.test(transactionId) ? `<label class="banking-transaction-budget">
+            <span>${esc(localized('weeklyBudgetTransaction', 'Weekly budget'))}</span>
+            <select class="form-input" data-weekly-budget-override data-transaction-id="${esc(transactionId)}" data-current-value="${esc(override)}" ${canWrite ? '' : 'disabled'}>
+              <option value="inherit" ${override === 'inherit' ? 'selected' : ''}>${esc(localized('weeklyBudgetInherit', 'Use category'))}</option>
+              <option value="include" ${override === 'include' ? 'selected' : ''}>${esc(localized('weeklyBudgetInclude', 'Include'))}</option>
+              <option value="exclude" ${override === 'exclude' ? 'selected' : ''}>${esc(localized('weeklyBudgetExclude', 'Exclude'))}</option>
+            </select>
+          </label>` : ''}
         </div>
         <strong class="banking-transaction-row__amount" data-direction="${esc(direction)}">${esc(formatMoney(signedAmount, currency))}</strong>
       </li>

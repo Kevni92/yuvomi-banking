@@ -15,6 +15,7 @@ import {
   type WeeklyBudgetConfigRow
 } from './weekly-budget-overview.js';
 import { weeklyBudgetPeriodEndingAt } from './weekly-budget-schedule.js';
+import { buildEpcQrPayload, giroCodePayloadSha256 } from './girocode.js';
 
 export type WeeklyBudgetRunTrigger = 'scheduled' | 'catch_up' | 'manual';
 
@@ -38,6 +39,7 @@ interface RunnerAccount {
   id: number;
   providerAccountId: string;
   displayName: string | null;
+  ibanEncrypted: string | null;
   currency: string;
 }
 
@@ -192,6 +194,20 @@ export async function runWeeklyBudgetCutoff({
       prefix: configRow.purpose_prefix,
       targetAccountLabel: 'N26'
     });
+    const beneficiaryName = configRow.target_beneficiary_name
+      ?? targetAccount.displayName
+      ?? '';
+    if (!targetAccount.ibanEncrypted) {
+      throw new Error('Target account has no IBAN for the GiroCode snapshot.');
+    }
+    const payloadSha256 = calculation.transferAmountCents > 0
+      ? giroCodePayloadSha256(buildEpcQrPayload({
+          beneficiaryName,
+          iban: encryption.decrypt(targetAccount.ibanEncrypted),
+          amountCents: calculation.transferAmountCents,
+          remittance: purpose
+        }))
+      : null;
     const finalizedAt = clock().toISOString();
     const periodInsert = database.prepare(`
       INSERT INTO weekly_budget_periods (
@@ -204,9 +220,10 @@ export async function runWeeklyBudgetCutoff({
         computed_amount_cents, overfunded_cents, calculation_version,
         source_sync_completed_at, target_sync_completed_at,
         cutoff_weekday, cutoff_time, timezone, purpose_prefix,
+        target_beneficiary_name, target_iban_encrypted,
         created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'finalized', ?, ?, ?, ?, ?, 'EUR',
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       configRow.id,
       periodKey,
@@ -233,6 +250,8 @@ export async function runWeeklyBudgetCutoff({
       configRow.cutoff_time,
       configRow.timezone,
       configRow.purpose_prefix,
+      beneficiaryName,
+      targetAccount.ibanEncrypted,
       finalizedAt,
       finalizedAt
     );
@@ -269,8 +288,8 @@ export async function runWeeklyBudgetCutoff({
         target_amount_cents, target_balance_cents, computed_amount_cents,
         deducted_amount_cents, raw_computed_amount_cents, overfunded_cents,
         week_start, week_end, purpose, calculation_version, status,
-        generated_at, created_at, updated_at
-      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        payload_sha256, generated_at, created_at, updated_at
+      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       periodId,
       sourceAccount.id,
@@ -286,6 +305,7 @@ export async function runWeeklyBudgetCutoff({
       purpose,
       calculation.calculationVersion,
       suggestionStatus,
+      payloadSha256,
       finalizedAt,
       finalizedAt,
       finalizedAt
@@ -458,7 +478,8 @@ function loadRunnerAccounts(
 ): Map<number, RunnerAccount> {
   const rows = database.prepare(`
     SELECT bank_accounts.id, bank_accounts.provider_account_id,
-           bank_accounts.display_name, bank_accounts.currency,
+           bank_accounts.display_name, bank_accounts.iban_encrypted,
+           bank_accounts.currency,
            enable_banking_connections.yuvomi_user_id,
            enable_banking_connections.status AS connection_status
     FROM bank_accounts
@@ -480,6 +501,7 @@ function loadRunnerAccounts(
       id: Number(row.id),
       providerAccountId: String(row.provider_account_id),
       displayName: typeof row.display_name === 'string' ? row.display_name : null,
+      ibanEncrypted: typeof row.iban_encrypted === 'string' ? row.iban_encrypted : null,
       currency: String(row.currency)
     });
   }

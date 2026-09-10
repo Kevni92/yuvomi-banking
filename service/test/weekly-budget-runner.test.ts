@@ -42,9 +42,10 @@ function fixture(): DatabaseSync {
       target_amount_cents, currency, cutoff_weekday, cutoff_time, timezone,
       sync_time_1, sync_time_2, balance_stale_after_minutes,
       notification_enabled, notification_qr_preview, purpose_prefix,
-      effective_from_date, created_at, updated_at
+      effective_from_date, target_beneficiary_name, created_at, updated_at
     ) VALUES (7, 1, 1, 2, 45000, 'EUR', 7, '18:30', 'Europe/Berlin',
-              '06:00', '18:00', 840, 0, 0, 'WB', '2026-09-06', ?, ?)
+              '06:00', '18:00', 840, 0, 0, 'WB', '2026-09-06',
+              'Weekly Budget User', ?, ?)
   `).run(RUN_TIME.toISOString(), RUN_TIME.toISOString());
   database.prepare(`
     INSERT INTO transactions (
@@ -145,7 +146,8 @@ test('fresh cutoff sync atomically finalizes the 450 - 30 - 100 = 320 period', a
     assert.deepEqual({ ...(database.prepare(`
       SELECT period_start_date, period_end_date, target_balance_cents,
              direct_expense_cents, computed_amount_cents, cutoff_weekday,
-             cutoff_time, timezone
+             cutoff_time, timezone, target_beneficiary_name,
+             target_iban_encrypted
       FROM weekly_budget_periods
     `).get() as Record<string, unknown>) }, {
       period_start_date: '2026-09-06',
@@ -155,8 +157,15 @@ test('fresh cutoff sync atomically finalizes the 450 - 30 - 100 = 320 period', a
       computed_amount_cents: 32000,
       cutoff_weekday: 7,
       cutoff_time: '18:30',
-      timezone: 'Europe/Berlin'
+      timezone: 'Europe/Berlin',
+      target_beneficiary_name: 'Weekly Budget User',
+      target_iban_encrypted: (database.prepare(
+        'SELECT iban_encrypted FROM bank_accounts WHERE id = 2'
+      ).get() as Record<string, unknown>).iban_encrypted
     });
+    assert.match(String(database.prepare(
+      'SELECT payload_sha256 FROM transfer_suggestions'
+    ).get()?.payload_sha256), /^[a-f0-9]{64}$/);
 
     const replay = await runWeeklyBudgetCutoff({
       database,
@@ -272,4 +281,3 @@ test('an unusable target balance rolls back imported data and snapshots', async 
     config.secrets.counterpartyHmac = previousHmac;
   }
 });
-

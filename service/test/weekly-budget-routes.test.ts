@@ -82,6 +82,7 @@ function settingsBody(): Record<string, unknown> {
     enabled: true,
     source_account_id: 1,
     target_account_id: 2,
+    target_beneficiary_name: 'Weekly Budget User',
     target_amount_cents: 45000,
     cutoff_weekday: 7,
     cutoff_time: '18:30',

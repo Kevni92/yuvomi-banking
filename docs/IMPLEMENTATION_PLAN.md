@@ -12,7 +12,7 @@
 | 6 | Offen | Händlernormalisierung und Logos |
 | 7 | Nicht im Kernumfang | Optionale Yuvomi-Budget-Exportbrücke; keine Abhängigkeit des Wochenbudgets |
 | 8 | In Arbeit | Datenmodell, Prioritäts- und Berechnungslogik, Saldo-Snapshots, Stichtags-Zeitzonenlogik, Settings-/Current-API, UI, atomarer Stichtagsdienst und automatische Cutoff-Auslösung umgesetzt; Historien-UI und Transfer-Erkennung offen |
-| 9 | Offen | GiroCode/SEPA-QR |
+| 9 | Erledigt | EPC069-12-v3.1-Payload, Empfängersnapshot, SHA-256-Fingerprint, geschützte Metadaten-/PNG-API sowie Anzeige und Download in der Wochenbudget-UI |
 | 10 | In Arbeit | Cutoff-Scheduler mit Lease, Idempotenz, Retry und Catch-up umgesetzt; zweimal täglicher Sync und Banking-eigene Push-Benachrichtigungen offen |
 | 11 | Offen | Produktionshärtung |
 

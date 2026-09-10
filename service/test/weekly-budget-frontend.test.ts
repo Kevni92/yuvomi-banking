@@ -17,6 +17,8 @@ test('banking page exposes weekly-budget settings and both override controls', (
     'data-weekly-budget-override',
     "weekly_budget_override: select.value",
     'target_amount_cents: targetAmountCents',
+    'target_beneficiary_name:',
+    'girocode.png',
     "cutoff_time: form.querySelector('[data-weekly-time]').value"
   ]) assert.ok(source.includes(marker), `Missing frontend contract marker: ${marker}`);
 
@@ -39,6 +41,8 @@ test('weekly-budget locale keys exist in German and English', () => {
     'weeklyBudgetAvailable',
     'weeklyBudgetSource',
     'weeklyBudgetTarget',
+    'weeklyBudgetBeneficiary',
+    'weeklyBudgetGiroCode',
     'weeklyBudgetWeekday',
     'weeklyBudgetTime',
     'weeklyBudgetCategories',
@@ -50,4 +54,3 @@ test('weekly-budget locale keys exist in German and English', () => {
     assert.ok(english[key], `Missing English locale key ${key}`);
   }
 });
-

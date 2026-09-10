@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import express from 'express';
 import { createEncryptionService } from '../security/encryption.js';
-import { normalizeIban } from '../services/counterparty.js';
 import {
   buildCurrentWeeklyBudgetOverview,
   findWeeklyBudgetConfig,
@@ -12,6 +11,13 @@ import {
   localDateForInstant,
   weeklyBudgetWindow
 } from '../services/weekly-budget-schedule.js';
+import {
+  GiroCodeNotFoundError,
+  GiroCodeUnavailableError,
+  assertValidIban,
+  loadWeeklyBudgetGiroCode,
+  renderGiroCodePng
+} from '../services/girocode.js';
 import {
   mutationIsAllowed,
   noStore,
@@ -59,17 +65,14 @@ export function createWeeklyBudgetRouter({
         return;
       }
       const targetAccount = accounts.find((account) => account.id === input.targetAccountId);
-      if (!targetAccount?.display_name || !targetAccount.iban_encrypted) {
-        response.status(400).json({ error: 'Target account requires a recipient name and IBAN.' });
+      if (!targetAccount?.iban_encrypted) {
+        response.status(400).json({ error: 'Target account requires an IBAN.' });
         return;
       }
       try {
-        const iban = normalizeIban(createEncryptionService().decrypt(targetAccount.iban_encrypted));
-        if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(iban)) {
-          throw new Error('Invalid IBAN.');
-        }
+        assertValidIban(createEncryptionService().decrypt(targetAccount.iban_encrypted));
       } catch {
-        response.status(400).json({ error: 'Target-account IBAN cannot be decrypted.' });
+        response.status(400).json({ error: 'Target-account IBAN is unavailable or invalid.' });
         return;
       }
 
@@ -87,7 +90,7 @@ export function createWeeklyBudgetRouter({
             cutoff_time = ?, timezone = ?, sync_time_1 = ?, sync_time_2 = ?,
             balance_stale_after_minutes = ?, notification_enabled = ?,
             notification_user_id = ?, notification_qr_preview = ?,
-            purpose_prefix = ?, updated_at = ?
+            purpose_prefix = ?, target_beneficiary_name = ?, updated_at = ?
           WHERE id = ? AND yuvomi_user_id = ?
         `).run(
           input.enabled ? 1 : 0,
@@ -104,6 +107,7 @@ export function createWeeklyBudgetRouter({
           input.notificationUserId,
           input.notificationQrPreview ? 1 : 0,
           input.purposePrefix,
+          input.targetBeneficiaryName,
           nowIso,
           existing.id,
           user.id
@@ -116,8 +120,8 @@ export function createWeeklyBudgetRouter({
             timezone, sync_time_1, sync_time_2, balance_stale_after_minutes,
             notification_enabled, notification_user_id,
             notification_qr_preview, purpose_prefix, effective_from_date,
-            created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'EUR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            target_beneficiary_name, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 'EUR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           user.id,
           input.enabled ? 1 : 0,
@@ -135,6 +139,7 @@ export function createWeeklyBudgetRouter({
           input.notificationQrPreview ? 1 : 0,
           input.purposePrefix,
           effectiveFromDate,
+          input.targetBeneficiaryName,
           nowIso,
           nowIso
         );
@@ -164,6 +169,66 @@ export function createWeeklyBudgetRouter({
     } catch {
       noStore(response);
       response.status(500).json({ error: 'Current weekly budget could not be calculated.' });
+    }
+  });
+
+  router.get('/weekly-budget/transfers/:suggestionId/girocode', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'read');
+    if (!user) return;
+    try {
+      const giroCode = loadWeeklyBudgetGiroCode(
+        database,
+        user.id,
+        positivePathId(request.params.suggestionId) ?? 0
+      );
+      noStore(response);
+      response.json({
+        data: {
+          suggestion_id: giroCode.suggestionId,
+          revision: giroCode.revision,
+          period_key: giroCode.periodKey,
+          status: giroCode.status,
+          beneficiary_name: giroCode.beneficiaryName,
+          iban_masked: giroCode.ibanMasked,
+          amount_cents: giroCode.amountCents,
+          currency: giroCode.currency,
+          purpose: giroCode.purpose,
+          payload_sha256: giroCode.payloadSha256,
+          png_url: `/api/extensions/banking/weekly-budget/transfers/${giroCode.suggestionId}/girocode.png`
+        }
+      });
+    } catch (error) {
+      noStore(response);
+      response.status(error instanceof GiroCodeNotFoundError ? 404 : 409).json({
+        error: error instanceof GiroCodeUnavailableError
+          ? error.message
+          : 'GiroCode is unavailable.'
+      });
+    }
+  });
+
+  router.get('/weekly-budget/transfers/:suggestionId/girocode.png', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'read');
+    if (!user) return;
+    try {
+      const giroCode = loadWeeklyBudgetGiroCode(
+        database,
+        user.id,
+        positivePathId(request.params.suggestionId) ?? 0
+      );
+      const png = await renderGiroCodePng(giroCode.payload);
+      response.setHeader('Cache-Control', 'private, no-store');
+      response.setHeader('Content-Type', 'image/png');
+      response.setHeader('Content-Disposition', `inline; filename="weekly-budget-${giroCode.suggestionId}-girocode.png"`);
+      response.setHeader('X-Content-Type-Options', 'nosniff');
+      response.send(png);
+    } catch (error) {
+      noStore(response);
+      response.status(error instanceof GiroCodeNotFoundError ? 404 : 409).json({
+        error: error instanceof GiroCodeUnavailableError
+          ? error.message
+          : 'GiroCode is unavailable.'
+      });
     }
   });
 
@@ -251,6 +316,7 @@ interface SettingsInput {
   notificationUserId: number | null;
   notificationQrPreview: boolean;
   purposePrefix: string;
+  targetBeneficiaryName: string;
 }
 
 function parseSettingsInput(body: unknown): SettingsInput {
@@ -311,6 +377,14 @@ function parseSettingsInputValue(body: unknown): SettingsInput {
   if (!/^[A-Za-z0-9]{1,10}$/.test(purposePrefix)) {
     throw new Error('purpose_prefix must contain only ASCII letters or digits.');
   }
+  const targetBeneficiaryName = stringValue(
+    value.target_beneficiary_name,
+    'target_beneficiary_name',
+    70
+  );
+  if (/[\u0000-\u001f\u007f]/.test(targetBeneficiaryName)) {
+    throw new Error('target_beneficiary_name contains unsupported control characters.');
+  }
   return {
     enabled,
     sourceAccountId,
@@ -325,7 +399,8 @@ function parseSettingsInputValue(body: unknown): SettingsInput {
     notificationEnabled,
     notificationUserId,
     notificationQrPreview,
-    purposePrefix
+    purposePrefix,
+    targetBeneficiaryName
   };
 }
 

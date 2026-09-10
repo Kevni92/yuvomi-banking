@@ -9,6 +9,7 @@ import {
   type WeeklyBudgetOverride
 } from './weekly-budget.js';
 import { weeklyBudgetWindow } from './weekly-budget-schedule.js';
+import { loadWeeklyBudgetGiroCode } from './girocode.js';
 
 export interface WeeklyBudgetConfigRow extends Record<string, unknown> {
   id: number;
@@ -20,6 +21,7 @@ export interface WeeklyBudgetConfigRow extends Record<string, unknown> {
   target_account_id: number;
   target_account_name: string | null;
   target_iban_encrypted: string | null;
+  target_beneficiary_name: string | null;
   target_amount_cents: number;
   currency: string;
   cutoff_weekday: number;
@@ -216,6 +218,7 @@ export function serializeWeeklyBudgetSettings(configRow: WeeklyBudgetConfigRow):
       id: Number(configRow.target_account_id),
       display_name: configRow.target_account_name
     },
+    target_beneficiary_name: configRow.target_beneficiary_name,
     target_amount_cents: Number(configRow.target_amount_cents),
     currency: configRow.currency,
     cutoff_weekday: Number(configRow.cutoff_weekday),
@@ -307,6 +310,32 @@ export function buildCurrentWeeklyBudgetOverview(
              transfer_suggestions.revision DESC
     LIMIT 1
   `).get(configRow.id) as Record<string, unknown> | undefined;
+  let latestSuggestionView: Record<string, unknown> | null = latestSuggestion
+    ? { ...latestSuggestion }
+    : null;
+  if (
+    latestSuggestionView
+    && Number(latestSuggestionView.computed_amount_cents) > 0
+  ) {
+    try {
+      const giroCode = loadWeeklyBudgetGiroCode(
+        database,
+        yuvomiUserId,
+        Number(latestSuggestionView.id)
+      );
+      latestSuggestionView.girocode = {
+        beneficiary_name: giroCode.beneficiaryName,
+        iban_masked: giroCode.ibanMasked,
+        amount_cents: giroCode.amountCents,
+        currency: giroCode.currency,
+        purpose: giroCode.purpose,
+        payload_sha256: giroCode.payloadSha256,
+        png_url: `/api/extensions/banking/weekly-budget/transfers/${giroCode.suggestionId}/girocode.png`
+      };
+    } catch {
+      latestSuggestionView.girocode = null;
+    }
+  }
 
   return {
     configured: true,
@@ -341,7 +370,7 @@ export function buildCurrentWeeklyBudgetOverview(
           calculation_version: calculation.calculationVersion
         }
       : null,
-    latest_suggestion: latestSuggestion ? { ...latestSuggestion } : null
+    latest_suggestion: latestSuggestionView
   };
 }
 

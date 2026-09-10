@@ -183,6 +183,10 @@ function renderOverviewMarkup() {
           <select class="form-input" data-weekly-target required></select>
         </label>
         <label class="banking-field">
+          <span>${esc(localized('weeklyBudgetBeneficiary', 'Target account holder'))}</span>
+          <input class="form-input" maxlength="70" autocomplete="name" data-weekly-beneficiary required>
+        </label>
+        <label class="banking-field">
           <span>${esc(localized('weeklyBudgetAmount', 'Weekly target in euros'))}</span>
           <input class="form-input" inputmode="decimal" placeholder="450,00" data-weekly-amount required>
         </label>
@@ -478,7 +482,9 @@ function renderWeeklyBudget(host, form, current, accounts, canWrite) {
           })
         )}
       </div>
+      ${weeklyGiroCodeMarkup(current?.latest_suggestion)}
     `);
+    configureGiroCodeShare(host);
   }
 
   fillAccountSelect(
@@ -502,6 +508,7 @@ function renderWeeklyBudget(host, form, current, accounts, canWrite) {
   form.querySelector('[data-weekly-timezone]').value = settings?.timezone ?? 'Europe/Berlin';
   form.querySelector('[data-weekly-sync-one]').value = settings?.sync_time_1 ?? '06:00';
   form.querySelector('[data-weekly-sync-two]').value = settings?.sync_time_2 ?? '18:00';
+  form.querySelector('[data-weekly-beneficiary]').value = settings?.target_beneficiary_name ?? '';
   form.dataset.balanceStaleAfterMinutes = String(settings?.balance_stale_after_minutes ?? 840);
   form.dataset.notificationEnabled = String(settings?.notification_enabled ?? false);
   form.dataset.notificationUserId = settings?.notification_user_id == null
@@ -524,6 +531,74 @@ function renderWeeklyBudget(host, form, current, accounts, canWrite) {
     feedback.textContent = localized('readOnly', 'Your Banking permission is read-only.');
   } else {
     feedback.textContent = '';
+  }
+}
+
+function weeklyGiroCodeMarkup(suggestion) {
+  const giroCode = suggestion?.girocode;
+  if (!giroCode?.png_url) return '';
+  return `
+    <section class="banking-girocode" aria-label="${esc(localized('weeklyBudgetGiroCode', 'GiroCode'))}">
+      <div class="banking-girocode__details">
+        <h3>${esc(localized('weeklyBudgetGiroCode', 'GiroCode'))}</h3>
+        <dl>
+          <div><dt>${esc(localized('weeklyBudgetBeneficiaryShort', 'Recipient'))}</dt><dd>${esc(giroCode.beneficiary_name || '')}</dd></div>
+          <div><dt>IBAN</dt><dd>${esc(giroCode.iban_masked || '')}</dd></div>
+          <div><dt>${esc(localized('weeklyBudgetTransferAmount', 'Amount'))}</dt><dd>${esc(formatCents(giroCode.amount_cents, giroCode.currency))}</dd></div>
+          <div><dt>${esc(localized('weeklyBudgetPurpose', 'Purpose'))}</dt><dd>${esc(giroCode.purpose || '')}</dd></div>
+        </dl>
+        <p class="banking-panel__description">${esc(localized('weeklyBudgetGiroCodeHint', 'Check the payment data, then scan the code with your banking app.'))}</p>
+        <div class="banking-girocode__actions">
+          <a class="btn btn--secondary" href="${esc(giroCode.png_url)}" target="_blank" rel="noopener">${esc(localized('weeklyBudgetOpenGiroCode', 'Open GiroCode'))}</a>
+          <a class="btn btn--secondary" href="${esc(giroCode.png_url)}" download="weekly-budget-girocode.png">${esc(localized('weeklyBudgetDownloadGiroCode', 'Download PNG'))}</a>
+          <button class="btn btn--secondary" type="button" data-action="share-girocode" data-girocode-url="${esc(giroCode.png_url)}">${esc(localized('weeklyBudgetShareGiroCode', 'Share'))}</button>
+        </div>
+      </div>
+      <img src="${esc(giroCode.png_url)}" alt="${esc(localized('weeklyBudgetGiroCodeAlt', 'QR code for the weekly-budget transfer'))}">
+    </section>
+  `;
+}
+
+function configureGiroCodeShare(host) {
+  const button = host.querySelector('[data-action="share-girocode"]');
+  if (!button) return;
+  if (typeof navigator.share !== 'function' || typeof File !== 'function') {
+    button.remove();
+    return;
+  }
+  button.addEventListener('click', () => {
+    void shareGiroCode(button);
+  });
+}
+
+async function shareGiroCode(button) {
+  button.disabled = true;
+  try {
+    const response = await fetch(button.dataset.girocodeUrl, {
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    if (!response.ok) throw new Error('GiroCode unavailable.');
+    const file = new File(
+      [await response.blob()],
+      'weekly-budget-girocode.png',
+      { type: 'image/png' }
+    );
+    if (typeof navigator.canShare === 'function' && !navigator.canShare({ files: [file] })) {
+      button.remove();
+      return;
+    }
+    await navigator.share({
+      title: localized('weeklyBudgetGiroCode', 'GiroCode'),
+      files: [file]
+    });
+  } catch (error) {
+    if (error?.name !== 'AbortError') button.title = localized(
+      'weeklyBudgetShareFailed',
+      'GiroCode could not be shared.'
+    );
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -607,6 +682,7 @@ async function saveWeeklyBudgetSettings({ container, form, signal }) {
         enabled: form.querySelector('[data-weekly-enabled]').checked,
         source_account_id: sourceAccountId,
         target_account_id: targetAccountId,
+        target_beneficiary_name: form.querySelector('[data-weekly-beneficiary]').value,
         target_amount_cents: targetAmountCents,
         cutoff_weekday: Number(form.querySelector('[data-weekly-weekday]').value),
         cutoff_time: form.querySelector('[data-weekly-time]').value,

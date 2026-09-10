@@ -647,9 +647,9 @@ status
 
 #### `weekly_budget_configs`
 
-Speichert Konten, Zielbetrag, Stichtag, Zeitzone, reguläre Sync-Zeiten,
-Empfänger und Push-Datenschutzoptionen. Pro Besitzer darf nur eine Konfiguration
-aktiv sein.
+Speichert Konten, Zielbetrag, Empfängername des Zielkontos, Stichtag, Zeitzone,
+reguläre Sync-Zeiten, Benachrichtigungsempfänger und Push-Datenschutzoptionen.
+Pro Besitzer darf nur eine Konfiguration aktiv sein.
 
 #### `account_balance_snapshots`
 
@@ -660,6 +660,8 @@ Provider-Beobachtungszeit, Abrufzeit und Kennzeichnung des verwendbaren Saldos.
 
 Unveränderlicher Abschluss einer Periode mit Konfigurationssnapshot,
 Periodengrenzen, Summen, Sync-Referenzen, Algorithmusversion und Status.
+Empfängername und verschlüsselte Ziel-IBAN werden je Periode eingefroren, damit
+ein späterer Konten-Reconnect den historischen GiroCode nicht verändert.
 
 #### `weekly_budget_period_transactions`
 
@@ -750,11 +752,14 @@ GET  /weekly-budget/periods
 GET  /weekly-budget/periods/:id
 POST /weekly-budget/periods/:id/recalculate
 POST /weekly-budget/transfers/:id/dismiss
+GET  /weekly-budget/transfers/:id/girocode
 GET  /weekly-budget/transfers/:id/girocode.png
 ```
 
-Der authentifizierte PNG-Endpunkt benötigt mindestens `ext:banking:read` und
-antwortet mit `Cache-Control: private, no-store`.
+Der authentifizierte Metadaten-Endpunkt liefert Empfängername, maskierte IBAN,
+Betrag, Verwendungszweck, Payload-Fingerprint und die lokale PNG-URL. Der
+PNG-Endpunkt benötigt ebenfalls mindestens `ext:banking:read` und antwortet mit
+`Cache-Control: private, no-store`.
 
 Der kurzlebige Bild-Endpunkt für die optionale Notification-Vorschau akzeptiert
 nur das Capability-Token und gibt keinerlei JSON-Metadaten zurück.

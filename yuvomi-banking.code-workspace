@@ -1,0 +1,18 @@
+{
+  "folders": [
+    {
+      "name": "yuvomi-banking",
+      "path": "."
+    },
+    {
+      "name": "yuvomi",
+      "path": "../yuvomi"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/data/*.db": true,
+      "**/secrets/*": true
+    }
+  }
+}

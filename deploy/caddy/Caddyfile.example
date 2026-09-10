@@ -1,0 +1,9 @@
+:8080 {
+	handle /api/extensions/banking/* {
+		reverse_proxy 127.0.0.1:3100
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+}

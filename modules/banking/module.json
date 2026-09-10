@@ -1,0 +1,56 @@
+{
+  "manifestVersion": 1,
+  "id": "banking",
+  "name": "Banking",
+  "version": "0.1.0",
+  "description": "Bankkonten, Umsätze, Kategorisierung und Wochenbudget.",
+  "entry": "index.js",
+  "style": "style.css",
+  "icon": "landmark",
+  "accent": "#2F6B55",
+  "menu": {
+    "show": true,
+    "label": "Banking",
+    "labelKey": "menu",
+    "icon": "landmark",
+    "order": 80
+  },
+  "page": {
+    "composition": "data",
+    "width": "content",
+    "navigation": "standard",
+    "responsive": "standard"
+  },
+  "i18n": {
+    "defaultLocale": "de"
+  },
+  "capabilities": {
+    "permissions": {
+      "module": {
+        "label": "Banking",
+        "labelKey": "module",
+        "icon": "landmark"
+      },
+      "widgets": [
+        {
+          "id": "weekly-budget",
+          "label": "Wochenbudget"
+        }
+      ]
+    },
+    "widgets": [
+      {
+        "id": "weekly-budget",
+        "entry": "widgets/weekly-budget.js",
+        "label": "Wochenbudget",
+        "labelKey": "widgets.weekly-budget",
+        "icon": "wallet-cards",
+        "defaultSize": "1x2",
+        "defaultVisible": false
+      }
+    ],
+    "api": {
+      "prefix": "/api/extensions/banking"
+    }
+  }
+}

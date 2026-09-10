@@ -1,0 +1,53 @@
+.banking-empty-state {
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.12));
+  border-radius: var(--radius-lg, 16px);
+  padding: var(--space-4, 1rem);
+  background: var(--color-surface, transparent);
+}
+
+.banking-integration-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4, 1rem);
+  margin-bottom: var(--space-4, 1rem);
+}
+
+.banking-integration-card {
+  display: grid;
+  gap: var(--space-2, 0.5rem);
+  min-width: 0;
+  padding: var(--space-4, 1rem);
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.12));
+  border-radius: var(--radius-lg, 16px);
+  background: var(--color-surface, transparent);
+}
+
+.banking-integration-card__label {
+  color: var(--color-text-secondary, #6b7280);
+  font-size: 0.875rem;
+}
+
+.banking-integration-card__value {
+  overflow-wrap: anywhere;
+}
+
+.banking-integration-card__value[data-state="connected"],
+.banking-integration-card__value[data-state="read"],
+.banking-integration-card__value[data-state="write"] {
+  color: var(--color-success, #15803d);
+}
+
+.banking-integration-card__value[data-state="disconnected"],
+.banking-integration-card__value[data-state="none"] {
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.banking-empty-state p {
+  margin-bottom: 0;
+}
+
+@media (max-width: 767px) {
+  .banking-integration-grid {
+    grid-template-columns: 1fr;
+  }
+}

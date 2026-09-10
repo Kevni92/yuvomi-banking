@@ -1,0 +1,18 @@
+{
+  "menu": "Banking",
+  "module": "Banking",
+  "widgets.weekly-budget": "Weekly budget",
+  "title": "Banking",
+  "sidecar": "Banking sidecar",
+  "sidecarChecking": "Checking connection …",
+  "sidecarConnected": "Connected",
+  "sidecarDisconnected": "Not connected",
+  "user": "Signed-in Yuvomi user",
+  "permission": "Banking permission",
+  "checking": "Checking …",
+  "unknownUser": "Unknown user",
+  "noPermission": "No permission",
+  "sessionUnavailable": "Yuvomi session unavailable.",
+  "description": "The Banking module is connected to its separate sidecar. Bank data features will be added in later phases.",
+  "errors.request": "Banking request failed"
+}

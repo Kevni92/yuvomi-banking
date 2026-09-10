@@ -471,6 +471,86 @@ test('does not allow a user to override another users transaction', async () => 
   }
 });
 
+test('learns an owned counterparty category rule only after a protected manual assignment', async () => {
+  const previousKey = config.secrets.dataEncryptionKey;
+  config.secrets.dataEncryptionKey = TEST_KEY;
+  const database = createFixture();
+  database.prepare(`
+    INSERT INTO categories (name, type, created_at, updated_at)
+    VALUES ('Lebensmittel', 'expense', ?, ?)
+  `).run(NOW.toISOString(), NOW.toISOString());
+  database.prepare(`
+    INSERT INTO counterparties (counterparty_id, display_name, created_at, updated_at)
+    VALUES ('category-rule-lidl', 'LIDL', ?, ?)
+  `).run(NOW.toISOString(), NOW.toISOString());
+  database.prepare(`
+    INSERT INTO transactions (
+      account_id, provider_transaction_id, amount_cents, currency, direction,
+      counterparty_ref, status, created_at, updated_at
+    ) VALUES
+      (1, 'lidl-one', 1200, 'EUR', 'outgoing', 1, 'BOOK', ?, ?),
+      (1, 'lidl-two', 3400, 'EUR', 'outgoing', 1, 'BOOK', ?, ?)
+  `).run(
+    NOW.toISOString(), NOW.toISOString(), NOW.toISOString(), NOW.toISOString()
+  );
+  const { server, origin } = await listen(createApp({
+    database,
+    resolveSession: async () => writeUser(),
+    clock: () => NOW
+  }));
+  try {
+    const denied = await fetch(
+      `${origin}/api/extensions/banking/transactions/1/category`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', cookie: 'yuvomi.sid=test' },
+        body: JSON.stringify({ category_id: 1 })
+      }
+    );
+    assert.equal(denied.status, 403);
+
+    const assigned = await fetch(
+      `${origin}/api/extensions/banking/transactions/1/category`,
+      {
+        method: 'PATCH',
+        headers: mutationHeaders(),
+        body: JSON.stringify({ category_id: 1, remember_counterparty: true })
+      }
+    );
+    assert.equal(assigned.status, 200);
+    assert.deepEqual((await assigned.json()).data, {
+      id: 1,
+      category_id: 1,
+      category_source: 'manual',
+      counterparty_rule_created: true,
+      affected_transactions: 2
+    });
+    assert.deepEqual(
+      database.prepare(`
+        SELECT id, category_id, category_source FROM transactions ORDER BY id
+      `).all().map((row) => ({ ...row })),
+      [
+        { id: 1, category_id: 1, category_source: 'manual' },
+        { id: 2, category_id: 1, category_source: 'counterparty_rule' }
+      ]
+    );
+    assert.deepEqual({ ...(database.prepare(`
+      SELECT yuvomi_user_id, rule_type, match_value, category_id, source
+      FROM category_rules
+    `).get() as Record<string, unknown>) }, {
+      yuvomi_user_id: 7,
+      rule_type: 'counterparty',
+      match_value: 'category-rule-lidl',
+      category_id: 1,
+      source: 'manual'
+    });
+  } finally {
+    await close(server);
+    database.close();
+    config.secrets.dataEncryptionKey = previousKey;
+  }
+});
+
 test('serves auditable weekly-budget history only through the owning user', async () => {
   const previousKey = config.secrets.dataEncryptionKey;
   config.secrets.dataEncryptionKey = TEST_KEY;
@@ -616,6 +696,72 @@ test('protects period revision and dismissal actions and preserves their audit t
         { revision: 2, status: 'dismissed' }
       ]
     );
+  } finally {
+    await close(server);
+    database.close();
+    config.secrets.dataEncryptionKey = previousKey;
+  }
+});
+
+test('runs the categorization batch only through a protected write endpoint', async () => {
+  const previousKey = config.secrets.dataEncryptionKey;
+  config.secrets.dataEncryptionKey = TEST_KEY;
+  const database = createFixture();
+  database.prepare(`
+    INSERT INTO categories (name, type, created_at, updated_at)
+    VALUES ('Lebensmittel', 'expense', ?, ?)
+  `).run(NOW.toISOString(), NOW.toISOString());
+  database.prepare(`
+    INSERT INTO transactions (
+      account_id, provider_transaction_id, amount_cents, currency, direction,
+      purpose, status, created_at, updated_at
+    ) VALUES (1, 'ai-route', 1000, 'EUR', 'outgoing', 'Supermarket', 'BOOK', ?, ?)
+  `).run(NOW.toISOString(), NOW.toISOString());
+  let calls = 0;
+  const { server, origin } = await listen(createApp({
+    database,
+    resolveSession: async () => writeUser(),
+    clock: () => NOW,
+    categorizationClient: {
+      categorize: async () => {
+        calls += 1;
+        return [{
+          transaction_id: 1,
+          category_id: 1,
+          confidence: 0.9,
+          reason: 'Groceries',
+          suggested_category: null
+        }];
+      }
+    }
+  }));
+  try {
+    const denied = await fetch(`${origin}/api/extensions/banking/categorization/run`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: 'yuvomi.sid=test' },
+      body: '{}'
+    });
+    assert.equal(denied.status, 403);
+    assert.equal(calls, 0);
+
+    const categorized = await fetch(`${origin}/api/extensions/banking/categorization/run`, {
+      method: 'POST', headers: mutationHeaders(), body: '{}'
+    });
+    assert.equal(categorized.status, 200);
+    assert.deepEqual((await categorized.json()).data, {
+      submitted: 1,
+      applied: 1,
+      pendingReview: 0,
+      categorySuggestions: 0
+    });
+    assert.equal(calls, 1);
+    assert.deepEqual({ ...(database.prepare(`
+      SELECT category_id, category_source, category_confidence FROM transactions WHERE id = 1
+    `).get() as Record<string, unknown>) }, {
+      category_id: 1,
+      category_source: 'ai',
+      category_confidence: 0.9
+    });
   } finally {
     await close(server);
     database.close();

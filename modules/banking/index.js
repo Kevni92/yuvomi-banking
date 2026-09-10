@@ -224,6 +224,20 @@ function renderOverviewMarkup() {
         <div data-weekly-budget-categories></div>
       </div>
 
+      <div class="banking-categorization" data-banking-categorization>
+        <div class="banking-panel__header">
+          <div>
+            <h3>${esc(localized('categorizationTitle', 'Transaction categorization'))}</h3>
+            <p class="banking-panel__description">${esc(localized('categorizationDescription', 'Known recipients are handled locally first. Only unresolved transactions are sent as pseudonymized, reviewed suggestions.'))}</p>
+          </div>
+          <button class="btn btn--secondary" type="button" data-action="run-categorization">
+            ${esc(localized('categorizationRun', 'Analyze unresolved transactions'))}
+          </button>
+        </div>
+        <p class="banking-feedback" data-categorization-feedback role="status"></p>
+        <div data-categorization-reviews></div>
+      </div>
+
       <div class="banking-weekly-history">
         <h3>${esc(localized('weeklyBudgetHistory', 'Weekly-budget history'))}</h3>
         <div data-weekly-budget-history></div>
@@ -271,6 +285,8 @@ function configureConnectionForm(container, permission, signal) {
   const reloadButton = container.querySelector('[data-action="reload-connections"]');
   const weeklySettings = container.querySelector('[data-weekly-budget-settings]');
   const weeklyCategories = container.querySelector('[data-weekly-budget-categories]');
+  const categorizationHost = container.querySelector('[data-banking-categorization]');
+  const runCategorizationButton = container.querySelector('[data-action="run-categorization"]');
   const weeklyHistory = container.querySelector('[data-weekly-budget-history]');
   const reloadWeeklyBudget = container.querySelector('[data-action="reload-weekly-budget"]');
   const aspspsByName = new Map();
@@ -280,7 +296,7 @@ function configureConnectionForm(container, permission, signal) {
       ? localized('readOnly', 'Your Banking permission is read-only.')
       : localized('noPermission', 'No permission');
     feedback.textContent = message;
-    for (const control of [country, bank, loadButton, connectButton]) control.disabled = true;
+    for (const control of [country, bank, loadButton, connectButton, runCategorizationButton]) control.disabled = true;
   }
 
   loadButton.addEventListener('click', () => {
@@ -316,8 +332,13 @@ function configureConnectionForm(container, permission, signal) {
 
   container.querySelector('[data-banking-accounts]').addEventListener('change', (event) => {
     const select = event.target.closest('select[data-weekly-budget-override]');
-    if (!select) return;
-    void updateTransactionWeeklyBudget({ container, select, signal });
+    if (select) {
+      void updateTransactionWeeklyBudget({ container, select, signal });
+      return;
+    }
+    const categorySelect = event.target.closest('select[data-transaction-category-id]');
+    if (!categorySelect) return;
+    void updateTransactionCategory({ container, select: categorySelect, signal });
   }, { signal });
 
   weeklySettings.addEventListener('submit', (event) => {
@@ -329,6 +350,10 @@ function configureConnectionForm(container, permission, signal) {
     const checkbox = event.target.closest('input[data-weekly-category-id]');
     if (!checkbox) return;
     void updateCategoryWeeklyBudget({ container, checkbox, signal });
+  }, { signal });
+
+  runCategorizationButton.addEventListener('click', () => {
+    void runCategorization({ container, host: categorizationHost, button: runCategorizationButton, signal });
   }, { signal });
 
   weeklyHistory.addEventListener('click', (event) => {
@@ -424,18 +449,21 @@ async function loadOverview(container, signal, canWrite) {
   const weeklyBudgetHost = container.querySelector('[data-weekly-budget-current]');
   const categoriesHost = container.querySelector('[data-weekly-budget-categories]');
   const historyHost = container.querySelector('[data-weekly-budget-history]');
+  const categorizationHost = container.querySelector('[data-banking-categorization]');
   const [
     connectionsResult,
     accountsResult,
     weeklyBudgetResult,
     categoriesResult,
-    periodsResult
+    periodsResult,
+    categorizationReviewsResult
   ] = await Promise.allSettled([
     loadJson('connections', { signal }),
     loadJson('accounts', { signal }),
     loadJson('weekly-budget/current', { signal }),
     loadJson('categories', { signal }),
-    loadJson('weekly-budget/periods', { signal })
+    loadJson('weekly-budget/periods', { signal }),
+    loadJson('categorization/reviews', { signal })
   ]);
   if (signal.aborted) return;
 
@@ -472,6 +500,72 @@ async function loadOverview(container, signal, canWrite) {
     renderWeeklyBudgetHistory(historyHost, periodsResult.value?.data, canWrite);
   } else {
     renderError(historyHost, periodsResult.reason);
+  }
+  if (categorizationReviewsResult.status === 'fulfilled') {
+    renderCategorizationReviews(categorizationHost, categorizationReviewsResult.value?.data);
+  } else {
+    renderError(categorizationHost.querySelector('[data-categorization-reviews]'), categorizationReviewsResult.reason);
+  }
+}
+
+function renderCategorizationReviews(host, reviews) {
+  const reviewsHost = host.querySelector('[data-categorization-reviews]');
+  reviewsHost.replaceChildren();
+  if (!Array.isArray(reviews) || reviews.length === 0) {
+    reviewsHost.insertAdjacentHTML('beforeend', `<p class="banking-muted">${esc(localized('categorizationNoReviews', 'No categorization review is pending.'))}</p>`);
+    return;
+  }
+  const rows = reviews.map((review) => {
+    const title = review?.merchant_name || review?.counterparty_name || review?.purpose || localized('unknownTransaction', 'Transaction');
+    const proposed = review?.category_name || review?.suggested_category_name || localized('categorizationNoMatch', 'No allowed category suggested');
+    const confidence = Number.isFinite(Number(review?.confidence))
+      ? `${Math.round(Number(review.confidence) * 100)} %`
+      : '';
+    return `<li>
+      <span><strong>${esc(String(title))}</strong><small>${esc(`${proposed}${confidence ? ` · ${confidence}` : ''}${review?.reason ? ` · ${review.reason}` : ''}`)}</small></span>
+    </li>`;
+  }).join('');
+  reviewsHost.insertAdjacentHTML('beforeend', `<ul class="banking-transaction-list">${rows}</ul>`);
+}
+
+async function refreshCategorizationReviews(container, signal) {
+  const host = container.querySelector('[data-banking-categorization]');
+  if (!host) return;
+  try {
+    const result = await loadJson('categorization/reviews', { signal });
+    if (!signal.aborted) renderCategorizationReviews(host, result?.data);
+  } catch (error) {
+    if (!signal.aborted) {
+      renderError(host.querySelector('[data-categorization-reviews]'), error);
+    }
+  }
+}
+
+async function runCategorization({ container, host, button, signal }) {
+  const feedback = host.querySelector('[data-categorization-feedback]');
+  button.disabled = true;
+  feedback.textContent = localized('categorizationRunning', 'Analyzing unresolved transactions ...');
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    const result = await loadJson('categorization/run', {
+      method: 'POST',
+      headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body: {},
+      signal
+    });
+    if (signal.aborted) return;
+    const data = result?.data ?? {};
+    feedback.textContent = localized('categorizationDone', '{applied} applied, {review} awaiting review.', {
+      applied: data.applied ?? 0,
+      review: data.pendingReview ?? 0
+    });
+    await loadOverview(container, signal, true);
+  } catch (error) {
+    if (!signal.aborted) feedback.textContent = error instanceof Error
+      ? error.message
+      : localized('categorizationFailed', 'Transactions could not be categorized.');
+  } finally {
+    if (!signal.aborted) button.disabled = false;
   }
 }
 
@@ -1167,9 +1261,10 @@ async function loadAccountDetails({ card, button, signal }) {
   card.setAttribute('aria-busy', 'true');
   feedback.textContent = localized('loadingDetails', 'Loading account details ...');
   try {
-    const [balancesResult, transactionsResult] = await Promise.allSettled([
+    const [balancesResult, transactionsResult, categoriesResult] = await Promise.allSettled([
       loadJson(`accounts/${encodeURIComponent(accountId)}/balances`, { signal }),
-      loadJson(`accounts/${encodeURIComponent(accountId)}/transactions`, { signal })
+      loadJson(`accounts/${encodeURIComponent(accountId)}/transactions`, { signal }),
+      loadJson('categories', { signal })
     ]);
     if (signal.aborted) return;
 
@@ -1177,10 +1272,15 @@ async function loadAccountDetails({ card, button, signal }) {
     if (balancesResult.status === 'fulfilled') renderBalances(balancesHost, balancesResult.value?.data);
     else renderError(balancesHost, balancesResult.reason);
     if (transactionsResult.status === 'fulfilled') {
+      const categories = categoriesResult.status === 'fulfilled' && Array.isArray(categoriesResult.value?.data)
+        ? categoriesResult.value.data
+        : [];
+      card.bankingCategories = categories;
       renderTransactions(
         transactionsHost,
         transactionsResult.value?.data?.transactions,
-        card.dataset.canWrite === 'true'
+        card.dataset.canWrite === 'true',
+        categories
       );
       feedback.textContent = localized('detailsLoaded', 'Account details loaded.');
     } else {
@@ -1215,13 +1315,14 @@ async function syncAccount({ card, button, signal }) {
   try {
     const csrf = await loadJson('csrf', { signal });
     const csrfToken = typeof csrf?.csrf_token === 'string' ? csrf.csrf_token : '';
-    const [balancesResult, syncResult] = await Promise.allSettled([
+    const [balancesResult, syncResult, categoriesResult] = await Promise.allSettled([
       loadJson(`accounts/${encodeURIComponent(accountId)}/balances`, { signal }),
       loadJson(`accounts/${encodeURIComponent(accountId)}/sync`, {
         method: 'POST',
         headers: { 'x-banking-csrf': csrfToken },
         signal
-      })
+      }),
+      loadJson('categories', { signal })
     ]);
     if (signal.aborted) return;
 
@@ -1230,7 +1331,11 @@ async function syncAccount({ card, button, signal }) {
     else renderError(balancesHost, balancesResult.reason);
     if (syncResult.status === 'fulfilled') {
       const data = syncResult.value?.data;
-      renderTransactions(transactionsHost, data?.transactions, card.dataset.canWrite === 'true');
+      const categories = categoriesResult.status === 'fulfilled' && Array.isArray(categoriesResult.value?.data)
+        ? categoriesResult.value.data
+        : (card.bankingCategories ?? []);
+      card.bankingCategories = categories;
+      renderTransactions(transactionsHost, data?.transactions, card.dataset.canWrite === 'true', categories);
       const imported = data?.imported;
       feedback.textContent = imported
         ? localized('syncComplete', 'Sync complete: {inserted} new, {updated} updated.', {
@@ -1271,7 +1376,7 @@ function renderBalances(host, balances) {
   host.insertAdjacentHTML('beforeend', `<ul class="banking-balance-list">${list}</ul>`);
 }
 
-function renderTransactions(host, transactions, canWrite = false) {
+function renderTransactions(host, transactions, canWrite = false, categories = []) {
   host.replaceChildren();
   if (!Array.isArray(transactions) || transactions.length === 0) {
     host.insertAdjacentHTML('beforeend', `<p class="banking-muted">${esc(localized('noTransactions', 'No transactions returned.'))}</p>`);
@@ -1294,12 +1399,23 @@ function renderTransactions(host, transactions, canWrite = false) {
     const override = ['inherit', 'include', 'exclude'].includes(transaction?.weekly_budget_override)
       ? transaction.weekly_budget_override
       : 'inherit';
+    const categoryId = String(transaction?.category_id ?? '');
+    const categoryOptions = Array.isArray(categories)
+      ? categories.filter((category) => category?.active !== false && /^\d+$/.test(String(category?.id ?? '')))
+      : [];
     return `
       <li class="banking-transaction-row">
         <div>
           <strong>${esc(String(title))}</strong>
           <span>${esc(formatDate(transactionDate) || '')}${subtitle ? ` · ${esc(String(subtitle))}` : ''} · ${esc(statusText)}</span>
           ${/^\d+$/.test(transactionId) ? `<label class="banking-transaction-budget">
+            <span>${esc(localized('transactionCategory', 'Category'))}</span>
+            <select class="form-input" data-transaction-category-id="${esc(transactionId)}" data-current-category-id="${esc(categoryId)}" ${canWrite && categoryOptions.length > 0 ? '' : 'disabled'}>
+              <option value="" ${categoryId ? '' : 'selected'} disabled>${esc(localized('chooseCategory', 'Choose category'))}</option>
+              ${categoryOptions.map((category) => `<option value="${esc(String(category.id))}" ${String(category.id) === categoryId ? 'selected' : ''}>${esc(category.name || localized('unknownTransaction', 'Category'))}</option>`).join('')}
+            </select>
+          </label>
+          <label class="banking-transaction-budget">
             <span>${esc(localized('weeklyBudgetTransaction', 'Weekly budget'))}</span>
             <select class="form-input" data-weekly-budget-override data-transaction-id="${esc(transactionId)}" data-current-value="${esc(override)}" ${canWrite ? '' : 'disabled'}>
               <option value="inherit" ${override === 'inherit' ? 'selected' : ''}>${esc(localized('weeklyBudgetInherit', 'Use category'))}</option>
@@ -1313,6 +1429,54 @@ function renderTransactions(host, transactions, canWrite = false) {
     `;
   }).join('');
   host.insertAdjacentHTML('beforeend', `<ul class="banking-transaction-list">${rows}</ul>`);
+}
+
+async function updateTransactionCategory({ container, select, signal }) {
+  const transactionId = select.dataset.transactionCategoryId;
+  const categoryId = Number(select.value);
+  if (!/^\d+$/.test(transactionId || '') || !Number.isSafeInteger(categoryId) || categoryId < 1) return;
+  const previous = select.dataset.currentCategoryId || '';
+  const card = select.closest('[data-banking-account-card]');
+  const feedback = card?.querySelector('[data-account-feedback]');
+  select.disabled = true;
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    const result = await loadJson(`transactions/${encodeURIComponent(transactionId)}/category`, {
+      method: 'PATCH',
+      headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body: { category_id: categoryId, remember_counterparty: true },
+      signal
+    });
+    select.dataset.currentCategoryId = String(categoryId);
+    const accountId = card?.dataset.accountId;
+    const transactionsHost = card?.querySelector('[data-account-transactions]');
+    if (/^\d+$/.test(accountId || '') && transactionsHost) {
+      const transactions = await loadJson(`accounts/${encodeURIComponent(accountId)}/transactions`, { signal });
+      if (!signal.aborted) {
+        renderTransactions(
+          transactionsHost,
+          transactions?.data?.transactions,
+          card.dataset.canWrite === 'true',
+          card.bankingCategories ?? []
+        );
+      }
+    }
+    await refreshCategorizationReviews(container, signal);
+    if (feedback && !signal.aborted) {
+      feedback.textContent = result?.data?.counterparty_rule_created
+        ? localized('categoryRuleSaved', 'Category saved for this recipient and future transactions.')
+        : localized('categorySaved', 'Category saved.');
+    }
+  } catch (error) {
+    if (!signal.aborted) {
+      select.value = previous;
+      if (feedback) feedback.textContent = error instanceof Error
+        ? error.message
+        : localized('categorySaveFailed', 'Category could not be saved.');
+    }
+  } finally {
+    if (!signal.aborted) select.disabled = false;
+  }
 }
 
 function renderError(host, error) {

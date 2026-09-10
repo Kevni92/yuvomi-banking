@@ -8,6 +8,8 @@ import {
 import { createEnableBankingRouter } from './api/enable-banking-routes.js';
 import { createWeeklyBudgetRouter } from './api/weekly-budget-routes.js';
 import { EnableBankingClient } from './enable-banking/client.js';
+import { createCategorizationRouter } from './api/categorization-routes.js';
+import { OpenAiCategorizer, type CategorizationClient } from './openai/categorizer.js';
 
 const API_PREFIX = '/api/extensions/banking';
 
@@ -15,6 +17,7 @@ export interface AppDependencies {
   resolveSession?: (cookieHeader?: string) => Promise<YuvomiUser | null>;
   database?: DatabaseSync;
   enableBankingClient?: EnableBankingClient;
+  categorizationClient?: CategorizationClient;
   clock?: () => Date;
 }
 
@@ -26,6 +29,7 @@ export function createApp({
   resolveSession = resolveYuvomiUser,
   database,
   enableBankingClient = new EnableBankingClient(),
+  categorizationClient = new OpenAiCategorizer(),
   clock = () => new Date()
 }: AppDependencies = {}): Express {
   const app = express();
@@ -84,6 +88,12 @@ export function createApp({
     app.use(`${API_PREFIX}`, createWeeklyBudgetRouter({
       database,
       resolveSession,
+      clock
+    }));
+    app.use(`${API_PREFIX}`, createCategorizationRouter({
+      database,
+      resolveSession,
+      categorizer: categorizationClient,
       clock
     }));
   }

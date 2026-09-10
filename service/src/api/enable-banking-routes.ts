@@ -369,6 +369,7 @@ function listPublicTransactions(database: DatabaseSync, accountId: number): Arra
            transactions.merchant_name, transactions.status,
            transactions.category_id, transactions.category_source,
            transactions.category_confidence,
+           categories.name AS category_name,
            transactions.weekly_budget_override,
            categories.weekly_budget_default AS category_weekly_budget_default
     FROM transactions

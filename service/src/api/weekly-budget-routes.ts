@@ -29,6 +29,11 @@ import {
   recalculateWeeklyBudgetPeriod
 } from '../services/weekly-budget-revisions.js';
 import {
+  CategoryAssignmentNotFoundError,
+  CategoryAssignmentValidationError,
+  assignManualTransactionCategory
+} from '../services/category-rules.js';
+import {
   mutationIsAllowed,
   noStore,
   resolveAuthorizedUser,
@@ -395,6 +400,55 @@ export function createWeeklyBudgetRouter({
     }
     noStore(response);
     response.json({ data: { id: transactionId, weekly_budget_override: override } });
+  });
+
+  router.patch('/transactions/:transactionId/category', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'write');
+    if (!user || !mutationIsAllowed(request, response)) return;
+    const transactionId = positivePathId(request.params.transactionId);
+    const categoryId = request.body?.category_id;
+    const rememberCounterparty = request.body?.remember_counterparty;
+    if (
+      !transactionId
+      || !Number.isSafeInteger(categoryId)
+      || Number(categoryId) < 1
+      || (rememberCounterparty !== undefined && typeof rememberCounterparty !== 'boolean')
+    ) {
+      response.status(400).json({
+        error: 'category_id must be a positive integer and remember_counterparty a boolean.'
+      });
+      return;
+    }
+    try {
+      const result = assignManualTransactionCategory(database, {
+        yuvomiUserId: user.id,
+        transactionId,
+        categoryId: Number(categoryId),
+        rememberCounterparty,
+        now: clock()
+      });
+      noStore(response);
+      response.json({
+        data: {
+          id: result.transactionId,
+          category_id: result.categoryId,
+          category_source: 'manual',
+          counterparty_rule_created: result.ruleCreated,
+          affected_transactions: result.affectedTransactions
+        }
+      });
+    } catch (error) {
+      noStore(response);
+      response.status(
+        error instanceof CategoryAssignmentNotFoundError ? 404
+          : error instanceof CategoryAssignmentValidationError ? 400
+            : 500
+      ).json({
+        error: error instanceof Error
+          ? error.message
+          : 'Transaction category could not be updated.'
+      });
+    }
   });
 
   return router;

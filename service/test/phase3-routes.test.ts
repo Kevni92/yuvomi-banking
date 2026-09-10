@@ -629,6 +629,7 @@ test('returns imported transactions without exposing raw banking payloads', asyn
       category_id: null,
       category_source: null,
       category_confidence: null,
+      category_name: null,
       weekly_budget_override: 'inherit',
       category_weekly_budget_default: null
     });

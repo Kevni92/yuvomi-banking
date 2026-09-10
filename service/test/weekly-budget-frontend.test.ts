@@ -14,6 +14,7 @@ test('banking page exposes weekly-budget settings and both override controls', (
     "loadJson('weekly-budget/settings'",
     "loadJson('categories'",
     "loadJson('weekly-budget/periods'",
+    "loadJson('categorization/reviews'",
     'data-weekly-category-id',
     'data-weekly-period-id',
     'data-action="recalculate-weekly-period"',
@@ -21,6 +22,11 @@ test('banking page exposes weekly-budget settings and both override controls', (
     'weekly-budget/periods/${encodeURIComponent(periodId)}/recalculate',
     'weekly-budget/transfers/${encodeURIComponent(suggestionId)}/dismiss',
     'data-weekly-budget-override',
+    'data-transaction-category-id',
+    'transactions/${encodeURIComponent(transactionId)}/category',
+    'data-banking-categorization',
+    'data-action="run-categorization"',
+    "loadJson('categorization/run'",
     "weekly_budget_override: select.value",
     'target_amount_cents: targetAmountCents',
     'target_beneficiary_name:',
@@ -62,7 +68,12 @@ test('weekly-budget locale keys exist in German and English', () => {
     'weeklyBudgetRevisions',
     'weeklyBudgetInherit',
     'weeklyBudgetInclude',
-    'weeklyBudgetExclude'
+    'weeklyBudgetExclude',
+    'transactionCategory',
+    'categoryRuleSaved',
+    'categorizationTitle',
+    'categorizationRun',
+    'categorizationDone'
   ]) {
     assert.ok(german[key], `Missing German locale key ${key}`);
     assert.ok(english[key], `Missing English locale key ${key}`);

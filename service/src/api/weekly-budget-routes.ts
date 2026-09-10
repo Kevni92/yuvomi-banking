@@ -78,10 +78,14 @@ export function createWeeklyBudgetRouter({
 
       const now = clock();
       const existing = findWeeklyBudgetConfig(database, user.id);
-      const effectiveFromDate = !existing || (!existing.enabled && input.enabled)
+      const activationChanged = !existing || (!existing.enabled && input.enabled);
+      const effectiveFromDate = activationChanged
         ? localDateForInstant(now, input.timezone)
         : existing.effective_from_date;
       const nowIso = now.toISOString();
+      const effectiveFromAt = activationChanged
+        ? nowIso
+        : existing.effective_from_at ?? existing.created_at;
       if (existing) {
         database.prepare(`
           UPDATE weekly_budget_configs SET
@@ -90,7 +94,8 @@ export function createWeeklyBudgetRouter({
             cutoff_time = ?, timezone = ?, sync_time_1 = ?, sync_time_2 = ?,
             balance_stale_after_minutes = ?, notification_enabled = ?,
             notification_user_id = ?, notification_qr_preview = ?,
-            purpose_prefix = ?, target_beneficiary_name = ?, updated_at = ?
+            purpose_prefix = ?, target_beneficiary_name = ?,
+            effective_from_date = ?, effective_from_at = ?, updated_at = ?
           WHERE id = ? AND yuvomi_user_id = ?
         `).run(
           input.enabled ? 1 : 0,
@@ -108,6 +113,8 @@ export function createWeeklyBudgetRouter({
           input.notificationQrPreview ? 1 : 0,
           input.purposePrefix,
           input.targetBeneficiaryName,
+          effectiveFromDate,
+          effectiveFromAt,
           nowIso,
           existing.id,
           user.id
@@ -120,8 +127,8 @@ export function createWeeklyBudgetRouter({
             timezone, sync_time_1, sync_time_2, balance_stale_after_minutes,
             notification_enabled, notification_user_id,
             notification_qr_preview, purpose_prefix, effective_from_date,
-            target_beneficiary_name, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'EUR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            target_beneficiary_name, effective_from_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 'EUR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           user.id,
           input.enabled ? 1 : 0,
@@ -140,6 +147,7 @@ export function createWeeklyBudgetRouter({
           input.purposePrefix,
           effectiveFromDate,
           input.targetBeneficiaryName,
+          effectiveFromAt,
           nowIso,
           nowIso
         );

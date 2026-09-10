@@ -6,6 +6,10 @@ import {
   type WeeklyBudgetRunTrigger
 } from './weekly-budget-runner.js';
 import { weeklyBudgetCutoffSchedule } from './weekly-budget-schedule.js';
+import {
+  runDueScheduledAccountSyncJobs,
+  type DueScheduledSyncOutcome
+} from './scheduled-account-sync.js';
 
 const RETRY_DELAYS_MS = [5, 15, 30].map((minutes) => minutes * 60_000);
 
@@ -31,6 +35,11 @@ export interface DueRunOutcome {
   state: 'succeeded' | 'failed' | 'skipped';
   reason?: 'not_activated' | 'already_succeeded' | 'running' | 'retry_wait' | 'retry_exhausted';
   result?: WeeklyBudgetRunResult;
+}
+
+export interface BankingSchedulerTickOutcome {
+  cutoffs: DueRunOutcome[];
+  accountSyncs: DueScheduledSyncOutcome[];
 }
 
 export async function runDueWeeklyBudgetJobs({
@@ -126,19 +135,24 @@ export function startWeeklyBudgetScheduler({
   pollIntervalMs?: number;
   clock?: () => Date;
   onTickError?: (error: unknown) => void;
-}): { runNow: () => Promise<DueRunOutcome[]>; stop: () => void } {
+}): { runNow: () => Promise<BankingSchedulerTickOutcome>; stop: () => void } {
   if (!Number.isSafeInteger(pollIntervalMs) || pollIntervalMs < 1_000) {
     throw new Error('Weekly-budget scheduler interval must be at least one second.');
   }
   let stopped = false;
-  let activeRun: Promise<DueRunOutcome[]> | null = null;
-  const runNow = (): Promise<DueRunOutcome[]> => {
-    if (stopped) return Promise.resolve([]);
+  let activeRun: Promise<BankingSchedulerTickOutcome> | null = null;
+  const runNow = (): Promise<BankingSchedulerTickOutcome> => {
+    if (stopped) return Promise.resolve({ cutoffs: [], accountSyncs: [] });
     if (activeRun) return activeRun;
-    activeRun = runDueWeeklyBudgetJobs({ database, client, now: clock() })
+    const now = clock();
+    activeRun = runDueWeeklyBudgetJobs({ database, client, now })
+      .then(async (cutoffs) => ({
+        cutoffs,
+        accountSyncs: await runDueScheduledAccountSyncJobs({ database, client, now })
+      }))
       .catch((error) => {
         onTickError(error);
-        return [];
+        return { cutoffs: [], accountSyncs: [] };
       })
       .finally(() => {
         activeRun = null;
@@ -180,4 +194,3 @@ function existingRunSkipReason(
   const delay = RETRY_DELAYS_MS[existing.attempt - 1];
   return now.getTime() >= finishedAt + delay ? null : 'retry_wait';
 }
-

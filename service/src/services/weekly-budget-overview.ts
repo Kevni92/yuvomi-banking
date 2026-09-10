@@ -35,6 +35,7 @@ export interface WeeklyBudgetConfigRow extends Record<string, unknown> {
   notification_qr_preview: number;
   purpose_prefix: string;
   effective_from_date: string;
+  effective_from_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -234,6 +235,7 @@ export function serializeWeeklyBudgetSettings(configRow: WeeklyBudgetConfigRow):
     notification_qr_preview: Boolean(configRow.notification_qr_preview),
     purpose_prefix: configRow.purpose_prefix,
     effective_from_date: configRow.effective_from_date,
+    effective_from_at: configRow.effective_from_at,
     created_at: configRow.created_at,
     updated_at: configRow.updated_at
   };

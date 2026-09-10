@@ -12,7 +12,7 @@ const weeklyBudgetScheduler = startWeeklyBudgetScheduler({
   database,
   client: enableBankingClient,
   onTickError: () => {
-    console.error('Yuvomi Banking weekly-budget scheduler tick failed.');
+    console.error('Yuvomi Banking scheduler tick failed.');
   }
 });
 

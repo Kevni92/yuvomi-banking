@@ -16,7 +16,7 @@ import {
 
 test('weekly-budget migrations add settings, overrides, history, and revisions', () => {
   const database = new DatabaseSync(':memory:');
-  assert.deepEqual(migrateDatabase(database), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.deepEqual(migrateDatabase(database), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
   const categoryColumns = database.prepare('PRAGMA table_info(categories)').all() as Array<{
     name: string;
@@ -34,13 +34,19 @@ test('weekly-budget migrations add settings, overrides, history, and revisions',
     transactionColumns.find((column) => column.name === 'weekly_budget_override')?.dflt_value,
     "'inherit'"
   );
+  const configColumns = new Set((database.prepare(
+    'PRAGMA table_info(weekly_budget_configs)'
+  ).all() as Array<{ name: string }>).map((row) => row.name));
+  assert.ok(configColumns.has('target_beneficiary_name'));
+  assert.ok(configColumns.has('effective_from_at'));
 
   const expectedTables = [
     'weekly_budget_configs',
     'account_balance_snapshots',
     'weekly_budget_periods',
     'weekly_budget_period_transactions',
-    'weekly_budget_job_runs'
+    'weekly_budget_job_runs',
+    'scheduled_account_sync_runs'
   ];
   const tableNames = new Set((database.prepare(
     "SELECT name FROM sqlite_master WHERE type = 'table'"
@@ -116,7 +122,7 @@ test('weekly-budget migrations preserve legacy transfer suggestions', () => {
               'legacy-like', 'proposed', '2026-09-14', '2026-09-14')
   `).run();
 
-  assert.deepEqual(migrateDatabase(database), [7, 8, 9]);
+  assert.deepEqual(migrateDatabase(database), [7, 8, 9, 10]);
   const preservedSuggestion = database.prepare(`
     SELECT source_account_id, target_account_id, period_id, calculation_version
     FROM transfer_suggestions

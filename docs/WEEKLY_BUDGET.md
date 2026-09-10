@@ -322,6 +322,21 @@ als exakter damaliger Kontostand ausgegeben werden.
 - Eine doppelt vorkommende lokale Uhrzeit läuft wegen des eindeutigen
   Periodenschlüssels nur einmal.
 
+### 7.5 Reguläre Kontosynchronisierung
+
+Die beiden konfigurierten lokalen Abrufzeiten synchronisieren Sparkasse und N26
+jeweils gemeinsam. Umsätze werden mit einem rollierenden 14-Tage-Fenster
+abgerufen, damit vorgemerkte Buchungen zuverlässig abgeglichen werden; Salden
+werden bei jedem Lauf frisch geladen. Providerdaten beider Konten werden erst
+atomar übernommen, wenn beide Abrufe erfolgreich waren und für N26 ein
+verwendbarer EUR-Saldo vorliegt.
+
+Jeder Slot besitzt einen eindeutigen Schlüssel, eine zehnminütige Lease und die
+Wiederholungsfolge 5, 15 und 30 Minuten. Nach einem Sidecar-Ausfall wird nur der
+jüngste fällige Slot nachgeholt. Hat ein erfolgreicher Stichtagslauf bereits nach
+diesem Slot beide Konten frisch geladen, wird der reguläre Lauf als abgedeckt
+markiert und löst keinen zweiten Providerabruf aus.
+
 ## 8. Historisierung und Revisionen
 
 ### 8.1 Unveränderliche Periodensnapshots
@@ -675,6 +690,13 @@ Kategorie-Name/-ID zum Bewertungszeitpunkt sowie Entscheidungsquelle
 
 Speichert `run_key`, Auslöser (`scheduled`, `catch_up`, `manual`), Versuch,
 Start/Ende, Lease, Sync-Ergebnisse und gekürzte technische Fehlermeldung.
+
+#### `scheduled_account_sync_runs`
+
+Speichert den eindeutigen Schlüssel jedes der zwei täglichen Abrufslots,
+Auslöser, Versuch, Lease, Ergebnis beider Konten und die Zahl verarbeiteter
+Umsätze. Ein durch den Stichtagslauf abgedeckter Slot wird explizit als
+`skipped` historisiert.
 
 #### `banking_push_subscriptions`
 

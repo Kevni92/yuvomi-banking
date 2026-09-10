@@ -83,6 +83,17 @@ export function localDateForInstant(instant: Date, timezone: string): string {
   return localPartsAt(instant, timezone).date;
 }
 
+export function instantForLocalDateTime(
+  date: string,
+  time: string,
+  timezone: string
+): string {
+  assertIsoDate(date, 'Local date');
+  assertTimeZone(timezone);
+  const { hour, minute } = parseLocalTime(time);
+  return localDateTimeToInstant(date, hour, minute, timezone).toISOString();
+}
+
 export function weeklyBudgetCutoffSchedule({
   now,
   cutoffWeekday,

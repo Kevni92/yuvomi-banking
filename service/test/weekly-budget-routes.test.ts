@@ -124,6 +124,7 @@ test('protects and stores weekly-budget settings without exposing an IBAN', asyn
     const savedBody = await saved.json();
     assert.equal(savedBody.data.target_amount_cents, 45000);
     assert.equal(savedBody.data.effective_from_date, '2026-09-10');
+    assert.equal(savedBody.data.effective_from_at, NOW.toISOString());
     assert.deepEqual(savedBody.data.source_account, {
       id: 1,
       display_name: 'Sparkasse Girokonto'

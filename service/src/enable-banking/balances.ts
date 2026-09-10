@@ -31,6 +31,7 @@ export interface PersistBalancesOptions {
   expectedCurrency?: string | null;
   fetchedAt?: Date;
   syncRunKey?: string;
+  manageTransaction?: boolean;
 }
 
 interface RankedBalance extends Omit<NormalizedBalance, 'usableForWeeklyBudget'> {
@@ -98,7 +99,8 @@ export function persistAccountBalanceSnapshots({
   balances,
   expectedCurrency = 'EUR',
   fetchedAt = new Date(),
-  syncRunKey = crypto.randomUUID()
+  syncRunKey = crypto.randomUUID(),
+  manageTransaction = true
 }: PersistBalancesOptions): {
   snapshots: StoredBalanceSnapshot[];
   usableBalance: StoredBalanceSnapshot | null;
@@ -118,7 +120,7 @@ export function persistAccountBalanceSnapshots({
     expectedCurrency ?? 'EUR'
   );
   const fetchedAtIso = fetchedAt.toISOString();
-  const createdAt = new Date().toISOString();
+  const createdAt = fetchedAtIso;
   const insert = database.prepare(`
     INSERT INTO account_balance_snapshots (
       account_id, sync_run_key, provider_balance_type, normalized_balance_type,
@@ -140,7 +142,7 @@ export function persistAccountBalanceSnapshots({
   `);
   const stored: StoredBalanceSnapshot[] = [];
 
-  database.exec('BEGIN IMMEDIATE;');
+  if (manageTransaction) database.exec('BEGIN IMMEDIATE;');
   try {
     for (const balance of normalized) {
       insert.run(
@@ -169,12 +171,14 @@ export function persistAccountBalanceSnapshots({
         fetchedAt: fetchedAtIso
       });
     }
-    database.exec('COMMIT;');
+    if (manageTransaction) database.exec('COMMIT;');
   } catch (error) {
-    try {
-      database.exec('ROLLBACK;');
-    } catch {
-      // Preserve the original persistence error.
+    if (manageTransaction) {
+      try {
+        database.exec('ROLLBACK;');
+      } catch {
+        // Preserve the original persistence error.
+      }
     }
     throw error;
   }

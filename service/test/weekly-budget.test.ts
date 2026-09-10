@@ -14,9 +14,9 @@ import {
   type DirectExpenseCandidate
 } from '../src/services/weekly-budget.js';
 
-test('migration 7 adds weekly-budget settings, overrides, history, and revisions', () => {
+test('weekly-budget migrations add settings, overrides, history, and revisions', () => {
   const database = new DatabaseSync(':memory:');
-  assert.deepEqual(migrateDatabase(database), [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(migrateDatabase(database), [1, 2, 3, 4, 5, 6, 7, 8]);
 
   const categoryColumns = database.prepare('PRAGMA table_info(categories)').all() as Array<{
     name: string;
@@ -47,6 +47,13 @@ test('migration 7 adds weekly-budget settings, overrides, history, and revisions
   ).all() as Array<{ name: string }>).map((row) => row.name));
   for (const tableName of expectedTables) assert.ok(tableNames.has(tableName));
 
+  const periodColumns = new Set((database.prepare(
+    'PRAGMA table_info(weekly_budget_periods)'
+  ).all() as Array<{ name: string }>).map((row) => row.name));
+  for (const column of ['cutoff_weekday', 'cutoff_time', 'timezone', 'purpose_prefix']) {
+    assert.ok(periodColumns.has(column), `Missing weekly_budget_periods.${column}`);
+  }
+
   const suggestionColumns = new Set((database.prepare(
     'PRAGMA table_info(transfer_suggestions)'
   ).all() as Array<{ name: string }>).map((row) => row.name));
@@ -68,7 +75,7 @@ test('migration 7 adds weekly-budget settings, overrides, history, and revisions
   database.close();
 });
 
-test('migration 7 preserves legacy transfer suggestions', () => {
+test('weekly-budget migrations preserve legacy transfer suggestions', () => {
   const database = new DatabaseSync(':memory:');
   database.exec('PRAGMA foreign_keys = ON;');
   for (const [version, filename] of [
@@ -102,7 +109,7 @@ test('migration 7 preserves legacy transfer suggestions', () => {
               'legacy-like', 'proposed', '2026-09-14', '2026-09-14')
   `).run();
 
-  assert.deepEqual(migrateDatabase(database), [7]);
+  assert.deepEqual(migrateDatabase(database), [7, 8]);
   const preservedSuggestion = database.prepare(`
     SELECT source_account_id, target_account_id, period_id, calculation_version
     FROM transfer_suggestions

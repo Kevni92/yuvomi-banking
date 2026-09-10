@@ -13,6 +13,12 @@ export interface WeeklyBudgetWindow {
   nextCutoffAt: string;
 }
 
+export interface WeeklyBudgetPeriodBoundary {
+  periodStartDate: string;
+  periodEndDate: string;
+  scheduledCutoffAt: string;
+}
+
 interface LocalParts {
   date: string;
   year: number;
@@ -68,6 +74,35 @@ export function localDateForInstant(instant: Date, timezone: string): string {
   if (Number.isNaN(instant.getTime())) throw new Error('Instant is invalid.');
   assertTimeZone(timezone);
   return localPartsAt(instant, timezone).date;
+}
+
+export function weeklyBudgetPeriodEndingAt({
+  scheduledCutoffAt,
+  timezone,
+  effectiveFromDate
+}: {
+  scheduledCutoffAt: Date;
+  timezone: string;
+  effectiveFromDate?: string | null;
+}): WeeklyBudgetPeriodBoundary {
+  if (Number.isNaN(scheduledCutoffAt.getTime())) {
+    throw new Error('Scheduled cutoff is invalid.');
+  }
+  assertTimeZone(timezone);
+  if (effectiveFromDate) assertIsoDate(effectiveFromDate, 'Effective-from date');
+  const periodEndDate = localDateForInstant(scheduledCutoffAt, timezone);
+  const nominalStartDate = addCalendarDays(periodEndDate, -7);
+  const periodStartDate = effectiveFromDate && effectiveFromDate > nominalStartDate
+    ? effectiveFromDate
+    : nominalStartDate;
+  if (periodStartDate >= periodEndDate) {
+    throw new Error('Effective-from date must be before the cutoff period end.');
+  }
+  return {
+    periodStartDate,
+    periodEndDate,
+    scheduledCutoffAt: scheduledCutoffAt.toISOString()
+  };
 }
 
 export function assertTimeZone(timezone: string): void {
@@ -163,7 +198,7 @@ function isoWeekday(date: string): number {
   return weekday === 0 ? 7 : weekday;
 }
 
-function addCalendarDays(date: string, days: number): string {
+export function addCalendarDays(date: string, days: number): string {
   assertIsoDate(date, 'Calendar date');
   const [year, month, day] = date.split('-').map(Number);
   const result = new Date(Date.UTC(year, month - 1, day + days));
@@ -192,4 +227,3 @@ function assertIsoDate(value: string, label: string): void {
     || parsed.getUTCDate() !== day
   ) throw new Error(`${label} is not a valid calendar date.`);
 }
-

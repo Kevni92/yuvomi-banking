@@ -38,6 +38,7 @@ export interface ImportTransactionsOptions {
   transactions: ProviderTransaction[];
   hmacSecret: string;
   encryption: EncryptionService;
+  manageTransaction?: boolean;
 }
 
 export interface ImportTransactionsResult {
@@ -50,7 +51,8 @@ export function importTransactions({
   accountId,
   transactions,
   hmacSecret,
-  encryption
+  encryption,
+  manageTransaction = true
 }: ImportTransactionsOptions): ImportTransactionsResult {
   if (!Number.isInteger(accountId) || accountId < 1) {
     throw new Error('Banking account ID is invalid.');
@@ -126,7 +128,7 @@ export function importTransactions({
     WHERE id = ?
   `);
 
-  database.exec('BEGIN IMMEDIATE;');
+  if (manageTransaction) database.exec('BEGIN IMMEDIATE;');
   try {
     for (const transaction of transactions) {
       const normalized = normalizeTransaction(transaction, hmacSecret, encryption);
@@ -206,12 +208,14 @@ export function importTransactions({
       if (existing) result.updated += 1;
       else result.inserted += 1;
     }
-    database.exec('COMMIT;');
+    if (manageTransaction) database.exec('COMMIT;');
   } catch (error) {
-    try {
-      database.exec('ROLLBACK;');
-    } catch {
-      // Preserve the original import error.
+    if (manageTransaction) {
+      try {
+        database.exec('ROLLBACK;');
+      } catch {
+        // Preserve the original import error.
+      }
     }
     throw error;
   }

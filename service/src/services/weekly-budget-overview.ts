@@ -10,7 +10,7 @@ import {
 } from './weekly-budget.js';
 import { weeklyBudgetWindow } from './weekly-budget-schedule.js';
 
-interface WeeklyBudgetConfigRow extends Record<string, unknown> {
+export interface WeeklyBudgetConfigRow extends Record<string, unknown> {
   id: number;
   yuvomi_user_id: number;
   enabled: number;
@@ -55,6 +55,19 @@ interface TransactionRow extends Record<string, unknown> {
   weekly_budget_override: WeeklyBudgetOverride;
 }
 
+export interface CollectedDirectExpense {
+  transactionId: number;
+  transactionKey: string;
+  bookingDate: string;
+  amountCents: number;
+  currency: 'EUR';
+  counterpartyName: string | null;
+  categoryId: number | null;
+  categoryName: string | null;
+  weeklyBudgetOverride: WeeklyBudgetOverride;
+  decisionSource: 'transaction_override' | 'category_default';
+}
+
 export function findWeeklyBudgetConfig(
   database: DatabaseSync,
   yuvomiUserId: number,
@@ -77,6 +90,118 @@ export function findWeeklyBudgetConfig(
     LIMIT 1
   `).get(yuvomiUserId, activeOnly ? 1 : 0) as WeeklyBudgetConfigRow | undefined;
   return row ?? null;
+}
+
+export function findWeeklyBudgetConfigById(
+  database: DatabaseSync,
+  configId: number
+): WeeklyBudgetConfigRow | null {
+  const row = database.prepare(`
+    SELECT weekly_budget_configs.*,
+           source_account.display_name AS source_account_name,
+           source_account.iban_encrypted AS source_iban_encrypted,
+           target_account.display_name AS target_account_name,
+           target_account.iban_encrypted AS target_iban_encrypted
+    FROM weekly_budget_configs
+    JOIN bank_accounts AS source_account
+      ON source_account.id = weekly_budget_configs.source_account_id
+    JOIN bank_accounts AS target_account
+      ON target_account.id = weekly_budget_configs.target_account_id
+    WHERE weekly_budget_configs.id = ?
+    LIMIT 1
+  `).get(configId) as WeeklyBudgetConfigRow | undefined;
+  return row ?? null;
+}
+
+export function collectWeeklyBudgetDirectExpenses(
+  database: DatabaseSync,
+  configRow: WeeklyBudgetConfigRow,
+  periodStartDate: string,
+  periodEndDate: string
+): { totalCents: number; expenses: CollectedDirectExpense[] } {
+  const internalCounterparties = ownAccountCounterpartyIds(configRow);
+  const matchedTransfers = matchedTransferTransactionIds(database, configRow);
+  const rows = database.prepare(`
+    SELECT transactions.id, transactions.provider_transaction_id,
+           transactions.booking_date, transactions.value_date,
+           transactions.transaction_date, transactions.amount_cents,
+           transactions.currency, transactions.direction, transactions.status,
+           transactions.counterparty_name, transactions.weekly_budget_override,
+           counterparties.counterparty_id,
+           categories.id AS category_id, categories.name AS category_name,
+           categories.weekly_budget_default
+    FROM transactions
+    LEFT JOIN counterparties ON counterparties.id = transactions.counterparty_ref
+    LEFT JOIN categories ON categories.id = transactions.category_id
+    WHERE transactions.account_id = ?
+      AND COALESCE(
+        transactions.booking_date,
+        transactions.value_date,
+        transactions.transaction_date
+      ) >= ?
+      AND COALESCE(
+        transactions.booking_date,
+        transactions.value_date,
+        transactions.transaction_date
+      ) < ?
+    ORDER BY COALESCE(
+      transactions.booking_date,
+      transactions.value_date,
+      transactions.transaction_date
+    ), transactions.id
+  `).all(
+    configRow.source_account_id,
+    periodStartDate,
+    periodEndDate
+  ) as unknown as TransactionRow[];
+
+  let total = 0n;
+  const expenses: CollectedDirectExpense[] = [];
+  for (const row of rows) {
+    const evaluation = evaluateDirectExpense({
+      accountId: Number(configRow.source_account_id),
+      sourceAccountId: Number(configRow.source_account_id),
+      direction: row.direction,
+      status: row.status,
+      currency: row.currency,
+      amountCents: Number(row.amount_cents),
+      bookingDate: row.booking_date,
+      valueDate: row.value_date,
+      transactionDate: row.transaction_date,
+      transactionOverride: row.weekly_budget_override,
+      categoryDefault: row.weekly_budget_default === 1,
+      isInternalTransfer: row.counterparty_id
+        ? internalCounterparties.has(row.counterparty_id)
+        : false,
+      isRefillTransfer: matchedTransfers.has(Number(row.id)),
+      periodStartDate,
+      periodEndDate
+    });
+    if (!evaluation.included || !evaluation.effectiveDate) continue;
+    if (
+      evaluation.decision.source !== 'transaction_override'
+      && evaluation.decision.source !== 'category_default'
+    ) throw new Error('Included weekly-budget expense has no decision source.');
+
+    total += BigInt(evaluation.amountCents);
+    expenses.push({
+      transactionId: Number(row.id),
+      transactionKey: row.provider_transaction_id,
+      bookingDate: evaluation.effectiveDate,
+      amountCents: evaluation.amountCents,
+      currency: 'EUR',
+      counterpartyName: row.counterparty_name,
+      categoryId: row.category_id == null ? null : Number(row.category_id),
+      categoryName: row.category_name,
+      weeklyBudgetOverride: row.weekly_budget_override,
+      decisionSource: evaluation.decision.source
+    });
+  }
+  const totalCents = Number(total);
+  if (!Number.isSafeInteger(totalCents)) {
+    throw new Error('Weekly direct expenses exceed the supported range.');
+  }
+  return { totalCents, expenses };
 }
 
 export function serializeWeeklyBudgetSettings(configRow: WeeklyBudgetConfigRow): Record<string, unknown> {
@@ -133,80 +258,22 @@ export function buildCurrentWeeklyBudgetOverview(
     timezone: configRow.timezone,
     effectiveFromDate: configRow.effective_from_date
   });
-  const internalCounterparties = ownAccountCounterpartyIds(configRow);
-  const matchedTransfers = matchedTransferTransactionIds(database, configRow);
-  const rows = database.prepare(`
-    SELECT transactions.id, transactions.provider_transaction_id,
-           transactions.booking_date, transactions.value_date,
-           transactions.transaction_date, transactions.amount_cents,
-           transactions.currency, transactions.direction, transactions.status,
-           transactions.counterparty_name, transactions.weekly_budget_override,
-           counterparties.counterparty_id,
-           categories.id AS category_id, categories.name AS category_name,
-           categories.weekly_budget_default
-    FROM transactions
-    LEFT JOIN counterparties ON counterparties.id = transactions.counterparty_ref
-    LEFT JOIN categories ON categories.id = transactions.category_id
-    WHERE transactions.account_id = ?
-      AND COALESCE(
-        transactions.booking_date,
-        transactions.value_date,
-        transactions.transaction_date
-      ) >= ?
-      AND COALESCE(
-        transactions.booking_date,
-        transactions.value_date,
-        transactions.transaction_date
-      ) < ?
-    ORDER BY COALESCE(
-      transactions.booking_date,
-      transactions.value_date,
-      transactions.transaction_date
-    ), transactions.id
-  `).all(
-    configRow.source_account_id,
+  const collected = collectWeeklyBudgetDirectExpenses(
+    database,
+    configRow,
     window.periodStartDate,
     window.periodEndDate
-  ) as unknown as TransactionRow[];
-
-  let directExpenseBigInt = 0n;
-  const directExpenses: Array<Record<string, unknown>> = [];
-  for (const row of rows) {
-    const evaluation = evaluateDirectExpense({
-      accountId: Number(configRow.source_account_id),
-      sourceAccountId: Number(configRow.source_account_id),
-      direction: row.direction,
-      status: row.status,
-      currency: row.currency,
-      amountCents: Number(row.amount_cents),
-      bookingDate: row.booking_date,
-      valueDate: row.value_date,
-      transactionDate: row.transaction_date,
-      transactionOverride: row.weekly_budget_override,
-      categoryDefault: row.weekly_budget_default === 1,
-      isInternalTransfer: row.counterparty_id
-        ? internalCounterparties.has(row.counterparty_id)
-        : false,
-      isRefillTransfer: matchedTransfers.has(Number(row.id)),
-      periodStartDate: window.periodStartDate,
-      periodEndDate: window.periodEndDate
-    });
-    if (!evaluation.included) continue;
-    directExpenseBigInt += BigInt(evaluation.amountCents);
-    directExpenses.push({
-      transaction_id: Number(row.id),
-      booking_date: evaluation.effectiveDate,
-      amount_cents: evaluation.amountCents,
-      counterparty_name: row.counterparty_name,
-      category_id: row.category_id == null ? null : Number(row.category_id),
-      category_name: row.category_name,
-      decision_source: evaluation.decision.source
-    });
-  }
-  const directExpenseCents = Number(directExpenseBigInt);
-  if (!Number.isSafeInteger(directExpenseCents)) {
-    throw new Error('Weekly direct expenses exceed the supported range.');
-  }
+  );
+  const directExpenseCents = collected.totalCents;
+  const directExpenses = collected.expenses.map((expense) => ({
+    transaction_id: expense.transactionId,
+    booking_date: expense.bookingDate,
+    amount_cents: expense.amountCents,
+    counterparty_name: expense.counterpartyName,
+    category_id: expense.categoryId,
+    category_name: expense.categoryName,
+    decision_source: expense.decisionSource
+  }));
 
   const balance = latestUsableBalanceSnapshot(database, Number(configRow.target_account_id));
   const fetchedAt = balance ? Date.parse(balance.fetchedAt) : Number.NaN;

@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   assertTimeZone,
   localDateForInstant,
+  weeklyBudgetCutoffSchedule,
   weeklyBudgetWindow
 } from '../src/services/weekly-budget-schedule.js';
 
@@ -19,6 +20,18 @@ test('calculates the current Sunday-to-Sunday window in Europe/Berlin', () => {
     nextCutoffDate: '2026-09-13',
     nextCutoffAt: '2026-09-13T16:30:00.000Z'
   });
+});
+
+test('returns the immediately due cutoff as the previous cutoff', () => {
+  const schedule = weeklyBudgetCutoffSchedule({
+    now: new Date('2026-09-13T16:31:00.000Z'),
+    cutoffWeekday: 7,
+    cutoffTime: '18:30',
+    timezone: 'Europe/Berlin'
+  });
+  assert.equal(schedule.previousCutoffDate, '2026-09-13');
+  assert.equal(schedule.previousCutoffAt, '2026-09-13T16:30:00.000Z');
+  assert.equal(schedule.nextCutoffAt, '2026-09-20T16:30:00.000Z');
 });
 
 test('starts a new window once the cutoff instant is reached', () => {
@@ -72,4 +85,3 @@ test('validates IANA timezones and resolves the local calendar date', () => {
     '2026-09-11'
   );
 });
-

@@ -11,9 +11,9 @@
 | 5 | Offen | OpenAI-Kategorisierung |
 | 6 | Offen | Händlernormalisierung und Logos |
 | 7 | Nicht im Kernumfang | Optionale Yuvomi-Budget-Exportbrücke; keine Abhängigkeit des Wochenbudgets |
-| 8 | In Arbeit | Datenmodell, Prioritäts- und Berechnungslogik, Saldo-Snapshots, Stichtags-Zeitzonenlogik, Settings-/Current-API, UI und atomarer Stichtagsdienst umgesetzt; automatische Auslösung, Historien-UI und Transfer-Erkennung offen |
+| 8 | In Arbeit | Datenmodell, Prioritäts- und Berechnungslogik, Saldo-Snapshots, Stichtags-Zeitzonenlogik, Settings-/Current-API, UI, atomarer Stichtagsdienst und automatische Cutoff-Auslösung umgesetzt; Historien-UI und Transfer-Erkennung offen |
 | 9 | Offen | GiroCode/SEPA-QR |
-| 10 | Offen | Scheduler und Banking-eigene Push-Benachrichtigungen |
+| 10 | In Arbeit | Cutoff-Scheduler mit Lease, Idempotenz, Retry und Catch-up umgesetzt; zweimal täglicher Sync und Banking-eigene Push-Benachrichtigungen offen |
 | 11 | Offen | Produktionshärtung |
 
 ## Phase 1 - Technische Basis

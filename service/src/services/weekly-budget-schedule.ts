@@ -19,6 +19,13 @@ export interface WeeklyBudgetPeriodBoundary {
   scheduledCutoffAt: string;
 }
 
+export interface WeeklyBudgetCutoffSchedule {
+  previousCutoffDate: string;
+  previousCutoffAt: string;
+  nextCutoffDate: string;
+  nextCutoffAt: string;
+}
+
 interface LocalParts {
   date: string;
   year: number;
@@ -74,6 +81,33 @@ export function localDateForInstant(instant: Date, timezone: string): string {
   if (Number.isNaN(instant.getTime())) throw new Error('Instant is invalid.');
   assertTimeZone(timezone);
   return localPartsAt(instant, timezone).date;
+}
+
+export function weeklyBudgetCutoffSchedule({
+  now,
+  cutoffWeekday,
+  cutoffTime,
+  timezone
+}: Omit<WeeklyBudgetWindowInput, 'effectiveFromDate'>): WeeklyBudgetCutoffSchedule {
+  const window = weeklyBudgetWindow({
+    now,
+    cutoffWeekday,
+    cutoffTime,
+    timezone
+  });
+  const previousCutoffDate = addCalendarDays(window.nextCutoffDate, -7);
+  const { hour, minute } = parseLocalTime(cutoffTime);
+  return {
+    previousCutoffDate,
+    previousCutoffAt: localDateTimeToInstant(
+      previousCutoffDate,
+      hour,
+      minute,
+      timezone
+    ).toISOString(),
+    nextCutoffDate: window.nextCutoffDate,
+    nextCutoffAt: window.nextCutoffAt
+  };
 }
 
 export function weeklyBudgetPeriodEndingAt({

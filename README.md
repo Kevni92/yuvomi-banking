@@ -15,10 +15,9 @@ Geplante Kernfunktionen:
 - Kategorien über lokale Regeln und OpenAI-Batch-Klassifizierung zuordnen
 - neue Kategorien nur vorschlagen, nicht automatisch anlegen
 - bekannte Händler mit lokal gecachten Logos darstellen
-- Yuvomi-Budget-Kategorien und -Einträge über die öffentliche Yuvomi REST API nutzen
-- Wochenbudget berechnen
+- eigenständiges, vom Yuvomi-Budget unabhängiges Wochenbudget berechnen und historisieren
 - GiroCode/SEPA-QR für Überweisungsvorschläge erzeugen
-- spätere Push-/Reminder-Integration
+- Banking-eigene Push-Benachrichtigungen an auswählbare Yuvomi-Benutzer senden
 
 ## Architektur
 
@@ -41,14 +40,20 @@ Browser
        v               v         v
   banking.db     Enable Banking  OpenAI
        |
-       +------> Yuvomi REST API /api/v1/*
+       +------> Yuvomi REST API /api/v1/auth/me
 ```
 
 ## Wichtige Regel
 
 **Das Banking-Modul öffnet oder verändert niemals `yuvomi.db` direkt.**
 
-Banking-spezifische Daten liegen in `banking.db`. Wenn Daten in Yuvomi erscheinen sollen, geschieht dies ausschließlich über `/api/v1`.
+Banking-spezifische Daten einschließlich Kategorien, Wochenbudget und Historie
+liegen in `banking.db`. Yuvomis Budget-Modul wird nicht benötigt. Der Sidecar
+verwendet Yuvomis öffentliche API nur für Plattformfunktionen wie die
+Session-Verifikation.
+
+Die vollständige Wochenbudget-Spezifikation steht in
+[`docs/WEEKLY_BUDGET.md`](docs/WEEKLY_BUDGET.md).
 
 ## Projektstruktur
 

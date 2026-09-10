@@ -64,7 +64,7 @@ Aufgaben:
 - Scheduler
 - Wochenbudget
 - GiroCode
-- spätere Notifications
+- Banking-eigene Web-Push-Benachrichtigungen
 
 ## 4. Datenhaltung
 
@@ -83,19 +83,21 @@ Enthält:
 - Kategorisierungsregeln
 - AI-Ergebnisse
 - Händlerlogos
-- Wochenbudget- und Überweisungsvorschläge
+- Wochenbudget-Einstellungen und Saldo-Snapshots
+- historisierte Wochenperioden und Überweisungsvorschläge
+- Banking-Push-Abonnements und Zustellhistorie
 
 ### `yuvomi.db`
 
 Bleibt ausschließlich Eigentum von Yuvomi Core.
 
-Banking greift niemals direkt darauf zu.
+Banking greift niemals direkt darauf zu. Das Banking-Modul besitzt eigene
+Kategorien und eine eigene Wochenbudget-Logik. Es verwendet das Yuvomi-Budget
+weder zur Berechnung noch zur Historisierung.
 
-Wenn kategorisierte Umsätze in Yuvomis Budget erscheinen sollen:
-
-`Banking Sidecar -> Yuvomi /api/v1/budget`
-
-Die Rückgabe-ID wird in `banking.db` als Mapping gespeichert.
+Eine spätere, optionale Exportfunktion in das Yuvomi-Budget wäre ein separater
+Adapter über die öffentliche `/api/v1`-REST-API. Sie ist nicht Teil des
+Wochenbudget-Kernumfangs und darf dessen Betrieb nicht beeinflussen.
 
 ## 5. Authentifizierung
 
@@ -127,11 +129,16 @@ Produktiv entsprechend über HTTPS.
 
 ## 7. Scheduler
 
-Geplante Jobs laufen ohne Browser-Session.
+Geplante Jobs laufen ohne Browser-Session und arbeiten ausschließlich mit Daten
+aus `banking.db` und Enable Banking. Dafür ist kein Yuvomi-API-Token nötig.
 
-Dafür benötigt der Sidecar entweder:
+Der Sidecar führt zwei reguläre Bank-Synchronisierungen pro Tag aus. Zusätzlich
+erzwingt der konfigurierbare Wochenbudget-Stichtag aus Wochentag, Uhrzeit und
+IANA-Zeitzone einen frischen Abruf beider beteiligter Konten. Berechnung,
+Historisierung, GiroCode und Push-Outbox folgen erst nach erfolgreichem Abruf.
 
-- ausschließlich eigene Banking-Daten; dann kein Yuvomi-Token nötig
-- oder einen Yuvomi API Token mit minimal notwendigen Scopes, wenn Daten in Yuvomi geschrieben werden sollen
+Push-Abonnements werden vom Banking-Modul selbst verwaltet und bei der Anlage
+über die aktuelle Yuvomi-Session einer serverseitig ermittelten Benutzer-ID
+zugeordnet. Der Sidecar greift nicht auf Yuvomis interne Push-Tabellen zu.
 
-Der Token liegt ausschließlich im Sidecar-Secret.
+Details: [`WEEKLY_BUDGET.md`](WEEKLY_BUDGET.md).

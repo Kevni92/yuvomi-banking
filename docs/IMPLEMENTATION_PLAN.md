@@ -10,10 +10,10 @@
 | 4 | In Arbeit | Bankauswahl, Consent-Start, Verbindungsübersicht, Konten-, Saldo- und Umsatzdarstellung begonnen; vollständige UI offen |
 | 5 | Offen | OpenAI-Kategorisierung |
 | 6 | Offen | Händlernormalisierung und Logos |
-| 7 | Offen | Yuvomi-Budget-Bridge |
-| 8 | Offen | Wochenbudget |
+| 7 | Nicht im Kernumfang | Optionale Yuvomi-Budget-Exportbrücke; keine Abhängigkeit des Wochenbudgets |
+| 8 | Offen | Eigenständiges Wochenbudget und Historisierung |
 | 9 | Offen | GiroCode/SEPA-QR |
-| 10 | Offen | Scheduler und Benachrichtigungen |
+| 10 | Offen | Scheduler und Banking-eigene Push-Benachrichtigungen |
 | 11 | Offen | Produktionshärtung |
 
 ## Phase 1 - Technische Basis
@@ -85,37 +85,52 @@ Erst Mock/Sandbox.
 - lokaler Cache
 - Fallback Initialen
 
-## Phase 7 - Yuvomi Budget Bridge
+## Phase 7 - Optionale Yuvomi-Budget-Exportbrücke
 
-- Yuvomi Kategorien lesen
-- Mapping
-- Konten-Mapping
-- optional Umsatz -> Budget-Eintrag
-- Sync-Mapping verhindern Doppelimporte
+Diese Phase ist nicht Teil des aktuellen Kernumfangs. Das Wochenbudget besitzt
+eigene Kategorien, Daten und Historie und darf weder beim Lesen noch beim
+Schreiben von Yuvomis Budget abhängen.
+
+Falls später gewünscht, kann ein separater Adapter kategorisierte Umsätze über
+die öffentliche Yuvomi-REST-API exportieren. Fehler oder API-Änderungen dieses
+Adapters dürfen das Wochenbudget nicht beeinträchtigen.
 
 ## Phase 8 - Wochenbudget
 
 - konfigurierbares Wochenziel
+- Quell- und Zielkonto
+- Stichtag aus Wochentag, Uhrzeit und Zeitzone
+- Kategorie-Standard und Umsatz-Override mit Vorrang des Umsatzes
+- persistente, normalisierte Saldo-Snapshots
 - relevante Sparkassen-Ausgaben erkennen
-- Zielbetrag minus direkte Ausgaben
-- Transfer-Vorschlag
-- Erkennung bereits ausgeführter Transfers
+- `Zielbetrag - N26-Saldo - Direktausgaben`
+- idempotente Perioden, Vorschlagsrevisionen und Historie
+- aktuelle Wochenbudget-API und Dashboard-Widget
+- Erkennung bereits ausgeführter Transfers auf beiden Konten
 
 ## Phase 9 - GiroCode
 
-- EPC/SEPA QR Payload
-- PNG/SVG serverseitig erzeugen
-- UI für "Überweisung vorbereiten"
-- Zielkonto N26
-- Betrag aus Wochenbudget
+- EPC069-12-v3.1-Payload mit validierter N26-IBAN
+- Drei-Faktoren-Formel und Periodenschlüssel im Verwendungszweck
+- PNG serverseitig erzeugen
+- Klartext-Zahlungsdaten neben dem QR-Code anzeigen
+- Download/Teilen und UI für "Überweisung vorbereiten"
+- kein GiroCode bei Betrag `0`
 
 ## Phase 10 - Scheduler + Notifications
 
-- kontrollierter Bank-Sync
+- zwei kontrollierte Bank-Syncs täglich
+- erzwungener frischer Sync beider Konten am Stichtag
 - Consent-Warnung
-- Sonntags Wochenbudget berechnen
-- Yuvomi Notification/Reminder Integration
-- API Token nur mit minimalen Scopes
+- konfigurierbarer Wochentag, Uhrzeit und IANA-Zeitzone
+- Lease, Idempotenz, Retry und Catch-up nach Sidecar-Ausfall
+- eigener Banking-Push-Service-Worker und eigene Web-Push-Subscriptions
+- auswählbarer Yuvomi-Benutzer als Empfänger
+- Notification-Outbox mit Textformel und Link zum GiroCode
+- optionale, kurzlebige QR-Bildvorschau auf unterstützten Plattformen
+
+Die vollständige Spezifikation und Abnahmekriterien stehen in
+[`WEEKLY_BUDGET.md`](WEEKLY_BUDGET.md).
 
 ## Phase 11 - Production Hardening
 

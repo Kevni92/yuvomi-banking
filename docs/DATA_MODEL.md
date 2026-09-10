@@ -24,7 +24,9 @@ mehrere Sessions hinweg. `provider_account_id`/UID ist dagegen nur fuer die
 aktuelle Provider-Session gueltig. Das Matching erfolgt immer zusaetzlich im
 Scope desselben Yuvomi-Benutzers.
 
-Optionales Mapping auf ein Yuvomi-Budgetkonto.
+Ein Konto kann in der eigenständigen Wochenbudget-Konfiguration als Quell- oder
+Zielkonto ausgewählt werden. Ein Mapping auf ein Yuvomi-Budgetkonto ist für das
+Wochenbudget nicht erforderlich.
 
 ### Counterparty
 
@@ -55,15 +57,18 @@ Der Feldname ist historisch und bedeutet nicht "Enable Banking transaction_id":
 `status` enthält mindestens `PDNG` und `BOOK`; unbekannte Providerwerte werden
 robust als `UNKNOWN` gespeichert.
 
+`weekly_budget_override` enthält `inherit`, `include` oder `exclude`. Die
+individuelle Entscheidung am Umsatz hat Vorrang vor dem Kategorie-Standard.
+
 Pending/Booked-Datensätze werden nur bei einem eindeutigen Match über Account,
 Betrag, Währung, Richtung, Gegenpartei, normalisierten Verwendungszweck,
 optionalen MCC und ein plausibles Buchungsfenster zusammengeführt.
 
 ### Category
 
-Banking-interne Kategorie.
-
-Kann auf Yuvomi Budget-Kategorie/Subkategorie gemappt werden.
+Banking-interne Kategorie. `weekly_budget_default` legt fest, ob Umsätze dieser
+Kategorie standardmäßig als Wochenbudget-Ausgaben gelten. Das Banking-Modul
+benötigt kein Mapping auf Yuvomis Budget-Kategorien.
 
 ### Category Rule
 
@@ -84,6 +89,36 @@ Muss manuell akzeptiert oder verworfen werden.
 `target_amount_cents`, `computed_amount_cents` und `deducted_amount_cents`
 werden ebenfalls als SQLite-`INTEGER` in Cent gespeichert.
 
-Wochenbudget-/Überweisungsvorschlag.
+Revisionierter Wochenbudget-/Überweisungsvorschlag. Er speichert die
+Berechnungsfaktoren, den historischen Periodenbezug, den Überweisungstext, den
+Hash des reproduzierbaren EPC-Payloads und erkannte Transferbuchungen.
 
-Später Grundlage für GiroCode.
+### Weekly Budget Config
+
+Konfiguration von Quellkonto, Zielkonto, Wochenziel, Wochentag, Uhrzeit,
+Zeitzone, regulären Sync-Zeiten und Push-Empfänger.
+
+### Balance Snapshot
+
+Historischer, normalisierter Banksaldo mit Saldoart und Beobachtungszeit. Ein
+Stichtagsvorschlag verweist auf genau den verwendeten Snapshot.
+
+### Weekly Budget Period
+
+Unveränderlicher Abschluss einer Woche. Enthält Konfigurationssnapshot,
+Periodengrenzen, verwendeten N26-Saldo, Direktausgaben, Ergebnis,
+Algorithmusversion und Jobstatus.
+
+### Weekly Budget Period Transaction
+
+Snapshot eines als Direktausgabe einbezogenen Umsatzes einschließlich Betrag,
+damaliger Kategorie und Entscheidungsquelle.
+
+### Banking Push Subscription / Notification Delivery
+
+Eigene, einem Yuvomi-Benutzer zugeordnete Web-Push-Subscription sowie die
+idempotente Zustellhistorie eines Vorschlags. Subscription-Geheimnisse werden
+verschlüsselt gespeichert.
+
+Das genaue Zielschema und seine Constraints stehen in
+[`WEEKLY_BUDGET.md`](WEEKLY_BUDGET.md#13-datenmodell).

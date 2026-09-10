@@ -17,7 +17,8 @@ Produktiv als read-only Secret in den Sidecar mounten.
 - `COUNTERPARTY_HMAC_SECRET`
 - `BANKING_DATA_ENCRYPTION_KEY`
 - `OPENAI_API_KEY`
-- optional Yuvomi API Token
+- `BANKING_VAPID_PRIVATE_KEY`
+- `BANKING_VAPID_PUBLIC_KEY`
 
 Nicht in:
 
@@ -79,7 +80,13 @@ Mindestens folgende Felder verschlüsseln:
 
 - IBAN
 - Enable-Banking-Sessiondaten, falls sensitiv
+- Banking-Web-Push-Endpoints und Subscription-Schlüssel
 - ggf. Rohpayloads
+
+Kurzlebige Capability-Tokens für eine GiroCode-Bildvorschau werden nur gehasht
+gespeichert. Vollständige Token-URLs dürfen weder im Reverse-Proxy noch im
+Sidecar geloggt werden. Die Bildvorschau ist wegen der auf dem Sperrbildschirm
+sichtbaren Zahlungsdaten ein ausdrückliches Opt-in.
 
 Rohpayloads nur speichern, wenn für Debugging wirklich nötig.
 

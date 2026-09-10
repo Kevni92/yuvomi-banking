@@ -106,3 +106,32 @@ Wichtig:
 - Structured Output
 - manuelle Korrektur lernt dauerhafte Regel
 - Tests für Prioritäten und Datenschutz
+
+---
+
+## Prompt 5 - Eigenständiges Wochenbudget, GiroCode und Push
+
+Implementiere die Spezifikation aus `docs/WEEKLY_BUDGET.md` in der dort
+festgelegten Reihenfolge. Das Dokument ist für Fachregeln, Datenmodell,
+Schnittstellen, Fehlerverhalten und Abnahmekriterien verbindlich.
+
+Wichtig:
+
+- keine Abhängigkeit vom Yuvomi-Budget-Modul oder `/api/v1/budget`
+- keine Änderung an Yuvomi Core und kein Zugriff auf `yuvomi.db`
+- neue append-only Migrationen; vorhandene Migrationen nicht bearbeiten
+- Cent-genaue Integer-Rechnung
+- Umsatz-Override hat Vorrang vor Kategorie-Standard
+- zweimal täglicher Sync plus erzwungener frischer Sync am Stichtag
+- Stichtag aus Wochentag, Uhrzeit und IANA-Zeitzone
+- keine Berechnung mit veralteten Daten, wenn der Stichtags-Sync fehlschlägt
+- unveränderliche Periodenhistorie und explizite Vorschlagsrevisionen
+- EPC069-12 v3.1 mit serverseitig erzeugtem PNG
+- eigene Banking-Web-Push-Subscriptions, serverseitig an den verifizierten
+  Yuvomi-Benutzer gebunden
+- Push-Outbox, Retry und idempotente Scheduler-Läufe
+- QR-Bild im Push nur als Opt-in und progressive Erweiterung
+- keine automatische Zahlung; Freigabe bleibt in der Sparkassen-App
+
+Implementiere in kleinen, testbaren Teilphasen. Führe nach jeder Teilphase die
+betroffenen Tests und vor Abschluss die vollständige Sidecar-Test-Suite aus.

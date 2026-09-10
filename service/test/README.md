@@ -16,4 +16,9 @@ Ab Phase 2 zusätzlich:
 - Rule-Prioritäten
 - OpenAI Structured Output
 - keine IBAN im OpenAI-Payload
-- Transfer-/Wochenbudget-Berechnung
+- Wochenbudget-Zuordnung (`Umsatz > Kategorie > Standard`)
+- Cent-genaue Transferberechnung und Periodengrenzen
+- historisierte Perioden und Vorschlagsrevisionen
+- EPC/GiroCode-Payload und Längenlimits
+- idempotenter Stichtags-Scheduler
+- Banking-Push-Zuordnung und Notification-Outbox

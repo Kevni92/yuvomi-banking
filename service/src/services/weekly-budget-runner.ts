@@ -16,7 +16,7 @@ import {
 } from './weekly-budget-overview.js';
 import { weeklyBudgetPeriodEndingAt } from './weekly-budget-schedule.js';
 import { buildEpcQrPayload, giroCodePayloadSha256 } from './girocode.js';
-import { matchWeeklyBudgetTransfers } from './weekly-budget-transfer-matcher.js';
+import { reconcileWeeklyBudgetLifecycle } from './weekly-budget-revisions.js';
 
 export type WeeklyBudgetRunTrigger = 'scheduled' | 'catch_up' | 'manual';
 
@@ -145,7 +145,7 @@ export async function runWeeklyBudgetCutoff({
       encryption,
       manageTransaction: false
     });
-    matchWeeklyBudgetTransfers(database, configId, syncedAt);
+    reconcileWeeklyBudgetLifecycle(database, configId, syncedAt);
     persistAccountBalanceSnapshots({
       database,
       accountId: sourceAccount.id,

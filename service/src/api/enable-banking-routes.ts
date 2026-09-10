@@ -17,6 +17,7 @@ import { importTransactions } from '../enable-banking/importer.js';
 import { persistAccountBalanceSnapshots } from '../enable-banking/balances.js';
 import { createEncryptionService } from '../security/encryption.js';
 import { maskIban, normalizeIban } from '../services/counterparty.js';
+import { reconcileWeeklyBudgetLifecycle } from '../services/weekly-budget-revisions.js';
 import {
   mutationIsAllowed,
   noStore,
@@ -322,6 +323,7 @@ export function createEnableBankingRouter({
       database.prepare(
         'UPDATE bank_accounts SET last_synced_at = ?, updated_at = ? WHERE id = ?'
       ).run(new Date().toISOString(), new Date().toISOString(), account.id);
+      reconcileWeeklyBudgetsForAccount(database, account.id, new Date());
       noStore(response);
       response.json({
         data: {
@@ -681,6 +683,20 @@ function isHttpsOrigin(): boolean {
     return new URL(config.publicOrigin).protocol === 'https:';
   } catch {
     return false;
+  }
+}
+
+function reconcileWeeklyBudgetsForAccount(
+  database: DatabaseSync,
+  accountId: number,
+  now: Date
+): void {
+  const configs = database.prepare(`
+    SELECT id FROM weekly_budget_configs
+    WHERE source_account_id = ? OR target_account_id = ?
+  `).all(accountId, accountId) as Array<{ id: number }>;
+  for (const weeklyBudgetConfig of configs) {
+    reconcileWeeklyBudgetLifecycle(database, Number(weeklyBudgetConfig.id), now);
   }
 }
 

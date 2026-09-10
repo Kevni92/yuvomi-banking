@@ -332,6 +332,15 @@ function configureConnectionForm(container, permission, signal) {
   }, { signal });
 
   weeklyHistory.addEventListener('click', (event) => {
+    const actionButton = event.target.closest('button[data-action]');
+    if (actionButton?.dataset.action === 'recalculate-weekly-period') {
+      void recalculateWeeklyBudgetPeriod({ container, button: actionButton, signal });
+      return;
+    }
+    if (actionButton?.dataset.action === 'dismiss-weekly-transfer') {
+      void dismissWeeklyBudgetTransfer({ container, button: actionButton, signal });
+      return;
+    }
     const button = event.target.closest('button[data-weekly-period-id]');
     if (!button) return;
     void toggleWeeklyBudgetPeriodDetails({ button, signal });
@@ -460,7 +469,7 @@ async function loadOverview(container, signal, canWrite) {
     renderError(categoriesHost, categoriesResult.reason);
   }
   if (periodsResult.status === 'fulfilled') {
-    renderWeeklyBudgetHistory(historyHost, periodsResult.value?.data);
+    renderWeeklyBudgetHistory(historyHost, periodsResult.value?.data, canWrite);
   } else {
     renderError(historyHost, periodsResult.reason);
   }
@@ -659,7 +668,7 @@ function renderWeeklyBudgetCategories(host, categories, canWrite) {
   host.insertAdjacentHTML('beforeend', `<div class="banking-weekly-category-list">${rows}</div>`);
 }
 
-function renderWeeklyBudgetHistory(host, periods) {
+function renderWeeklyBudgetHistory(host, periods, canWrite) {
   host.replaceChildren();
   if (!Array.isArray(periods) || periods.length === 0) {
     host.insertAdjacentHTML('beforeend', `
@@ -669,14 +678,19 @@ function renderWeeklyBudgetHistory(host, periods) {
   }
   const rows = periods.map((period) => {
     const suggestion = period?.latest_suggestion;
+    const targetAmountCents = suggestion?.target_amount_cents ?? period?.target_amount_cents;
+    const directExpenseCents = suggestion?.deducted_amount_cents ?? period?.direct_expense_cents;
+    const targetBalanceCents = suggestion?.target_balance_cents ?? period?.target_balance_cents;
+    const computedAmountCents = suggestion?.computed_amount_cents ?? period?.computed_amount_cents;
+    const pendingLateCandidates = Number(suggestion?.pending_late_candidate_count) || 0;
     const formula = [
-      formatCents(period?.target_amount_cents, period?.currency),
+      formatCents(targetAmountCents, period?.currency),
       '-',
-      formatCents(period?.direct_expense_cents, period?.currency),
+      formatCents(directExpenseCents, period?.currency),
       '-',
-      formatCents(period?.target_balance_cents, period?.currency),
+      formatCents(targetBalanceCents, period?.currency),
       '=',
-      formatCents(period?.computed_amount_cents, period?.currency)
+      formatCents(computedAmountCents, period?.currency)
     ].join(' ');
     return `
       <article class="banking-weekly-period" data-weekly-period-card>
@@ -685,18 +699,84 @@ function renderWeeklyBudgetHistory(host, periods) {
             <strong>${esc(formatDate(period?.period_start_date))} – ${esc(formatDate(period?.period_end_date))}</strong>
             <small>${esc(`${period?.trigger || ''} · ${weeklyBudgetTransferStateLabel(suggestion?.transfer_state || period?.status)}`)}</small>
           </span>
-          <strong>${esc(formatCents(period?.computed_amount_cents, period?.currency))}</strong>
+          <strong>${esc(formatCents(computedAmountCents, period?.currency))}</strong>
         </div>
         <p class="banking-weekly-period__formula">${esc(formula)}</p>
+        ${pendingLateCandidates > 0 ? `<p class="banking-panel__description">${esc(localized('weeklyBudgetLateCandidates', '{count} late booked transaction(s) are waiting for review.', { count: pendingLateCandidates }))}</p>` : ''}
         <div class="banking-weekly-period__actions">
           <button class="btn btn--secondary" type="button" data-weekly-period-id="${esc(String(period?.id ?? ''))}">${esc(localized('weeklyBudgetShowDetails', 'Show details'))}</button>
+          ${canWrite && suggestion?.can_recalculate ? `<button class="btn btn--primary" type="button" data-action="recalculate-weekly-period" data-weekly-period-id="${esc(String(period?.id ?? ''))}">${esc(localized('weeklyBudgetRecalculate', 'Recalculate'))}</button>` : ''}
+          ${canWrite && suggestion?.can_dismiss ? `<button class="btn btn--secondary" type="button" data-action="dismiss-weekly-transfer" data-weekly-suggestion-id="${esc(String(suggestion?.id ?? ''))}">${esc(localized('weeklyBudgetDismissSuggestion', 'Dismiss suggestion'))}</button>` : ''}
           ${suggestion?.girocode_url ? `<a class="btn btn--secondary" href="${esc(suggestion.girocode_url)}" target="_blank" rel="noopener">${esc(localized('weeklyBudgetOpenGiroCode', 'Open GiroCode'))}</a>` : ''}
         </div>
+        <p class="banking-feedback" data-weekly-period-feedback role="status"></p>
         <div class="banking-weekly-period__details" data-weekly-period-details hidden></div>
       </article>
     `;
   }).join('');
   host.insertAdjacentHTML('beforeend', `<div class="banking-weekly-history-list">${rows}</div>`);
+}
+
+async function recalculateWeeklyBudgetPeriod({ container, button, signal }) {
+  const periodId = button.dataset.weeklyPeriodId;
+  if (!/^\d+$/.test(periodId || '')) return;
+  const feedback = button.closest('[data-weekly-period-card]')?.querySelector('[data-weekly-period-feedback]');
+  button.disabled = true;
+  if (feedback) feedback.textContent = localized(
+    'weeklyBudgetRecalculating',
+    'Recalculating the transfer suggestion ...'
+  );
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson(`weekly-budget/periods/${encodeURIComponent(periodId)}/recalculate`, {
+      method: 'POST',
+      headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body: {},
+      signal
+    });
+    await refreshWeeklyBudget(container, signal, true);
+  } catch (error) {
+    if (!signal.aborted && feedback) {
+      feedback.textContent = error instanceof Error
+        ? error.message
+        : localized('weeklyBudgetRecalculateFailed', 'The transfer suggestion could not be recalculated.');
+    }
+  } finally {
+    if (!signal.aborted) button.disabled = false;
+  }
+}
+
+async function dismissWeeklyBudgetTransfer({ container, button, signal }) {
+  const suggestionId = button.dataset.weeklySuggestionId;
+  if (!/^\d+$/.test(suggestionId || '')) return;
+  if (!window.confirm(localized(
+    'weeklyBudgetDismissConfirm',
+    'Dismiss this transfer suggestion? The historical revision will be retained.'
+  ))) return;
+  const feedback = button.closest('[data-weekly-period-card]')?.querySelector('[data-weekly-period-feedback]');
+  button.disabled = true;
+  if (feedback) feedback.textContent = localized(
+    'weeklyBudgetDismissing',
+    'Dismissing transfer suggestion ...'
+  );
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson(`weekly-budget/transfers/${encodeURIComponent(suggestionId)}/dismiss`, {
+      method: 'POST',
+      headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body: {},
+      signal
+    });
+    await refreshWeeklyBudget(container, signal, true);
+  } catch (error) {
+    if (!signal.aborted && feedback) {
+      feedback.textContent = error instanceof Error
+        ? error.message
+        : localized('weeklyBudgetDismissFailed', 'The transfer suggestion could not be dismissed.');
+    }
+  } finally {
+    if (!signal.aborted) button.disabled = false;
+  }
 }
 
 async function toggleWeeklyBudgetPeriodDetails({ button, signal }) {
@@ -736,6 +816,8 @@ function weeklyBudgetPeriodDetailsMarkup(period) {
   const balances = Array.isArray(period?.balance_snapshots) ? period.balance_snapshots : [];
   const syncRuns = Array.isArray(period?.sync_runs) ? period.sync_runs : [];
   const activeSuggestion = suggestions[0];
+  const activeCalculation = activeSuggestion ?? period;
+  const pendingLateCandidates = Number(period?.lifecycle?.pending_late_candidate_count) || 0;
   const balanceRows = balances.length > 0
     ? balances.map((balance) => {
         const account = balance?.account_role === 'source'
@@ -753,7 +835,7 @@ function weeklyBudgetPeriodDetailsMarkup(period) {
   const transactionRows = transactions.length > 0
     ? transactions.map((transaction) => `
         <li>
-          <span>${esc(transaction?.counterparty_name || localized('unknownTransaction', 'Transaction'))}<small>${esc(transaction?.category_name || transaction?.decision_source || '')}</small></span>
+          <span>${esc(transaction?.counterparty_name || localized('unknownTransaction', 'Transaction'))}<small>${esc(`${transaction?.category_name || transaction?.decision_source || ''}${transaction?.state === 'late_candidate' ? ` · ${localized('weeklyBudgetLateCandidate', 'Late booking awaiting review')}` : ''} · ${localized('weeklyBudgetRevision', 'Revision {revision}', { revision: transaction?.revision ?? '' })}`)}</small></span>
           <strong>${esc(formatCents(transaction?.amount_cents, transaction?.currency))}</strong>
         </li>
       `).join('')
@@ -780,13 +862,14 @@ function weeklyBudgetPeriodDetailsMarkup(period) {
     : `<li class="banking-muted">${esc(localized('weeklyBudgetNoSyncHistory', 'No synchronization history available.'))}</li>`;
   return `
     <dl class="banking-weekly-period__calculation">
-      <div><dt>${esc(localized('weeklyBudgetAmount', 'Weekly target'))}</dt><dd>${esc(formatCents(period?.target_amount_cents, period?.currency))}</dd></div>
-      <div><dt>${esc(localized('weeklyBudgetClosingBalance', 'Target closing balance'))}</dt><dd>${esc(formatCents(period?.target_balance_cents, period?.currency))}</dd></div>
-      <div><dt>${esc(localized('weeklyBudgetDirect', 'Direct expenses'))}</dt><dd>${esc(formatCents(period?.direct_expense_cents, period?.currency))}</dd></div>
-      <div><dt>${esc(localized('weeklyBudgetTransferAmount', 'Transfer'))}</dt><dd>${esc(formatCents(period?.computed_amount_cents, period?.currency))}</dd></div>
-      <div><dt>${esc(localized('weeklyBudgetActualTransfer', 'Detected transfer'))}</dt><dd>${esc(activeSuggestion?.matched_source_transaction_id || activeSuggestion?.matched_target_transaction_id ? formatCents(activeSuggestion?.computed_amount_cents, period?.currency) : '–')}</dd></div>
-      <div><dt>${esc(localized('weeklyBudgetOverfunded', 'Overfunding'))}</dt><dd>${esc(formatCents(period?.overfunded_cents, period?.currency))}</dd></div>
+      <div><dt>${esc(localized('weeklyBudgetAmount', 'Weekly target'))}</dt><dd>${esc(formatCents(activeCalculation?.target_amount_cents, period?.currency))}</dd></div>
+      <div><dt>${esc(localized('weeklyBudgetClosingBalance', 'Target closing balance'))}</dt><dd>${esc(formatCents(activeCalculation?.target_balance_cents, period?.currency))}</dd></div>
+      <div><dt>${esc(localized('weeklyBudgetDirect', 'Direct expenses'))}</dt><dd>${esc(formatCents(activeCalculation?.deducted_amount_cents ?? period?.direct_expense_cents, period?.currency))}</dd></div>
+      <div><dt>${esc(localized('weeklyBudgetTransferAmount', 'Transfer'))}</dt><dd>${esc(formatCents(activeCalculation?.computed_amount_cents, period?.currency))}</dd></div>
+      <div><dt>${esc(localized('weeklyBudgetActualTransfer', 'Detected transfer'))}</dt><dd>${esc(activeSuggestion?.matched_transaction_id || activeSuggestion?.matched_source_transaction_id || activeSuggestion?.matched_target_transaction_id ? formatCents(activeSuggestion?.computed_amount_cents, period?.currency) : '–')}</dd></div>
+      <div><dt>${esc(localized('weeklyBudgetOverfunded', 'Overfunding'))}</dt><dd>${esc(formatCents(activeCalculation?.overfunded_cents, period?.currency))}</dd></div>
     </dl>
+    ${pendingLateCandidates > 0 ? `<p class="banking-panel__description">${esc(localized('weeklyBudgetLateCandidates', '{count} late booked transaction(s) are waiting for review.', { count: pendingLateCandidates }))}</p>` : ''}
     <h4>${esc(localized('balances', 'Balances'))}</h4>
     <ul>${balanceRows}</ul>
     <h4>${esc(localized('weeklyBudgetDirectExpenses', 'Direct expenses'))}</h4>
@@ -844,7 +927,7 @@ async function refreshWeeklyBudget(container, signal, canWrite = container.datas
     renderError(categoriesHost, categoriesResult.reason);
   }
   if (periodsResult.status === 'fulfilled') {
-    renderWeeklyBudgetHistory(historyHost, periodsResult.value?.data);
+    renderWeeklyBudgetHistory(historyHost, periodsResult.value?.data, canWrite);
   } else {
     renderError(historyHost, periodsResult.reason);
   }

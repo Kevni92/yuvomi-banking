@@ -24,6 +24,11 @@ import {
   listWeeklyBudgetPeriods
 } from '../services/weekly-budget-history.js';
 import {
+  WeeklyBudgetRevisionNotFoundError,
+  dismissWeeklyBudgetSuggestion,
+  recalculateWeeklyBudgetPeriod
+} from '../services/weekly-budget-revisions.js';
+import {
   mutationIsAllowed,
   noStore,
   resolveAuthorizedUser,
@@ -218,6 +223,50 @@ export function createWeeklyBudgetRouter({
         error: error instanceof WeeklyBudgetPeriodNotFoundError
           ? error.message
           : 'Weekly-budget period could not be loaded.'
+      });
+    }
+  });
+
+  router.post('/weekly-budget/periods/:periodId/recalculate', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'write');
+    if (!user || !mutationIsAllowed(request, response)) return;
+    try {
+      const result = recalculateWeeklyBudgetPeriod(
+        database,
+        user.id,
+        positivePathId(request.params.periodId) ?? 0,
+        clock()
+      );
+      noStore(response);
+      response.status(201).json({ data: result });
+    } catch (error) {
+      noStore(response);
+      response.status(error instanceof WeeklyBudgetRevisionNotFoundError ? 404 : 409).json({
+        error: error instanceof Error
+          ? error.message
+          : 'Weekly-budget period could not be recalculated.'
+      });
+    }
+  });
+
+  router.post('/weekly-budget/transfers/:suggestionId/dismiss', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'write');
+    if (!user || !mutationIsAllowed(request, response)) return;
+    try {
+      const result = dismissWeeklyBudgetSuggestion(
+        database,
+        user.id,
+        positivePathId(request.params.suggestionId) ?? 0,
+        clock()
+      );
+      noStore(response);
+      response.json({ data: result });
+    } catch (error) {
+      noStore(response);
+      response.status(error instanceof WeeklyBudgetRevisionNotFoundError ? 404 : 409).json({
+        error: error instanceof Error
+          ? error.message
+          : 'Transfer suggestion could not be dismissed.'
       });
     }
   });

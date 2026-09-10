@@ -29,6 +29,17 @@ export function listWeeklyBudgetPeriods(
            weekly_budget_periods.computed_amount_cents,
            weekly_budget_periods.overfunded_cents,
            weekly_budget_periods.currency,
+           (
+             SELECT COUNT(*)
+             FROM weekly_budget_period_transactions AS candidates
+             WHERE candidates.period_id = weekly_budget_periods.id
+               AND candidates.state = 'late_candidate'
+               AND candidates.revision = (
+                 SELECT MAX(revisions.revision)
+                 FROM transfer_suggestions AS revisions
+                 WHERE revisions.period_id = weekly_budget_periods.id
+               )
+           ) AS pending_late_candidate_count,
            transfer_suggestions.id AS suggestion_id,
            transfer_suggestions.revision AS suggestion_revision,
            transfer_suggestions.status AS suggestion_status,
@@ -37,8 +48,14 @@ export function listWeeklyBudgetPeriods(
            transfer_suggestions.payload_sha256,
            transfer_suggestions.generated_at,
            transfer_suggestions.completed_at,
+           transfer_suggestions.matched_transaction_id,
            transfer_suggestions.matched_source_transaction_id,
-           transfer_suggestions.matched_target_transaction_id
+           transfer_suggestions.matched_target_transaction_id,
+           transfer_suggestions.target_amount_cents AS suggestion_target_amount_cents,
+           transfer_suggestions.target_balance_cents AS suggestion_target_balance_cents,
+           transfer_suggestions.deducted_amount_cents AS suggestion_deducted_amount_cents,
+           transfer_suggestions.raw_computed_amount_cents AS suggestion_raw_computed_amount_cents,
+           transfer_suggestions.overfunded_cents AS suggestion_overfunded_cents
     FROM weekly_budget_periods
     JOIN weekly_budget_configs
       ON weekly_budget_configs.id = weekly_budget_periods.config_id
@@ -131,6 +148,15 @@ export function getWeeklyBudgetPeriod(
     WHERE period_id = ?
     ORDER BY attempt, id
   `).all(periodId) as Array<Record<string, unknown>>;
+  const latestSuggestion = suggestions[0];
+  const latestRevision = numberOrNull(latestSuggestion?.revision);
+  const pendingLateCandidates = latestRevision === null
+    ? 0
+    : Number(database.prepare(`
+        SELECT COUNT(*) AS count
+        FROM weekly_budget_period_transactions
+        WHERE period_id = ? AND revision = ? AND state = 'late_candidate'
+      `).get(periodId, latestRevision)?.count ?? 0);
 
   return {
     ...serializeDetailedPeriod(period),
@@ -156,6 +182,13 @@ export function getWeeklyBudgetPeriod(
         ? safeGiroCodeSummary(database, yuvomiUserId, Number(suggestion.id))
         : null
     })),
+    lifecycle: {
+      pending_late_candidate_count: pendingLateCandidates,
+      can_recalculate: canRecalculate(
+        pendingLateCandidates,
+        latestSuggestion
+      )
+    },
     sync_runs: syncRuns.map((run) => ({
       ...run,
       id: Number(run.id),
@@ -166,8 +199,10 @@ export function getWeeklyBudgetPeriod(
 
 function serializePeriodRow(row: Record<string, unknown>): Record<string, unknown> {
   const suggestionId = Number(row.suggestion_id);
+  const matchedTransactionId = numberOrNull(row.matched_transaction_id);
   const matchedSourceTransactionId = numberOrNull(row.matched_source_transaction_id);
   const matchedTargetTransactionId = numberOrNull(row.matched_target_transaction_id);
+  const pendingLateCandidates = Number(row.pending_late_candidate_count) || 0;
   return {
     id: Number(row.id),
     period_key: row.period_key,
@@ -195,14 +230,37 @@ function serializePeriodRow(row: Record<string, unknown>): Record<string, unknow
           payload_sha256: row.payload_sha256,
           generated_at: row.generated_at,
           completed_at: row.completed_at,
+          computed_amount_cents: numberOrNull(row.suggestion_computed_amount_cents),
+          target_amount_cents: numberOrNull(row.suggestion_target_amount_cents),
+          target_balance_cents: numberOrNull(row.suggestion_target_balance_cents),
+          deducted_amount_cents: numberOrNull(row.suggestion_deducted_amount_cents),
+          raw_computed_amount_cents: numberOrNull(row.suggestion_raw_computed_amount_cents),
+          overfunded_cents: numberOrNull(row.suggestion_overfunded_cents),
+          matched_transaction_id: matchedTransactionId,
           matched_source_transaction_id: matchedSourceTransactionId,
           matched_target_transaction_id: matchedTargetTransactionId,
+          pending_late_candidate_count: pendingLateCandidates,
+          can_recalculate: canRecalculate(pendingLateCandidates, {
+            status: String(row.suggestion_status),
+            matched_source_transaction_id: matchedSourceTransactionId,
+            matched_target_transaction_id: matchedTargetTransactionId,
+            matched_transaction_id: matchedTransactionId
+          }),
+          can_dismiss: canDismiss({
+            status: String(row.suggestion_status),
+            matched_source_transaction_id: matchedSourceTransactionId,
+            matched_target_transaction_id: matchedTargetTransactionId,
+            matched_transaction_id: matchedTransactionId
+          }),
           transfer_state: transferState(
-            matchedSourceTransactionId,
-            matchedTargetTransactionId,
+            matchedSourceTransactionId ?? matchedTransactionId,
+            matchedTargetTransactionId ?? matchedTransactionId,
             String(row.suggestion_status)
           ),
-          girocode_url: Number(row.suggestion_computed_amount_cents) > 0
+          girocode_url: isGiroCodeAvailable(
+            Number(row.suggestion_computed_amount_cents),
+            String(row.suggestion_status)
+          )
             ? `/api/extensions/banking/weekly-budget/transfers/${suggestionId}/girocode.png`
             : null
         }
@@ -269,6 +327,32 @@ function safeGiroCodeSummary(
   } catch {
     return null;
   }
+}
+
+function canRecalculate(
+  pendingLateCandidates: number,
+  suggestion: Record<string, unknown> | undefined
+): boolean {
+  if (pendingLateCandidates < 1 || !suggestion) return false;
+  return !hasDetectedTransfer(suggestion)
+    && !['dismissed', 'superseded', 'failed'].includes(String(suggestion.status));
+}
+
+function canDismiss(suggestion: Record<string, unknown>): boolean {
+  return ['proposed', 'shown', 'notified'].includes(String(suggestion.status))
+    && !hasDetectedTransfer(suggestion);
+}
+
+function hasDetectedTransfer(suggestion: Record<string, unknown>): boolean {
+  return Boolean(
+    numberOrNull(suggestion.matched_transaction_id)
+    || numberOrNull(suggestion.matched_source_transaction_id)
+    || numberOrNull(suggestion.matched_target_transaction_id)
+  );
+}
+
+function isGiroCodeAvailable(amountCents: number, status: string): boolean {
+  return amountCents > 0 && !['dismissed', 'superseded', 'failed'].includes(status);
 }
 
 function maskedEncryptedIban(value: unknown): string | null {

@@ -194,6 +194,25 @@ function seedFinalizedPeriod(database: DatabaseSync): void {
   );
 }
 
+function seedLateCandidate(database: DatabaseSync): void {
+  database.prepare(`
+    INSERT INTO transactions (
+      account_id, provider_transaction_id, entry_reference, booking_date,
+      amount_cents, currency, direction, counterparty_name,
+      weekly_budget_override, status, created_at, updated_at
+    ) VALUES (1, 'history-late-bakery', 'history-late-bakery', '2026-09-11',
+              1000, 'EUR', 'outgoing', 'Bakery', 'include', 'BOOK', ?, ?)
+  `).run(NOW.toISOString(), NOW.toISOString());
+  database.prepare(`
+    INSERT INTO weekly_budget_period_transactions (
+      period_id, transaction_id, transaction_key, revision, state,
+      amount_cents, currency, booking_date, counterparty_name,
+      weekly_budget_override, decision_source, created_at
+    ) VALUES (1, 2, 'history-late-bakery', 1, 'late_candidate', 1000, 'EUR',
+              '2026-09-11', 'Bakery', 'include', 'transaction_override', ?)
+  `).run(NOW.toISOString());
+}
+
 test('protects and stores weekly-budget settings without exposing an IBAN', async () => {
   const previousKey = config.secrets.dataEncryptionKey;
   config.secrets.dataEncryptionKey = TEST_KEY;
@@ -519,6 +538,86 @@ test('serves auditable weekly-budget history only through the owning user', asyn
   } finally {
     await close(server);
     await close(otherServer);
+    database.close();
+    config.secrets.dataEncryptionKey = previousKey;
+  }
+});
+
+test('protects period revision and dismissal actions and preserves their audit trail', async () => {
+  const previousKey = config.secrets.dataEncryptionKey;
+  config.secrets.dataEncryptionKey = TEST_KEY;
+  const database = createFixture();
+  seedFinalizedPeriod(database);
+  seedLateCandidate(database);
+  const { server, origin } = await listen(createApp({
+    database,
+    resolveSession: async () => writeUser(),
+    clock: () => NOW
+  }));
+  try {
+    const denied = await fetch(
+      `${origin}/api/extensions/banking/weekly-budget/periods/1/recalculate`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: 'yuvomi.sid=test' },
+        body: '{}'
+      }
+    );
+    assert.equal(denied.status, 403);
+
+    const recalculated = await fetch(
+      `${origin}/api/extensions/banking/weekly-budget/periods/1/recalculate`,
+      { method: 'POST', headers: mutationHeaders(), body: '{}' }
+    );
+    assert.equal(recalculated.status, 201);
+    assert.deepEqual((await recalculated.json()).data, {
+      periodId: 1,
+      suggestionId: 2,
+      revision: 2,
+      directExpenseCents: 4000,
+      transferAmountCents: 31000,
+      status: 'proposed'
+    });
+
+    const history = await fetch(
+      `${origin}/api/extensions/banking/weekly-budget/periods`,
+      { headers: { cookie: 'yuvomi.sid=test' } }
+    );
+    const period = (await history.json()).data[0];
+    assert.equal(period.latest_suggestion.revision, 2);
+    assert.equal(period.latest_suggestion.deducted_amount_cents, 4000);
+    assert.equal(period.latest_suggestion.computed_amount_cents, 31000);
+    assert.equal(period.latest_suggestion.can_dismiss, true);
+    assert.equal(period.latest_suggestion.girocode_url.endsWith('/2/girocode.png'), true);
+
+    const dismissed = await fetch(
+      `${origin}/api/extensions/banking/weekly-budget/transfers/2/dismiss`,
+      { method: 'POST', headers: mutationHeaders(), body: '{}' }
+    );
+    assert.equal(dismissed.status, 200);
+    assert.deepEqual((await dismissed.json()).data, { suggestionId: 2, status: 'dismissed' });
+
+    const giroCode = await fetch(
+      `${origin}/api/extensions/banking/weekly-budget/transfers/2/girocode`,
+      { headers: { cookie: 'yuvomi.sid=test' } }
+    );
+    assert.equal(giroCode.status, 409);
+    const repeatedDismissal = await fetch(
+      `${origin}/api/extensions/banking/weekly-budget/transfers/2/dismiss`,
+      { method: 'POST', headers: mutationHeaders(), body: '{}' }
+    );
+    assert.equal(repeatedDismissal.status, 409);
+    assert.deepEqual(
+      database.prepare(`
+        SELECT revision, status FROM transfer_suggestions WHERE period_id = 1 ORDER BY revision
+      `).all().map((row) => ({ ...row })),
+      [
+        { revision: 1, status: 'superseded' },
+        { revision: 2, status: 'dismissed' }
+      ]
+    );
+  } finally {
+    await close(server);
     database.close();
     config.secrets.dataEncryptionKey = previousKey;
   }

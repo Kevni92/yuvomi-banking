@@ -119,6 +119,9 @@ export function loadWeeklyBudgetGiroCode(
   if (!Number.isSafeInteger(amountCents) || amountCents < 1) {
     throw new GiroCodeUnavailableError('No GiroCode is generated for a zero transfer.');
   }
+  if (row.status === 'dismissed' || row.status === 'superseded' || row.status === 'failed') {
+    throw new GiroCodeUnavailableError('GiroCode is unavailable for an inactive transfer suggestion.');
+  }
   if (row.currency !== 'EUR') {
     throw new GiroCodeUnavailableError('GiroCode transfer currency must be EUR.');
   }

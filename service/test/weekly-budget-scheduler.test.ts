@@ -5,6 +5,7 @@ import { config } from '../src/config.js';
 import { migrateDatabase } from '../src/db/database.js';
 import type { EnableBankingClient } from '../src/enable-banking/client.js';
 import { createEncryptionService } from '../src/security/encryption.js';
+import { upsertPushSubscription } from '../src/services/push-subscriptions.js';
 import { runDueWeeklyBudgetJobs } from '../src/services/weekly-budget-scheduler.js';
 
 const TEST_KEY = 'ad'.repeat(32);
@@ -184,5 +185,75 @@ test('scheduler waits five minutes before the first retry', async () => {
     assert.ok(calls > callsAfterFirst);
   } finally {
     database.close();
+  }
+});
+
+test('queues one data-free sync-failure notification after the final cutoff retry', async () => {
+  const previousKey = config.secrets.dataEncryptionKey;
+  const previousHmac = config.secrets.counterpartyHmac;
+  config.secrets.dataEncryptionKey = TEST_KEY;
+  config.secrets.counterpartyHmac = TEST_HMAC;
+  const database = schedulerFixture();
+  const failingClient = {
+    getAllAccountTransactions: async () => ({ pages: 1, transactions: [] }),
+    getAccountBalances: async (accountId: string) => {
+      if (accountId === 'target') throw new Error('provider unavailable');
+      return { balances: [{
+        balance_amount: { amount: '1.00', currency: 'EUR' },
+        balance_type: 'ITAV'
+      }] };
+    }
+  } as unknown as EnableBankingClient;
+  upsertPushSubscription(database, {
+    yuvomiUserId: 7,
+    subscription: {
+      endpoint: 'https://fcm.googleapis.com/fcm/send/final-cutoff-failure',
+      keys: { p256dh: 'BOGUS_P256DH_base64url', auth: 'BOGUS_AUTH_base64url' }
+    },
+    now: RUN_TIME
+  });
+  database.prepare(`
+    UPDATE weekly_budget_configs
+    SET notification_enabled = 1, notification_user_id = 7
+    WHERE id = 1
+  `).run();
+  try {
+    const retryTimes = [0, 5, 20, 50].map((minutes) =>
+      new Date(RUN_TIME.getTime() + minutes * 60_000)
+    );
+    for (const now of retryTimes) {
+      const outcome = await runDueWeeklyBudgetJobs({ database, client: failingClient, now });
+      assert.equal(outcome[0].state, 'failed');
+    }
+    const delivery = database.prepare(`
+      SELECT suggestion_id, notification_type, idempotency_key, payload_encrypted
+      FROM weekly_budget_notification_deliveries
+    `).get() as Record<string, unknown>;
+    assert.equal(delivery.suggestion_id, null);
+    assert.equal(delivery.notification_type, 'sync_failed');
+    assert.match(String(delivery.idempotency_key), /sync-failed/);
+    const payload = JSON.parse(createEncryptionService(TEST_KEY).decrypt(String(delivery.payload_encrypted))) as {
+      title: string;
+      body: string;
+      url: string;
+    };
+    assert.equal(payload.title, 'Wochenbudget konnte nicht berechnet werden');
+    assert.match(payload.body, /mehreren Versuchen fehlgeschlagen/);
+    assert.doesNotMatch(payload.body, /EUR|N26|Direkt/);
+    assert.equal(payload.url, '/m/banking?view=weekly-budget');
+
+    const exhausted = await runDueWeeklyBudgetJobs({
+      database,
+      client: failingClient,
+      now: new Date(RUN_TIME.getTime() + 51 * 60_000)
+    });
+    assert.equal(exhausted[0].reason, 'retry_exhausted');
+    assert.equal(database.prepare(
+      'SELECT count(*) AS count FROM weekly_budget_notification_deliveries'
+    ).get()?.count, 1);
+  } finally {
+    database.close();
+    config.secrets.dataEncryptionKey = previousKey;
+    config.secrets.counterpartyHmac = previousHmac;
   }
 });

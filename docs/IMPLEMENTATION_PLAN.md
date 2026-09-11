@@ -7,13 +7,13 @@
 | 1 | Erledigt | Yuvomi-Modul, Sidecar, Reverse Proxy, Session- und Permission-Prüfung |
 | 2 | Erledigt | Eigene SQLite-Datenbank, Migrationen, Verschlüsselung, HMAC und Tests |
 | 3 | Teilweise erledigt | JWT, ASPSP-, Consent-, Callback-, Konto-, Saldo- und lifecycle-sicherer Import-Adapter inklusive Mock- und Migrations-Tests; echte Sandbox-Anmeldedaten und End-to-End-Test offen |
-| 4 | In Arbeit | Bankauswahl, Consent-Start, Verbindungsübersicht, Konten-, Saldo- und Umsatzdarstellung begonnen; vollständige UI offen |
+| 4 | Teilweise erledigt | Bankauswahl, Consent-Start, Verbindungsübersicht, Konten-, Saldo-, Umsatz-, Wochenbudget- und Historienansicht umgesetzt; vollständige Filter-/Such-/Sortier-UX und weitergehende Consent-Fehlerführung offen |
 | 5 | Erledigt | Benutzerbezogene Gegenkonto-Regeln, expliziter pseudonymisierter OpenAI-Batch mit Kategorien-Allowlist, Confidence-Schwelle und Review-Liste; neue Kategorien entstehen erst nach explizitem Annehmen, Vorschläge können verworfen werden |
 | 6 | Erledigt | Lokale Registry-Normalisierung, serverseitig allowlist-geschützter HTTPS-Fetch ohne Redirects, signatur- und größenbegrenzter lokaler Logo-Cache sowie Initialen-Fallback umgesetzt |
 | 7 | Nicht im Kernumfang | Optionale Yuvomi-Budget-Exportbrücke; keine Abhängigkeit des Wochenbudgets |
-| 8 | In Arbeit | Datenmodell, Berechnungslogik, Saldo-Snapshots, Stichtagsdienst, Settings-/Current-/Historien-API und UI umgesetzt; eindeutige Transfer-Erkennung sowie `late_candidate`-Erkennung laufen nach regulären, manuellen und Stichtags-Syncs. Schreibberechtigte Benutzer können ungematchte Vorschläge verwerfen oder aus Kandidaten eine unveränderlich dokumentierte Revision erzeugen. |
+| 8 | Erledigt | Datenmodell, Berechnungslogik, Saldo-Snapshots, Stichtagsdienst, Settings-/Current-/Historien-API und UI umgesetzt; eindeutige Transfer-Erkennung sowie `late_candidate`-Erkennung laufen nach regulären, manuellen und Stichtags-Syncs. Schreibberechtigte Benutzer können ungematchte Vorschläge verwerfen oder aus Kandidaten eine unveränderlich dokumentierte Revision erzeugen. |
 | 9 | Erledigt | EPC069-12-v3.1-Payload, Empfängersnapshot, SHA-256-Fingerprint, geschützte Metadaten-/PNG-API sowie Anzeige und Download in der Wochenbudget-UI |
-| 10 | In Arbeit | Cutoff-Scheduler und zwei tägliche Kontosyncs mit Lease, Idempotenz, Retry, Catch-up und Doppelabruf-Schutz umgesetzt; Banking-eigene Push-Benachrichtigungen offen |
+| 10 | Weitgehend erledigt | Cutoff-Scheduler, zwei tägliche Kontosyncs, verschlüsselte Banking-Push-Subscriptions, Outbox, VAPID-Zustellung, Retry, Empfängerwahl, QR-Vorschau und Fehler-Push nach endgültigem Stichtagsfehler umgesetzt; echte Provider-/Browser-E2E und Produktionshärtung offen |
 | 11 | Offen | Produktionshärtung |
 
 ## Phase 1 - Technische Basis
@@ -119,14 +119,15 @@ Adapters dürfen das Wochenbudget nicht beeinträchtigen.
 
 ## Phase 10 - Scheduler + Notifications
 
-Status: In Arbeit. Scheduler und frische Stichtagsverarbeitung sind umgesetzt;
+Status: Weitgehend erledigt. Scheduler und frische Stichtagsverarbeitung sind umgesetzt;
 die verschlüsselte Subscription-Verwaltung, die idempotente Zustell-Outbox und
 die atomare Einreihung neuer Vorschläge sind vorhanden. VAPID-Versand,
 Outbox-Leasing, Retry, der isolierte Browser-Worker und die explizite
 Subscription-Verwaltung sowie die Empfängerwahl über die öffentliche
 Yuvomi-Benutzerliste und die optionale, kurzlebige QR-Vorschau in
-Benachrichtigungen sind umgesetzt. Als Nächstes folgt die übrige
-Produktionshärtung und das Enable-Banking-E2E.
+Benachrichtigungen sowie eine idempotente Fehler-Push-Nachricht nach dem letzten
+fehlgeschlagenen Stichtagsversuch sind umgesetzt. Als Nächstes folgen die
+übrige Produktionshärtung und das Enable-Banking-E2E.
 
 - zwei kontrollierte Bank-Syncs täglich
 - erzwungener frischer Sync beider Konten am Stichtag

@@ -111,6 +111,48 @@ export function enqueueWeeklyBudgetProposalDeliveries(
   return queued;
 }
 
+export function enqueueWeeklyBudgetSyncFailureDeliveries(
+  database: DatabaseSync,
+  input: {
+    configId: number;
+    scheduledCutoffAt: string;
+    now: Date;
+  }
+): number {
+  const config = database.prepare(`
+    SELECT notification_enabled, notification_user_id
+    FROM weekly_budget_configs WHERE id = ?
+  `).get(input.configId) as {
+    notification_enabled: number;
+    notification_user_id: number | null;
+  } | undefined;
+  if (!config || !config.notification_enabled || !config.notification_user_id) return 0;
+  const subscriptions = database.prepare(`
+    SELECT id FROM banking_push_subscriptions
+    WHERE yuvomi_user_id = ? AND status = 'active'
+    ORDER BY id
+  `).all(config.notification_user_id) as Array<{ id: number }>;
+  const payload: BankingPushPayload = {
+    title: 'Wochenbudget konnte nicht berechnet werden',
+    body: 'Der Stichtags-Sync ist nach mehreren Versuchen fehlgeschlagen. Bitte Banking öffnen und die Verbindung prüfen.',
+    url: '/m/banking?view=weekly-budget',
+    tag: `banking-weekly-budget-sync-failed-${input.configId}-${input.scheduledCutoffAt}`
+  };
+  let queued = 0;
+  for (const subscription of subscriptions) {
+    const result = enqueuePushDelivery(database, {
+      subscriptionId: Number(subscription.id),
+      recipientYuvomiUserId: Number(config.notification_user_id),
+      idempotencyKey: `weekly-budget:${input.configId}:sync-failed:${input.scheduledCutoffAt}:subscription:${subscription.id}`,
+      notificationType: 'sync_failed',
+      payload,
+      now: input.now
+    });
+    if (result.created) queued += 1;
+  }
+  return queued;
+}
+
 function weeklyBudgetPayload(input: {
   configId: number;
   periodKey: string;

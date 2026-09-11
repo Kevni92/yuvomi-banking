@@ -10,6 +10,7 @@ import {
   runDueScheduledAccountSyncJobs,
   type DueScheduledSyncOutcome
 } from './scheduled-account-sync.js';
+import { enqueueWeeklyBudgetSyncFailureDeliveries } from './push-outbox.js';
 
 const RETRY_DELAYS_MS = [5, 15, 30].map((minutes) => minutes * 60_000);
 
@@ -85,6 +86,13 @@ export async function runDueWeeklyBudgetJobs({
     `).get(runKey) as ExistingRun | undefined;
     const skipReason = existingRunSkipReason(existing, now);
     if (skipReason) {
+      if (skipReason === 'retry_exhausted') {
+        enqueueWeeklyBudgetSyncFailureDeliveries(database, {
+          configId: Number(config.id),
+          scheduledCutoffAt: schedule.previousCutoffAt,
+          now
+        });
+      }
       outcomes.push({
         configId: Number(config.id),
         scheduledCutoffAt: schedule.previousCutoffAt,
@@ -113,6 +121,13 @@ export async function runDueWeeklyBudgetJobs({
         result
       });
     } catch {
+      if (weeklyBudgetRetryExhausted(database, runKey)) {
+        enqueueWeeklyBudgetSyncFailureDeliveries(database, {
+          configId: Number(config.id),
+          scheduledCutoffAt: schedule.previousCutoffAt,
+          now
+        });
+      }
       outcomes.push({
         configId: Number(config.id),
         scheduledCutoffAt: schedule.previousCutoffAt,
@@ -121,6 +136,17 @@ export async function runDueWeeklyBudgetJobs({
     }
   }
   return outcomes;
+}
+
+function weeklyBudgetRetryExhausted(database: DatabaseSync, runKey: string): boolean {
+  const run = database.prepare(`
+    SELECT attempt, status FROM weekly_budget_job_runs WHERE run_key = ?
+  `).get(runKey) as { attempt: number; status: string } | undefined;
+  return Boolean(
+    run
+    && run.status === 'failed'
+    && Number(run.attempt) >= RETRY_DELAYS_MS.length + 1
+  );
 }
 
 export function startWeeklyBudgetScheduler({

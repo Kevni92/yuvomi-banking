@@ -1,7 +1,16 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 function optional(name: string, fallback = ''): string {
-  return process.env[name]?.trim() || fallback;
+  const value = process.env[name]?.trim();
+  if (value) return value;
+  const filePath = process.env[`${name}_FILE`]?.trim();
+  if (!filePath) return fallback;
+  try {
+    return fs.readFileSync(filePath, 'utf8').trim() || fallback;
+  } catch {
+    throw new Error(`${name}_FILE could not be read.`);
+  }
 }
 
 function portFromEnvironment(): number {
@@ -13,6 +22,7 @@ function portFromEnvironment(): number {
 }
 
 export const config = {
+  host: optional('HOST', '127.0.0.1'),
   port: portFromEnvironment(),
   yuvomiInternalUrl: optional('YUVOMI_INTERNAL_URL', 'http://127.0.0.1:3000'),
   publicOrigin: optional('PUBLIC_ORIGIN', 'http://localhost:8080'),

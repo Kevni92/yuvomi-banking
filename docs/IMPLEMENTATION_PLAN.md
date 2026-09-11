@@ -14,7 +14,7 @@
 | 8 | Erledigt | Datenmodell, Berechnungslogik, Saldo-Snapshots, Stichtagsdienst, Settings-/Current-/Historien-API und UI umgesetzt; eindeutige Transfer-Erkennung sowie `late_candidate`-Erkennung laufen nach regulären, manuellen und Stichtags-Syncs. Schreibberechtigte Benutzer können ungematchte Vorschläge verwerfen oder aus Kandidaten eine unveränderlich dokumentierte Revision erzeugen. |
 | 9 | Erledigt | EPC069-12-v3.1-Payload, Empfängersnapshot, SHA-256-Fingerprint, geschützte Metadaten-/PNG-API sowie Anzeige und Download in der Wochenbudget-UI |
 | 10 | Weitgehend erledigt | Cutoff-Scheduler, zwei tägliche Kontosyncs, verschlüsselte Banking-Push-Subscriptions, Outbox, VAPID-Zustellung, Retry, Empfängerwahl, QR-Vorschau und Fehler-Push nach endgültigem Stichtagsfehler umgesetzt; echte Provider-/Browser-E2E und Produktionshärtung offen |
-| 11 | Offen | Produktionshärtung |
+| 11 | Teilweise erledigt | Produktions-Dockerfile, Compose-Deployment mit persistentem Volume, read-only Secrets, Healthcheck und Reverse-Proxy-Vorlagen umgesetzt; reale Server-/Provider-E2E und deployment-spezifische Abnahme offen |
 
 ## Phase 1 - Technische Basis
 

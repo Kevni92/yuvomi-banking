@@ -113,3 +113,15 @@ npm test
 ```
 
 `/api/extensions/banking/me` funktioniert nur mit einem gültigen Yuvomi-Session-Cookie und der Yuvomi-Berechtigung `ext:banking` (`read` oder `write`).
+
+## Produktionsdeployment mit Docker Compose
+
+Für einen bestehenden Docker- oder Podman-Yuvomi-Stack gibt es eine separate
+Produktionsvorlage unter [`deploy/`](deploy/). Sie startet den Banking-Sidecar
+als eigenen Container, verwendet ein eigenes persistentes Volume und bindet
+Secrets read-only ein. Yuvomi Core bleibt unverändert.
+
+Die vollständige Checkliste steht in
+[`deploy/README.md`](deploy/README.md). Der Reverse Proxy muss
+`/api/extensions/banking/*` an den lokalen Sidecar-Port `3100` und alle übrigen
+Pfade weiterhin an Yuvomi weiterleiten.

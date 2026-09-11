@@ -1,0 +1,56 @@
+name: yuvomi-banking
+
+services:
+  banking:
+    build:
+      context: ../service
+      dockerfile: Dockerfile
+    image: yuvomi-banking:local
+    container_name: yuvomi-banking
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3100
+      YUVOMI_INTERNAL_URL: ${YUVOMI_INTERNAL_URL:-http://yuvomi:3000}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN in deploy/.env}
+      BANKING_DB_PATH: /var/lib/yuvomi-banking/banking.db
+      MERCHANT_LOGO_CACHE_DIR: /var/lib/yuvomi-banking/merchant-logos
+      ENABLE_BANKING_PRIVATE_KEY_PATH: /run/secrets/enablebanking_private_key
+      COUNTERPARTY_HMAC_SECRET_FILE: /run/secrets/counterparty_hmac_secret
+      BANKING_DATA_ENCRYPTION_KEY_FILE: /run/secrets/data_encryption_key
+    ports:
+      - "127.0.0.1:${BANKING_HOST_PORT:-3100}:3100"
+    volumes:
+      - banking_data:/var/lib/yuvomi-banking
+    secrets:
+      - enablebanking_private_key
+      - counterparty_hmac_secret
+      - data_encryption_key
+    networks:
+      - yuvomi
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3100/api/extensions/banking/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+networks:
+  yuvomi:
+    external: true
+    name: ${YUVOMI_NETWORK:-yuvomi_default}
+
+volumes:
+  banking_data:
+    name: ${BANKING_DATA_VOLUME:-yuvomi-banking-data}
+
+secrets:
+  enablebanking_private_key:
+    file: ./secrets/enablebanking-private.pem
+  counterparty_hmac_secret:
+    file: ./secrets/counterparty_hmac_secret
+  data_encryption_key:
+    file: ./secrets/data_encryption_key

@@ -675,6 +675,153 @@
   justify-content: flex-end;
 }
 
+.banking-ai-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3, .75rem);
+  margin-block: var(--space-4, 1rem);
+}
+
+.banking-ai-summary__stat {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, .5rem);
+  color: var(--color-text-secondary);
+  font-size: .875rem;
+}
+
+.banking-ai-summary__stat b {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full, 999px);
+  color: var(--color-text-primary);
+}
+
+.banking-ai-section {
+  border-top: 1px solid var(--color-border);
+  padding-block: var(--space-3, .75rem);
+}
+
+.banking-ai-section > summary {
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font-size: .8125rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.banking-ai-review-list,
+.banking-ai-category-suggestions {
+  display: grid;
+  gap: var(--space-3, .75rem);
+  margin-top: var(--space-3, .75rem);
+}
+
+.banking-ai-review,
+.banking-ai-category-suggestion {
+  display: grid;
+  gap: var(--space-2, .5rem);
+  padding-block: var(--space-3, .75rem);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.banking-ai-review__header,
+.banking-ai-review__proposal,
+.banking-ai-review__actions,
+.banking-ai-category-suggestion__examples li,
+.banking-ai-applied-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, .75rem);
+}
+
+.banking-ai-review__header > div {
+  display: grid;
+  gap: var(--space-1, .25rem);
+  min-width: 0;
+}
+
+.banking-ai-review__header small,
+.banking-ai-review__reason,
+.banking-ai-review__new-category,
+.banking-ai-category-suggestion p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: .875rem;
+}
+
+.banking-ai-review__amount { white-space: nowrap; }
+.banking-ai-review__amount.is-income { color: var(--color-success, #15803d); }
+.banking-ai-review__amount.is-expense { color: var(--color-danger, #b91c1c); }
+
+.banking-ai-review__proposal { flex-wrap: wrap; }
+
+.banking-ai-confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1, .25rem);
+  font-size: .8125rem;
+  font-weight: 600;
+}
+
+.banking-ai-confidence::before {
+  width: .5rem;
+  height: .5rem;
+  border-radius: var(--radius-full, 999px);
+  background: currentColor;
+  content: '';
+}
+
+.banking-ai-confidence[data-confidence="high"] { color: var(--color-success, #15803d); }
+.banking-ai-confidence[data-confidence="medium"] { color: var(--color-warning, #a16207); }
+.banking-ai-confidence[data-confidence="low"] { color: var(--color-danger, #b91c1c); }
+
+.banking-ai-review__actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.banking-ai-review__select,
+.banking-ai-review__actions .form-input { min-width: min(100%, 13rem); }
+
+.banking-ai-review__remember {
+  color: var(--color-text-secondary);
+  font-size: .8125rem;
+}
+
+.banking-ai-category-suggestion__examples,
+.banking-ai-applied-list {
+  display: grid;
+  gap: var(--space-2, .5rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-secondary);
+  font-size: .875rem;
+}
+
+.banking-ai-category-suggestion__examples span,
+.banking-ai-applied-list span { white-space: nowrap; }
+
+@container (max-width: 40rem) {
+  .banking-ai-review__header,
+  .banking-ai-review__proposal,
+  .banking-ai-category-suggestion__examples li,
+  .banking-ai-applied-list li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-1, .25rem);
+  }
+
+  .banking-ai-review__actions > .form-input,
+  .banking-ai-review__select { width: 100%; }
+}
+
 .banking-weekly-category-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

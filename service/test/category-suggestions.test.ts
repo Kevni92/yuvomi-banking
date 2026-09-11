@@ -37,7 +37,8 @@ test('accepting a private suggestion explicitly creates or activates a category'
       now: NOW
     }), {
       suggestionId: 1,
-      category: { id: 2, name: 'Abonnements', type: 'expense', created: true }
+      category: { id: 2, name: 'Abonnements', type: 'expense', created: true },
+      matchingPendingReviews: 0
     });
     assert.deepEqual({ ...(database.prepare(`
       SELECT status, decided_at FROM category_suggestions WHERE id = 1
@@ -51,7 +52,8 @@ test('accepting a private suggestion explicitly creates or activates a category'
       now: NOW
     }), {
       suggestionId: 2,
-      category: { id: 1, name: 'Archiv', type: 'expense', created: false }
+      category: { id: 1, name: 'Archiv', type: 'expense', created: false },
+      matchingPendingReviews: 0
     });
     assert.equal(database.prepare('SELECT active FROM categories WHERE id = 1').get()?.active, 1);
   } finally {

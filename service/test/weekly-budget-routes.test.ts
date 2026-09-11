@@ -833,7 +833,8 @@ test('only the owner can accept or dismiss a protected category suggestion', asy
     assert.deepEqual((await accepted.json()).data, {
       id: 1,
       status: 'accepted',
-      category: { id: 1, name: 'Abonnements', type: 'expense', created: true }
+      category: { id: 1, name: 'Abonnements', type: 'expense', created: true },
+      matching_pending_reviews: 0
     });
     assert.equal(database.prepare('SELECT status FROM category_suggestions WHERE id = 1').get()?.status, 'accepted');
 

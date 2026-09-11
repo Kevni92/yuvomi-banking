@@ -124,8 +124,19 @@ function renderMainMarkup() {
           <button class="btn btn--secondary" type="button" data-action="run-categorization">${esc(localized('categorizationRun', 'Analyze unresolved transactions'))}</button>
         </div>
         <p class="banking-feedback" data-categorization-feedback role="status"></p>
-        <div data-categorization-reviews></div>
-        <div data-categorization-suggestions></div>
+        <div class="banking-ai-summary" data-categorization-summary></div>
+        <details class="banking-ai-section" data-categorization-reviews-section>
+          <summary><span data-categorization-reviews-title></span></summary>
+          <div data-categorization-reviews></div>
+        </details>
+        <details class="banking-ai-section" data-categorization-suggestions-section>
+          <summary><span data-categorization-suggestions-title></span></summary>
+          <div data-categorization-suggestions></div>
+        </details>
+        <details class="banking-ai-section" data-categorization-applied-section>
+          <summary><span data-categorization-applied-title></span></summary>
+          <div data-categorization-applied></div>
+        </details>
       </section>
 
       <details class="banking-panel banking-weekly-history-panel" open>
@@ -282,13 +293,39 @@ function configureMainInteractions(container, permission, signal) {
     void runCategorization({ container, host: categorizationHost, button: runCategorizationButton, signal });
   }, { signal });
   categorizationHost.addEventListener('click', (event) => {
-    const button = event.target.closest('button[data-categorization-suggestion-id]');
+    const button = event.target.closest('button[data-action]');
     if (!button) return;
     const action = button.dataset.action;
     if (action === 'accept-category-suggestion' || action === 'dismiss-category-suggestion') {
       void decideCategorySuggestion({ container, host: categorizationHost, button, action, signal });
+    } else if (action === 'accept-review-category') {
+      void acceptCategorizationReview({ container, host: categorizationHost, button, signal });
+    } else if (action === 'dismiss-categorization-review') {
+      void dismissCategorizationReview({ container, host: categorizationHost, button, signal });
+    } else if (action === 'review-transaction-details') {
+      void openTransactionDetail({ container, transactionId: button.dataset.transactionId, signal });
     }
   }, { signal });
+  categorizationHost.addEventListener('change', (event) => {
+    const select = event.target.closest('select[data-review-category-select]');
+    if (!select) return;
+    const card = select.closest('[data-categorization-review]');
+    const button = card?.querySelector('[data-action="accept-review-category"]');
+    const option = select.selectedOptions?.[0];
+    if (button && option) {
+      button.dataset.categoryId = select.value;
+      button.textContent = localized('categorizationAcceptProposed', '{category} assign', { category: option.textContent || '' });
+    }
+  }, { signal });
+  for (const [key, section] of [
+    ['reviews', categorizationHost.querySelector('[data-categorization-reviews-section]')],
+    ['suggestions', categorizationHost.querySelector('[data-categorization-suggestions-section]')],
+    ['applied', categorizationHost.querySelector('[data-categorization-applied-section]')]
+  ]) {
+    section?.addEventListener('toggle', () => {
+      try { sessionStorage.setItem(`yuvomi:banking:ai-${key}-open`, section.open ? '1' : '0'); } catch { /* storage is optional */ }
+    }, { signal });
+  }
   weeklyHistory.addEventListener('click', (event) => {
     const actionButton = event.target.closest('button[data-action]');
     if (actionButton?.dataset.action === 'recalculate-weekly-period') {
@@ -561,13 +598,15 @@ async function loadMainView(container, signal, canWrite) {
   const historyHost = container.querySelector('[data-weekly-budget-history]');
   const categorizationHost = container.querySelector('[data-banking-categorization]');
   const runCategorizationButton = container.querySelector('[data-action="run-categorization"]');
-  const [accountsResult, weeklyBudgetResult, categoriesResult, periodsResult, reviewsResult, suggestionsResult] = await Promise.allSettled([
+  const [accountsResult, weeklyBudgetResult, categoriesResult, periodsResult, reviewsResult, suggestionsResult, summaryResult, appliedResult] = await Promise.allSettled([
     loadJson('accounts', { signal }),
     loadJson('weekly-budget/current', { signal }),
     loadJson('categories', { signal }),
     loadJson('weekly-budget/periods', { signal }),
     loadJson('categorization/reviews', { signal }),
-    loadJson('category-suggestions', { signal })
+    loadJson('category-suggestions', { signal }),
+    loadJson('categorization/summary', { signal }),
+    loadJson('categorization/applied', { signal })
   ]);
   if (signal.aborted) return;
   const accounts = accountsResult.status === 'fulfilled' && Array.isArray(accountsResult.value?.data) ? accountsResult.value.data : [];
@@ -588,10 +627,12 @@ async function loadMainView(container, signal, canWrite) {
   else renderError(weeklyBudgetHost, weeklyBudgetResult.reason);
   if (periodsResult.status === 'fulfilled') renderWeeklyBudgetHistory(historyHost, periodsResult.value?.data, canWrite);
   else renderError(historyHost, periodsResult.reason);
-  if (reviewsResult.status === 'fulfilled') renderCategorizationReviews(categorizationHost, reviewsResult.value?.data);
+  if (summaryResult.status === 'fulfilled') renderCategorizationSummary(categorizationHost, summaryResult.value?.data);
+  if (reviewsResult.status === 'fulfilled') renderCategorizationReviews(categorizationHost, reviewsResult.value?.data, categories, canWrite);
   else renderError(categorizationHost.querySelector('[data-categorization-reviews]'), reviewsResult.reason);
   if (suggestionsResult.status === 'fulfilled') renderCategorySuggestions(categorizationHost, suggestionsResult.value?.data, canWrite);
   else renderError(categorizationHost.querySelector('[data-categorization-suggestions]'), suggestionsResult.reason);
+  if (appliedResult.status === 'fulfilled') renderCategorizationApplied(categorizationHost, appliedResult.value?.data);
   container.bankingTransactionState = createTransactionState();
   container.bankingTransactionAccounts = accounts;
   container.bankingTransactionCategories = categories;
@@ -1067,56 +1108,118 @@ async function startConnection({ country, bank, connectButton, loadButton, feedb
   }
 }
 
-function renderCategorizationReviews(host, reviews) {
+function renderCategorizationSummary(host, summary) {
+  const summaryHost = host.querySelector('[data-categorization-summary]');
+  if (!summaryHost) return;
+  const values = {
+    applied: Number(summary?.ai_applied_total) || 0,
+    pending: Number(summary?.pending_reviews) || 0,
+    suggestions: Number(summary?.pending_category_suggestions) || 0
+  };
+  summaryHost.replaceChildren();
+  summaryHost.insertAdjacentHTML('beforeend', [
+    ['applied', '✓', localized('categorizationAutomaticallyApplied', 'Automatically assigned'), values.applied],
+    ['pending', '!', localized('categorizationPendingReviews', 'To review'), values.pending],
+    ['suggestions', '+', localized('categorizationNewCategories', 'New categories'), values.suggestions]
+  ].map(([kind, icon, label, count]) => `<span class="banking-ai-summary__stat" data-kind="${kind}"><b aria-hidden="true">${icon}</b><span>${esc(String(count))} ${esc(label)}</span></span>`).join(''));
+}
+
+function setCategorizationSectionState(host, selector, hasItems, storageKey) {
+  const section = host.querySelector(selector);
+  if (!section) return;
+  try {
+    const stored = sessionStorage.getItem(storageKey);
+    section.open = stored === null ? hasItems : stored === '1';
+  } catch { section.open = hasItems; }
+}
+
+function renderCategorizationReviews(host, reviews, categories = [], canWrite = false) {
   const reviewsHost = host.querySelector('[data-categorization-reviews]');
+  const titleHost = host.querySelector('[data-categorization-reviews-title]');
   reviewsHost.replaceChildren();
-  if (!Array.isArray(reviews) || reviews.length === 0) {
+  const items = Array.isArray(reviews) ? reviews : [];
+  if (titleHost) titleHost.textContent = localized('categorizationPendingReviewsCount', 'To review ({count})', { count: items.length });
+  setCategorizationSectionState(host, '[data-categorization-reviews-section]', items.length > 0, 'yuvomi:banking:ai-reviews-open');
+  if (items.length === 0) {
     reviewsHost.insertAdjacentHTML('beforeend', `<p class="banking-muted">${esc(localized('categorizationNoReviews', 'No categorization review is pending.'))}</p>`);
     return;
   }
-  const rows = reviews.map((review) => {
-    const title = review?.merchant_name || review?.counterparty_name || review?.purpose || localized('unknownTransaction', 'Transaction');
-    const proposed = review?.category_name || review?.suggested_category_name || localized('categorizationNoMatch', 'No allowed category suggested');
-    const confidence = Number.isFinite(Number(review?.confidence))
-      ? `${Math.round(Number(review.confidence) * 100)} %`
-      : '';
-    return `<li>
-      <span><strong>${esc(String(title))}</strong><small>${esc(`${proposed}${confidence ? ` · ${confidence}` : ''}${review?.reason ? ` · ${review.reason}` : ''}`)}</small></span>
-    </li>`;
+  const activeCategories = Array.isArray(categories) ? categories.filter((category) => category?.active !== false && /^\d+$/.test(String(category?.id ?? ''))) : [];
+  const rows = items.map((review) => {
+    const transaction = review?.transaction ?? {};
+    const proposal = review?.proposal ?? {};
+    const title = transaction.merchant_name || transaction.counterparty_name || transaction.purpose || localized('unknownTransaction', 'Transaction');
+    const categoryId = String(proposal.category_id ?? '');
+    const proposed = proposal.category_name || proposal.suggested_category_name || localized('categorizationNoMatch', 'No allowed category suggested');
+    const confidence = Number.isFinite(Number(proposal.confidence)) ? `${Math.round(Number(proposal.confidence) * 100)} %` : '';
+    const confidenceLevel = ['high', 'medium', 'low'].includes(proposal.confidence_level) ? proposal.confidence_level : 'low';
+    const confidenceText = localized(`categorizationConfidence${confidenceLevel[0].toUpperCase()}${confidenceLevel.slice(1)}`, confidenceLevel);
+    const reviewId = String(review?.id ?? '');
+    const transactionId = String(review?.transaction_id ?? '');
+    const selected = categoryId || String(activeCategories[0]?.id ?? '');
+    const select = activeCategories.length ? `<label class="banking-ai-review__select"><span class="sr-only">${esc(localized('categorizationChooseOther', 'Choose another category'))}</span><select class="form-input" data-review-category-select>${activeCategories.map((category) => `<option value="${esc(String(category.id))}"${String(category.id) === selected ? ' selected' : ''}>${esc(String(category.name))}</option>`).join('')}</select></label>` : '';
+    const acceptsExisting = review?.can_accept_existing === true && /^\d+$/.test(categoryId);
+    const assignButton = canWrite && selected ? `<button class="btn btn--primary" type="button" data-action="accept-review-category" data-review-id="${esc(reviewId)}" data-transaction-id="${esc(transactionId)}" data-category-id="${esc(selected)}">${esc(localized('categorizationAcceptProposed', '{category} assign', { category: acceptsExisting ? proposed : activeCategories[0]?.name ?? '' }))}</button>` : '';
+    const createHint = review?.requires_new_category === true && !acceptsExisting ? `<p class="banking-ai-review__new-category">${esc(localized('categorizationNewCategoryRequired', 'A new category is suggested first. Create it below, then assign this transaction.'))}<br><strong>${esc(`${proposal.suggested_category_name || ''} · ${categoryTypeLabel(proposal.suggested_category_type)}`)}</strong></p>` : '';
+    const remember = review?.can_remember_counterparty === true ? `<label class="banking-ai-review__remember"><input type="checkbox" data-review-remember checked> ${esc(localized('categorizationRememberCounterparty', 'Remember this for this recipient in future'))}</label>` : '';
+    return `<article class="banking-ai-review" data-categorization-review>
+      <header class="banking-ai-review__header"><div><strong class="banking-ai-review__merchant">${esc(String(title))}</strong><small>${esc(String(transaction.purpose || ''))}</small></div><strong class="banking-ai-review__amount ${transaction.direction === 'incoming' ? 'is-income' : 'is-expense'}">${esc(formatCategorizationAmount(transaction.amount_cents, transaction.currency, transaction.direction))}</strong></header>
+      <div class="banking-ai-review__proposal"><span>${esc(localized('categorizationAiProposal', 'AI proposal'))}: <strong>${esc(String(proposed))}</strong></span><span class="banking-ai-confidence" data-confidence="${esc(confidenceLevel)}">${esc(`${confidenceText}${confidence ? ` · ${confidence}` : ''}`)}</span></div>
+      ${proposal.reason ? `<p class="banking-ai-review__reason"><strong>${esc(localized('categorizationReason', 'Reason'))}:</strong> ${esc(String(proposal.reason))}</p>` : ''}
+      ${createHint}
+      <div class="banking-ai-review__actions">${assignButton}${select}<button class="btn btn--secondary" type="button" data-action="review-transaction-details" data-transaction-id="${esc(transactionId)}">${esc(localized('categorizationTransactionDetails', 'Transaction details'))}</button>${canWrite ? `<button class="btn btn--secondary" type="button" data-action="dismiss-categorization-review" data-review-id="${esc(reviewId)}">${esc(localized('categorizationDismissReview', 'Skip for now'))}</button>` : ''}</div>
+      ${canWrite && selected ? remember : ''}
+    </article>`;
   }).join('');
-  reviewsHost.insertAdjacentHTML('beforeend', `<ul class="banking-transaction-list">${rows}</ul>`);
+  reviewsHost.insertAdjacentHTML('beforeend', `<div class="banking-ai-review-list">${rows}</div>`);
 }
 
 function renderCategorySuggestions(host, suggestions, canWrite) {
   const suggestionsHost = host.querySelector('[data-categorization-suggestions]');
+  const titleHost = host.querySelector('[data-categorization-suggestions-title]');
   suggestionsHost.replaceChildren();
-  suggestionsHost.insertAdjacentHTML('beforeend', `<h4>${esc(localized('categorizationSuggestionsTitle', 'Suggested categories'))}</h4>`);
-  if (!Array.isArray(suggestions) || suggestions.length === 0) {
+  const items = Array.isArray(suggestions) ? suggestions : [];
+  if (titleHost) titleHost.textContent = localized('categorizationNewCategoriesCount', 'New categories ({count})', { count: items.length });
+  setCategorizationSectionState(host, '[data-categorization-suggestions-section]', items.length > 0, 'yuvomi:banking:ai-suggestions-open');
+  if (items.length === 0) {
     suggestionsHost.insertAdjacentHTML('beforeend', `<p class="banking-muted">${esc(localized('categorizationNoSuggestions', 'No category suggestions are pending.'))}</p>`);
     return;
   }
-  const rows = suggestions.map((suggestion) => {
+  const rows = items.map((suggestion) => {
     const id = String(suggestion?.id ?? '');
     const name = typeof suggestion?.suggested_name === 'string' ? suggestion.suggested_name : '';
     const type = typeof suggestion?.suggested_type === 'string' ? suggestion.suggested_type : '';
-    const samples = Number.isSafeInteger(Number(suggestion?.sample_count))
-      ? Number(suggestion.sample_count)
+    const samples = Number.isSafeInteger(Number(suggestion?.matching_review_count))
+      ? Number(suggestion.matching_review_count)
       : 0;
     const reason = typeof suggestion?.reason === 'string' ? suggestion.reason : '';
-    const details = [type, localized('categorizationSamples', '{count} samples', { count: samples }), reason]
-      .filter(Boolean)
-      .join(' · ');
+    const examples = Array.isArray(suggestion?.examples) ? suggestion.examples : [];
+    const exampleList = examples.length ? `<ul class="banking-ai-category-suggestion__examples">${examples.map((example) => `<li>${esc(String(example.merchant_name || example.counterparty_name || example.purpose || localized('unknownTransaction', 'Transaction')))} <span>${esc(formatCents(example.amount_cents, example.currency))}</span></li>`).join('')}</ul>` : '';
     const actions = canWrite && /^\d+$/.test(id) ? `
-      <span class="banking-categorization__actions">
-        <button class="btn btn--secondary" type="button" data-action="accept-category-suggestion" data-categorization-suggestion-id="${esc(id)}">${esc(localized('categorizationAcceptSuggestion', 'Accept category'))}</button>
+      <span class="banking-ai-review__actions">
+        <input class="form-input" type="text" maxlength="80" value="${esc(name)}" data-categorization-suggestion-name="${esc(id)}" aria-label="${esc(localized('categorizationEditSuggestionName', 'Edit suggested category name'))}">
+        <button class="btn btn--primary" type="button" data-action="accept-category-suggestion" data-categorization-suggestion-id="${esc(id)}">${esc(localized('categorizationCreateCategory', 'Create category'))}</button>
         <button class="btn btn--secondary" type="button" data-action="dismiss-category-suggestion" data-categorization-suggestion-id="${esc(id)}">${esc(localized('categorizationDismissSuggestion', 'Dismiss'))}</button>
       </span>` : '';
-    return `<li>
-      <span><strong>${esc(name || localized('categorizationNoMatch', 'No allowed category suggested'))}</strong><small>${esc(details)}</small></span>
-      ${actions}
-    </li>`;
+    return `<article class="banking-ai-category-suggestion"><strong>${esc(name || localized('categorizationNoMatch', 'No allowed category suggested'))}</strong><p>${esc(`${categoryTypeLabel(type)} · ${localized('categorizationMatchingReviews', '{count} matching transactions', { count: samples })}`)}</p>${reason ? `<p>${esc(localized('categorizationReason', 'Reason'))}: ${esc(reason)}</p>` : ''}${exampleList}${actions}</article>`;
   }).join('');
-  suggestionsHost.insertAdjacentHTML('beforeend', `<ul class="banking-transaction-list">${rows}</ul>`);
+  suggestionsHost.insertAdjacentHTML('beforeend', `<div class="banking-ai-category-suggestions">${rows}</div>`);
+}
+
+function renderCategorizationApplied(host, applied) {
+  const appliedHost = host.querySelector('[data-categorization-applied]');
+  const titleHost = host.querySelector('[data-categorization-applied-title]');
+  const items = Array.isArray(applied) ? applied : [];
+  if (titleHost) titleHost.textContent = localized('categorizationAutomaticallyApplied', 'Automatically assigned');
+  setCategorizationSectionState(host, '[data-categorization-applied-section]', false, 'yuvomi:banking:ai-applied-open');
+  appliedHost.replaceChildren();
+  appliedHost.insertAdjacentHTML('beforeend', items.length ? `<ul class="banking-ai-applied-list">${items.map((item) => `<li>${esc(String(item.merchant_name || item.counterparty_name || item.purpose || localized('unknownTransaction', 'Transaction')))} <span>${esc(`${item.category_name || ''} · ${Math.round((Number(item.category_confidence) || 0) * 100)} %`)}</span></li>`).join('')}</ul>` : `<p class="banking-muted">${esc(localized('categorizationNoApplied', 'No automatic assignments yet.'))}</p>`);
+}
+
+function formatCategorizationAmount(value, currency, direction) {
+  const cents = Number(value);
+  if (!Number.isSafeInteger(cents)) return formatCents(value, currency);
+  return `${direction === 'incoming' ? '+' : '−'}${formatCents(Math.abs(cents), currency)}`;
 }
 
 async function refreshCategorizationReviews(container, signal) {
@@ -1124,7 +1227,7 @@ async function refreshCategorizationReviews(container, signal) {
   if (!host) return;
   try {
     const result = await loadJson('categorization/reviews', { signal });
-    if (!signal.aborted) renderCategorizationReviews(host, result?.data);
+    if (!signal.aborted) renderCategorizationReviews(host, result?.data, container.bankingTransactionCategories, true);
   } catch (error) {
     if (!signal.aborted) {
       renderError(host.querySelector('[data-categorization-reviews]'), error);
@@ -1139,21 +1242,20 @@ async function decideCategorySuggestion({ container, host, button, action, signa
   button.disabled = true;
   try {
     const csrf = await loadJson('csrf', { signal });
-    await loadJson(`category-suggestions/${encodeURIComponent(suggestionId)}/${action === 'accept-category-suggestion' ? 'accept' : 'dismiss'}`, {
+    const name = host.querySelector(`[data-categorization-suggestion-name="${suggestionId}"]`)?.value;
+    const result = await loadJson(`category-suggestions/${encodeURIComponent(suggestionId)}/${action === 'accept-category-suggestion' ? 'accept' : 'dismiss'}`, {
       method: 'POST',
       headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
-      body: {},
+      body: action === 'accept-category-suggestion' && name ? { name } : {},
       signal
     });
     if (signal.aborted) return;
     if (action === 'accept-category-suggestion') await refreshCategoryDependentViews(container, signal);
-    await refreshCategorizationReviews(container, signal);
-    const suggestions = await loadJson('category-suggestions', { signal });
-    if (!signal.aborted) renderCategorySuggestions(host, suggestions?.data, true);
+    await refreshCategorizationQueue(container, signal, true);
     const refreshedFeedback = container.querySelector('[data-categorization-feedback]');
     if (refreshedFeedback) {
       refreshedFeedback.textContent = action === 'accept-category-suggestion'
-        ? localized('categorizationSuggestionAccepted', 'Category accepted.')
+        ? localized('categorizationCategoryCreatedMessage', 'Category "{name}" was created. {count} open transactions can now be reviewed.', { name: result?.data?.category?.name ?? '', count: result?.data?.matching_pending_reviews ?? 0 })
         : localized('categorizationSuggestionDismissed', 'Category suggestion dismissed.');
     }
   } catch (error) {
@@ -1163,6 +1265,52 @@ async function decideCategorySuggestion({ container, host, button, action, signa
   } finally {
     if (!signal.aborted) button.disabled = false;
   }
+}
+
+async function acceptCategorizationReview({ container, host, button, signal }) {
+  const transactionId = button.dataset.transactionId;
+  const categoryId = Number(button.dataset.categoryId);
+  if (!/^\d+$/.test(transactionId || '') || !Number.isSafeInteger(categoryId) || categoryId < 1) return;
+  const card = button.closest('[data-categorization-review]');
+  const remember = card?.querySelector('[data-review-remember]')?.checked === true;
+  button.disabled = true;
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson(`transactions/${encodeURIComponent(transactionId)}/category`, { method: 'PATCH', headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' }, body: { category_id: categoryId, remember_counterparty: remember }, signal });
+    await reloadTransactionsAndBudget(container, signal);
+    await refreshCategorizationQueue(container, signal, true);
+  } catch (error) {
+    const feedback = host.querySelector('[data-categorization-feedback]');
+    if (!signal.aborted && feedback) feedback.textContent = error instanceof Error ? error.message : localized('categorySaveFailed', 'Category could not be saved.');
+  } finally { if (!signal.aborted) button.disabled = false; }
+}
+
+async function dismissCategorizationReview({ container, host, button, signal }) {
+  const reviewId = button.dataset.reviewId;
+  if (!/^\d+$/.test(reviewId || '')) return;
+  button.disabled = true;
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson(`categorization/reviews/${encodeURIComponent(reviewId)}/dismiss`, { method: 'POST', headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' }, body: {}, signal });
+    await refreshCategorizationQueue(container, signal, true);
+  } catch (error) {
+    const feedback = host.querySelector('[data-categorization-feedback]');
+    if (!signal.aborted && feedback) feedback.textContent = error instanceof Error ? error.message : localized('categorizationSuggestionFailed', 'Category suggestion could not be updated.');
+  } finally { if (!signal.aborted) button.disabled = false; }
+}
+
+async function refreshCategorizationQueue(container, signal, canWrite) {
+  const host = container.querySelector('[data-banking-categorization]');
+  if (!host) return;
+  const [reviews, suggestions, summary, applied] = await Promise.all([
+    loadJson('categorization/reviews', { signal }), loadJson('category-suggestions', { signal }),
+    loadJson('categorization/summary', { signal }), loadJson('categorization/applied', { signal })
+  ]);
+  if (signal.aborted) return;
+  renderCategorizationSummary(host, summary?.data);
+  renderCategorizationReviews(host, reviews?.data, container.bankingTransactionCategories, canWrite);
+  renderCategorySuggestions(host, suggestions?.data, canWrite);
+  renderCategorizationApplied(host, applied?.data);
 }
 
 async function runCategorization({ container, host, button, signal }) {

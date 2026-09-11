@@ -34,6 +34,7 @@ export interface CategorizationClient {
   categorize(input: {
     categories: CategorizationCategory[];
     transactions: CategorizationTransaction[];
+    locale?: 'de' | 'en';
   }): Promise<CategorizationResult[]>;
 }
 
@@ -50,6 +51,7 @@ export class OpenAiCategorizer implements CategorizationClient {
   async categorize(input: {
     categories: CategorizationCategory[];
     transactions: CategorizationTransaction[];
+    locale?: 'de' | 'en';
   }): Promise<CategorizationResult[]> {
     const { apiKey, model } = readOpenAiRuntimeSettings(this.database);
     if (!apiKey || !model) {
@@ -74,9 +76,10 @@ export class OpenAiCategorizer implements CategorizationClient {
             'Use category_id only when it is in the allowlist; otherwise use null.',
             'If no supplied category fits, return category_id null and provide a concise suggested_category.',
             'If the category allowlist is empty, return category_id null and propose the best reusable category for each transaction.',
-            'Prefer reusable household-finance categories over merchant-specific categories (for example Lebensmittel instead of REWE, Abonnements instead of Spotify).',
+            'Suggest short reusable household-finance category names, not transaction-specific descriptions or merchant names unless the merchant is itself a meaningful category.',
+            'Prefer broad household-finance categories such as Lebensmittel, Versicherungen, Abonnements, Mobilität, Freizeit, Einkommen, and Transfers.',
             'Do not infer, request, or output banking identifiers, IBANs, account numbers, or personal data.',
-            'Keep reason short and factual.'
+            `Write reason in ${input.locale === 'en' ? 'English (en)' : 'German (de)'}. Keep it short, factual, and understandable to an end user.`
           ].join(' '),
           input: JSON.stringify({
             categories: input.categories,

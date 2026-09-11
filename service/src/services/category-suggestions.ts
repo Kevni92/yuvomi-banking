@@ -12,11 +12,12 @@ export interface AcceptedCategorySuggestion {
     type: CategoryType;
     created: boolean;
   };
+  matchingPendingReviews: number;
 }
 
 export function acceptCategorySuggestion(
   database: DatabaseSync,
-  input: { yuvomiUserId: number; suggestionId: number; now?: Date }
+  input: { yuvomiUserId: number; suggestionId: number; name?: unknown; now?: Date }
 ): AcceptedCategorySuggestion {
   const now = input.now ?? new Date();
   assertInput(input.yuvomiUserId, input.suggestionId, now);
@@ -26,7 +27,7 @@ export function acceptCategorySuggestion(
     database.exec('BEGIN IMMEDIATE;');
     transactionOpen = true;
     const suggestion = findPendingSuggestion(database, input.yuvomiUserId, input.suggestionId);
-    const name = normalizeCategoryName(suggestion.suggested_name);
+    const name = normalizeCategoryName(input.name ?? suggestion.suggested_name);
     if (!name || name.length > 80 || !isCategoryType(suggestion.suggested_type)) {
       throw new CategorySuggestionValidationError('Category suggestion is invalid.');
     }
@@ -55,6 +56,17 @@ export function acceptCategorySuggestion(
       created = true;
     }
     decideSuggestion(database, suggestion.id, 'accepted', timestamp);
+    const matchingPendingReviews = Number(database.prepare(`
+      SELECT count(*) AS count
+      FROM ai_categorization_reviews
+      JOIN transactions ON transactions.id = ai_categorization_reviews.transaction_id
+      JOIN bank_accounts ON bank_accounts.id = transactions.account_id
+      JOIN enable_banking_connections ON enable_banking_connections.id = bank_accounts.connection_id
+      WHERE enable_banking_connections.yuvomi_user_id = ?
+        AND ai_categorization_reviews.status = 'pending'
+        AND lower(ai_categorization_reviews.suggested_category_name) = lower(?)
+        AND ai_categorization_reviews.suggested_category_type = ?
+    `).get(input.yuvomiUserId, suggestion.suggested_name, suggestion.suggested_type)?.count ?? 0);
     database.exec('COMMIT;');
     transactionOpen = false;
     return {
@@ -64,7 +76,8 @@ export function acceptCategorySuggestion(
         name,
         type: suggestion.suggested_type,
         created
-      }
+      },
+      matchingPendingReviews
     };
   } catch (error) {
     rollback(database, transactionOpen);

@@ -8,7 +8,9 @@ import {
 } from '../openai/categorizer.js';
 import { applyCategoryRulesForAccount } from './category-rules.js';
 
-const AUTO_APPLY_CONFIDENCE = 0.75;
+// Keep this threshold explicit: 0.75 is the current product decision. Revisit
+// it (in particular against a more conservative 0.90) before production use.
+export const AUTO_APPLY_CONFIDENCE = 0.75;
 const BATCH_LIMIT = 25;
 
 interface CandidateRow {
@@ -48,7 +50,7 @@ export async function categorizeUnresolvedTransactions(
     return { submitted: 0, applied: 0, pendingReview: 0, categorySuggestions: 0 };
   }
   const input = candidates.map(toSafeCategorizationTransaction);
-  const responses = await categorizer.categorize({ categories, transactions: input });
+  const responses = await categorizer.categorize({ categories, transactions: input, locale: 'de' });
   return persistCategorizationResults(database, yuvomiUserId, candidates, categories, responses, now);
 }
 
@@ -91,7 +93,7 @@ function unresolvedTransactions(database: DatabaseSync, yuvomiUserId: number): C
       AND NOT EXISTS (
         SELECT 1 FROM ai_categorization_reviews
         WHERE ai_categorization_reviews.transaction_id = transactions.id
-          AND ai_categorization_reviews.status = 'pending'
+          AND ai_categorization_reviews.status IN ('pending', 'dismissed')
       )
     ORDER BY COALESCE(transactions.booking_date, transactions.value_date, transactions.transaction_date) DESC,
              transactions.id DESC

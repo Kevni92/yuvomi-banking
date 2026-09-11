@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import type { CategorizationClient } from '../src/openai/categorizer.js';
 import { redactCategorizationText } from '../src/openai/categorizer.js';
 import { migrateDatabase } from '../src/db/database.js';
-import { categorizeUnresolvedTransactions } from '../src/services/transaction-categorization.js';
+import { AUTO_APPLY_CONFIDENCE, categorizeUnresolvedTransactions } from '../src/services/transaction-categorization.js';
 import { acceptCategorySuggestion } from '../src/services/category-suggestions.js';
 
 const NOW = new Date('2026-09-19T09:00:00.000Z');
@@ -134,6 +134,24 @@ test('categorizes only the allowlist and leaves low-confidence results for revie
   } finally {
     database.close();
   }
+});
+
+test('keeps the explicit automatic threshold at 0.75, including its boundaries', async () => {
+  assert.equal(AUTO_APPLY_CONFIDENCE, 0.75);
+  const database = fixture();
+  const categorizer: CategorizationClient = {
+    categorize: async () => [
+      { transaction_id: 1, category_id: 1, confidence: 0.74, reason: 'Unsicher.', suggested_category: null },
+      { transaction_id: 2, category_id: 1, confidence: 0.75, reason: 'Wahrscheinlich.', suggested_category: null },
+      { transaction_id: 3, category_id: 1, confidence: 0.90, reason: 'Sicher.', suggested_category: null }
+    ]
+  };
+  try {
+    assert.deepEqual(await categorizeUnresolvedTransactions(database, 7, categorizer, NOW), {
+      submitted: 3, applied: 2, pendingReview: 1, categorySuggestions: 0
+    });
+    assert.deepEqual(database.prepare(`SELECT transaction_id, confidence FROM ai_categorization_reviews`).all().map((row) => ({ ...row })), [{ transaction_id: 1, confidence: 0.74 }]);
+  } finally { database.close(); }
 });
 
 test('bootstraps category suggestions with an empty allowlist', async () => {

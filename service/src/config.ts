@@ -38,6 +38,7 @@ export const config = {
     environment: optional('ENABLE_BANKING_ENV', 'sandbox'),
     apiUrl: optional('ENABLE_BANKING_API_URL', 'https://api.enablebanking.com'),
     applicationId: optional('ENABLE_BANKING_APPLICATION_ID'),
+    apiKey: optional('ENABLE_BANKING_API_KEY'),
     privateKeyPath: path.resolve(
       optional('ENABLE_BANKING_PRIVATE_KEY_PATH', '../secrets/enablebanking-private.pem')
     )

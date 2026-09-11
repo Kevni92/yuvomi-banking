@@ -32,6 +32,30 @@
   align-items: end;
 }
 
+.banking-provider-settings__form,
+.banking-openai-settings__form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4, 1rem);
+  align-items: end;
+}
+
+.banking-provider-settings__form > .banking-muted,
+.banking-provider-settings__form > .banking-provider-settings__actions,
+.banking-provider-settings__form > .banking-feedback,
+.banking-openai-settings__form > .banking-muted,
+.banking-openai-settings__form > .banking-openai-settings__actions,
+.banking-openai-settings__form > .banking-feedback {
+  grid-column: 1 / -1;
+}
+
+.banking-provider-settings__actions,
+.banking-openai-settings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 0.5rem);
+}
+
 .banking-field {
   display: grid;
   gap: var(--space-1, 0.25rem);
@@ -708,6 +732,7 @@
 
 @media (max-width: 767px) {
   .banking-connect-form,
+  .banking-provider-settings__form,
   .banking-account-card__details,
   .banking-weekly-summary,
   .banking-weekly-settings,

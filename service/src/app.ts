@@ -6,6 +6,7 @@ import {
   type YuvomiUser
 } from './auth/yuvomi-session.js';
 import { createEnableBankingRouter } from './api/enable-banking-routes.js';
+import { createEnableBankingSettingsRouter } from './api/enable-banking-settings-routes.js';
 import { createWeeklyBudgetRouter } from './api/weekly-budget-routes.js';
 import { EnableBankingClient } from './enable-banking/client.js';
 import { createCategorizationRouter } from './api/categorization-routes.js';
@@ -31,11 +32,12 @@ function setNoStore(response: express.Response): void {
 export function createApp({
   resolveSession = resolveYuvomiUser,
   database,
-  enableBankingClient = new EnableBankingClient(),
+  enableBankingClient,
   categorizationClient,
   clock = () => new Date()
 }: AppDependencies = {}): Express {
   const app = express();
+  const resolvedEnableBankingClient = enableBankingClient ?? new EnableBankingClient({ database });
   const resolvedCategorizationClient = categorizationClient ?? new OpenAiCategorizer(database);
 
   app.disable('x-powered-by');
@@ -86,9 +88,10 @@ export function createApp({
   if (database) {
     app.use(`${API_PREFIX}`, createEnableBankingRouter({
       database,
-      client: enableBankingClient,
+      client: resolvedEnableBankingClient,
       resolveSession
     }));
+    app.use(`${API_PREFIX}`, createEnableBankingSettingsRouter({ database, resolveSession, clock }));
     app.use(`${API_PREFIX}`, createWeeklyBudgetRouter({
       database,
       resolveSession,

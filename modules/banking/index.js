@@ -161,6 +161,21 @@ function renderSettingsMarkup() {
         </div>
       </details>
 
+      <section class="banking-panel banking-provider-settings" data-enable-banking-settings>
+        <div class="banking-panel__header"><div><h2>${esc(localized('enableBankingSettingsTitle', 'Enable Banking configuration'))}</h2><p class="banking-panel__description">${esc(localized('enableBankingSettingsDescription', 'Configure the provider credentials securely in the Banking database. Existing values are kept when secret fields remain empty.'))}</p></div></div>
+        <form class="banking-provider-settings__form" data-enable-banking-settings-form>
+          <label class="banking-field"><span>${esc(localized('enableBankingEnvironment', 'Environment'))}</span><select class="form-input" data-enable-banking-environment><option value="sandbox">${esc(localized('enableBankingSandbox', 'Sandbox'))}</option><option value="production">${esc(localized('enableBankingProduction', 'Production'))}</option></select></label>
+          <label class="banking-field"><span>${esc(localized('enableBankingApiUrl', 'API URL'))}</span><input class="form-input" type="url" autocomplete="url" data-enable-banking-api-url placeholder="api.enablebanking.com"></label>
+          <label class="banking-field"><span>${esc(localized('enableBankingApplicationId', 'Application ID'))}</span><input class="form-input" type="text" autocomplete="off" data-enable-banking-application-id placeholder="${esc(localized('enableBankingApplicationIdPlaceholder', 'Enable Banking application ID'))}"></label>
+          <label class="banking-field"><span>${esc(localized('enableBankingApiKey', 'API key'))}</span><input class="form-input" type="password" autocomplete="new-password" data-enable-banking-api-key placeholder="${esc(localized('enableBankingSecretPlaceholder', 'Enter a new value; leave blank to keep the current value'))}"></label>
+          <label class="banking-field"><span>${esc(localized('enableBankingPrivateKey', 'Private key (.pem)'))}</span><input class="form-input" type="file" accept=".pem,.key,application/x-pem-file,text/plain" data-enable-banking-private-key></label>
+          <p class="banking-muted" data-enable-banking-status role="status"></p>
+          <p class="banking-muted">${esc(localized('enableBankingPrivateKeyHint', 'The private key is read in the browser only for upload and is encrypted before it is stored on the server. It is never shown again.'))}</p>
+          <div class="banking-provider-settings__actions"><button class="btn btn--primary" type="submit" data-action="save-enable-banking-settings">${esc(localized('enableBankingSave', 'Save Enable Banking settings'))}</button></div>
+          <p class="banking-feedback" data-enable-banking-settings-feedback role="status"></p>
+        </form>
+      </section>
+
       <section class="banking-panel banking-openai-settings" data-banking-openai-settings>
         <div class="banking-panel__header"><div><h2>${esc(localized('openAiSettingsTitle', 'OpenAI configuration'))}</h2><p class="banking-panel__description">${esc(localized('openAiSettingsDescription', 'Store the API key securely and choose the model used for transaction analysis.'))}</p></div></div>
         <form class="banking-openai-settings__form" data-openai-settings-form>
@@ -362,6 +377,13 @@ function configureSettingsInteractions(container, permission, signal) {
   const feedback = container.querySelector('[data-banking-connect-feedback]');
   const weeklySettings = container.querySelector('[data-weekly-budget-settings]');
   const weeklyCategories = container.querySelector('[data-weekly-budget-categories]');
+  const providerForm = container.querySelector('[data-enable-banking-settings-form]');
+  const providerEnvironment = container.querySelector('[data-enable-banking-environment]');
+  const providerApiUrl = container.querySelector('[data-enable-banking-api-url]');
+  const providerApplicationId = container.querySelector('[data-enable-banking-application-id]');
+  const providerApiKey = container.querySelector('[data-enable-banking-api-key]');
+  const providerPrivateKey = container.querySelector('[data-enable-banking-private-key]');
+  const providerSaveButton = container.querySelector('[data-action="save-enable-banking-settings"]');
   const openAiForm = container.querySelector('[data-openai-settings-form]');
   const openAiApiKey = container.querySelector('[data-openai-api-key]');
   const openAiModel = container.querySelector('[data-openai-model]');
@@ -374,7 +396,7 @@ function configureSettingsInteractions(container, permission, signal) {
 
   if (!canWrite) {
     feedback.textContent = localized('readOnly', 'Your Banking permission is read-only.');
-    for (const control of [country, bank, loadButton, connectButton, openAiApiKey, openAiModel, openAiLoadModelsButton, openAiSaveButton, enablePushButton, testPushButton]) {
+    for (const control of [country, bank, loadButton, connectButton, providerEnvironment, providerApiUrl, providerApplicationId, providerApiKey, providerPrivateKey, providerSaveButton, openAiApiKey, openAiModel, openAiLoadModelsButton, openAiSaveButton, enablePushButton, testPushButton]) {
       control.disabled = true;
     }
   }
@@ -390,6 +412,10 @@ function configureSettingsInteractions(container, permission, signal) {
     aspspsByName.clear();
     bank.disabled = true;
     connectButton.disabled = true;
+  }, { signal });
+  providerForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void saveEnableBankingSettings({ container, form: providerForm, signal });
   }, { signal });
   weeklySettings.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -470,14 +496,16 @@ async function loadSettingsView(container, signal, canWrite) {
   const connectionsHost = container.querySelector('[data-banking-connections]');
   const weeklyBudgetHost = container.querySelector('[data-weekly-budget-current]');
   const categoriesHost = container.querySelector('[data-weekly-budget-categories]');
+  const providerHost = container.querySelector('[data-enable-banking-settings]');
   const openAiHost = container.querySelector('[data-banking-openai-settings]');
-  const [connectionsResult, accountsResult, weeklyBudgetResult, categoriesResult, recipientsResult, usersResult, openAiResult, openAiModelsResult] = await Promise.allSettled([
+  const [connectionsResult, accountsResult, weeklyBudgetResult, categoriesResult, recipientsResult, usersResult, providerResult, openAiResult, openAiModelsResult] = await Promise.allSettled([
     loadJson('connections', { signal }),
     loadJson('accounts', { signal }),
     loadJson('weekly-budget/current', { signal }),
     loadJson('categories', { signal }),
     loadJson('push/recipients', { signal }),
     api.get('/auth/users'),
+    loadJson('enablebanking/settings', { signal }),
     loadJson('openai/settings', { signal }),
     loadJson('openai/models', { signal })
   ]);
@@ -495,6 +523,8 @@ async function loadSettingsView(container, signal, canWrite) {
   } else renderError(weeklyBudgetHost, weeklyBudgetResult.reason);
   if (categoriesResult.status === 'fulfilled') renderWeeklyBudgetCategories(categoriesHost, categoriesResult.value?.data, canWrite);
   else renderError(categoriesHost, categoriesResult.reason);
+  if (providerResult.status === 'fulfilled') renderEnableBankingSettings(providerHost, providerResult.value?.data, canWrite);
+  else renderEnableBankingSettingsError(providerHost, providerResult.reason, canWrite);
   if (openAiResult.status === 'fulfilled') renderOpenAiSettings(
     openAiHost,
     openAiResult.value?.data,
@@ -503,6 +533,87 @@ async function loadSettingsView(container, signal, canWrite) {
   );
   else renderOpenAiSettingsError(openAiHost, openAiResult.reason, canWrite);
   await loadBankingPushPanel(container, signal, canWrite);
+}
+
+function renderEnableBankingSettings(host, settings, canWrite) {
+  if (!host) return;
+  const form = host.querySelector('[data-enable-banking-settings-form]');
+  const environment = host.querySelector('[data-enable-banking-environment]');
+  const apiUrl = host.querySelector('[data-enable-banking-api-url]');
+  const applicationId = host.querySelector('[data-enable-banking-application-id]');
+  const apiKey = host.querySelector('[data-enable-banking-api-key]');
+  const privateKey = host.querySelector('[data-enable-banking-private-key]');
+  const status = host.querySelector('[data-enable-banking-status]');
+  const saveButton = host.querySelector('[data-action="save-enable-banking-settings"]');
+  if (!form || !environment || !apiUrl || !applicationId || !apiKey || !privateKey || !status || !saveButton) return;
+
+  environment.value = settings?.environment === 'production' ? 'production' : 'sandbox';
+  apiUrl.value = typeof settings?.api_url === 'string' ? settings.api_url : '';
+  applicationId.value = '';
+  apiKey.value = '';
+  privateKey.value = '';
+  form.dataset.applicationIdConfigured = settings?.application_id_configured === true ? 'true' : 'false';
+  form.dataset.apiKeyConfigured = settings?.api_key_configured === true ? 'true' : 'false';
+  form.dataset.privateKeyConfigured = settings?.private_key_configured === true ? 'true' : 'false';
+  status.textContent = [
+    `${localized('enableBankingApplicationId', 'Application ID')}: ${settings?.application_id_configured === true ? localized('configured', 'configured') : localized('notConfigured', 'not configured')}`,
+    `${localized('enableBankingApiKey', 'API key')}: ${settings?.api_key_configured === true ? localized('configured', 'configured') : localized('notConfigured', 'not configured')}`,
+    `${localized('enableBankingPrivateKey', 'Private key')}: ${settings?.private_key_configured === true ? localized('configured', 'configured') : localized('notConfigured', 'not configured')}`
+  ].join(' · ');
+  for (const control of [environment, apiUrl, applicationId, apiKey, privateKey]) control.disabled = !canWrite;
+  saveButton.disabled = !canWrite;
+  if (!canWrite) {
+    const feedback = host.querySelector('[data-enable-banking-settings-feedback]');
+    if (feedback) feedback.textContent = localized('readOnly', 'Your Banking permission is read-only.');
+  }
+}
+
+function renderEnableBankingSettingsError(host, error, canWrite) {
+  if (!host) return;
+  const feedback = host.querySelector('[data-enable-banking-settings-feedback]');
+  if (feedback) feedback.textContent = error instanceof Error
+    ? error.message
+    : localized('enableBankingLoadFailed', 'Enable Banking settings could not be loaded.');
+  const form = host.querySelector('[data-enable-banking-settings-form]');
+  if (form && !canWrite) {
+    for (const control of form.querySelectorAll('input, select, button')) control.disabled = true;
+  }
+}
+
+async function saveEnableBankingSettings({ container, form, signal }) {
+  const feedback = form.querySelector('[data-enable-banking-settings-feedback]');
+  const saveButton = form.querySelector('[data-action="save-enable-banking-settings"]');
+  const environment = form.querySelector('[data-enable-banking-environment]');
+  const apiUrl = form.querySelector('[data-enable-banking-api-url]');
+  const applicationId = form.querySelector('[data-enable-banking-application-id]');
+  const apiKey = form.querySelector('[data-enable-banking-api-key]');
+  const privateKey = form.querySelector('[data-enable-banking-private-key]');
+  saveButton.disabled = true;
+  feedback.textContent = localized('enableBankingSaving', 'Saving Enable Banking settings ...');
+  try {
+    const body = {
+      environment: environment.value,
+      api_url: apiUrl.value.trim()
+    };
+    if (applicationId.value.trim()) body.application_id = applicationId.value.trim();
+    if (apiKey.value.trim()) body.api_key = apiKey.value.trim();
+    if (privateKey.files?.[0]) body.private_key = await privateKey.files[0].text();
+    const csrf = await loadJson('csrf', { signal });
+    const result = await loadJson('enablebanking/settings', {
+      method: 'PUT',
+      headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body,
+      signal
+    });
+    renderEnableBankingSettings(container.querySelector('[data-enable-banking-settings]'), result?.data, true);
+    feedback.textContent = localized('enableBankingSaved', 'Enable Banking settings saved.');
+  } catch (error) {
+    if (!signal.aborted) feedback.textContent = error instanceof Error
+      ? error.message
+      : localized('enableBankingSaveFailed', 'Enable Banking settings could not be saved.');
+  } finally {
+    if (!signal.aborted) saveButton.disabled = false;
+  }
 }
 
 function renderOpenAiSettings(host, settings, modelsPayload, canWrite) {

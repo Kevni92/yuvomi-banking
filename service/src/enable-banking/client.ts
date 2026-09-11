@@ -1,6 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { config } from '../config.js';
+import {
+  readEnableBankingRuntimeSettings,
+  validateApiUrl
+} from '../services/enable-banking-settings.js';
 import { createEnableBankingJwt } from './jwt.js';
 
 export type EnableBankingFetch = (
@@ -137,31 +142,32 @@ export class EnableBankingApiError extends Error {
 }
 
 export class EnableBankingClient {
-  private readonly baseUrl: string;
-  private readonly applicationId: string;
-  private readonly privateKeyPath: string;
+  private readonly database?: DatabaseSync;
+  private readonly apiUrlOverride?: string;
+  private readonly applicationIdOverride?: string;
+  private readonly apiKeyOverride?: string;
+  private readonly privateKeyPathOverride?: string;
+  private readonly privateKeyOverride?: string | Buffer;
   private readonly fetcher: EnableBankingFetch;
-  private readonly privateKey?: string | Buffer;
 
   constructor(options: {
+    database?: DatabaseSync;
     apiUrl?: string;
     applicationId?: string;
+    apiKey?: string;
     privateKeyPath?: string;
     privateKey?: string | Buffer;
     fetcher?: EnableBankingFetch;
   } = {}) {
-    const apiUrl = options.apiUrl ?? config.enableBanking.apiUrl;
-    const parsedUrl = new URL(apiUrl);
-    if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) {
-      throw new Error('ENABLE_BANKING_API_URL must be an HTTP(S) URL without credentials.');
-    }
-
-    this.baseUrl = apiUrl.replace(/\/+$/, '');
-    this.applicationId = options.applicationId ?? config.enableBanking.applicationId;
-    this.privateKeyPath = path.resolve(
-      options.privateKeyPath ?? config.enableBanking.privateKeyPath
-    );
-    this.privateKey = options.privateKey;
+    this.database = options.database;
+    this.apiUrlOverride = options.apiUrl;
+    this.applicationIdOverride = options.applicationId;
+    this.apiKeyOverride = options.apiKey;
+    this.privateKeyPathOverride = options.privateKeyPath
+      ? path.resolve(options.privateKeyPath)
+      : undefined;
+    this.privateKeyOverride = options.privateKey;
+    validateApiUrl(options.apiUrl ?? config.enableBanking.apiUrl);
     this.fetcher = options.fetcher ?? fetch;
   }
 
@@ -262,24 +268,30 @@ export class EnableBankingClient {
     return { transactions, pages };
   }
 
-  private readPrivateKey(): string | Buffer {
-    if (this.privateKey) return this.privateKey;
+  private readPrivateKey(settings: ReturnType<typeof readEnableBankingRuntimeSettings>): string | Buffer {
+    if (this.privateKeyOverride) return this.privateKeyOverride;
+    if (settings.privateKey) return settings.privateKey;
     try {
-      return fs.readFileSync(this.privateKeyPath);
+      return fs.readFileSync(this.privateKeyPathOverride ?? settings.privateKeyPath);
     } catch {
       throw new Error('Enable Banking private key could not be read.');
     }
   }
 
   private async request<T>(pathWithQuery: string, options: RequestInit = {}): Promise<T> {
+    const settings = readEnableBankingRuntimeSettings(this.database);
+    const apiUrl = this.apiUrlOverride ?? settings.apiUrl;
+    validateApiUrl(apiUrl);
     const token = createEnableBankingJwt({
-      applicationId: this.applicationId,
-      privateKey: this.readPrivateKey()
+      applicationId: this.applicationIdOverride ?? settings.applicationId,
+      privateKey: this.readPrivateKey(settings)
     });
-    const url = new URL(pathWithQuery.replace(/^\//, ''), `${this.baseUrl}/`);
+    const url = new URL(pathWithQuery.replace(/^\//, ''), `${apiUrl.replace(/\/+$/, '')}/`);
     const headers = new Headers(options.headers);
     headers.set('accept', 'application/json');
     headers.set('authorization', `Bearer ${token}`);
+    const apiKey = this.apiKeyOverride ?? settings.apiKey;
+    if (apiKey) headers.set('x-api-key', apiKey);
     if (options.body !== undefined) headers.set('content-type', 'application/json');
 
     const response = await this.fetcher(url, {

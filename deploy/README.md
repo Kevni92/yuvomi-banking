@@ -52,9 +52,11 @@ openssl rand -hex 32 > secrets/data_encryption_key
 chmod 600 secrets/counterparty_hmac_secret secrets/data_encryption_key
 ```
 
-Der Enable-Banking-Private-Key ist optional. Wenn die Provider-Credentials
-vorliegen, lege ihn als `secrets/enablebanking/enablebanking-private.pem` ab und setze
-restriktive Rechte:
+Der Enable-Banking-Private-Key ist optional. Für einen rein dateibasierten
+Erststart kann er als `secrets/enablebanking/enablebanking-private.pem` abgelegt
+werden. Nach dem Start können Umgebung, Application-ID, optionaler API-Key und
+Private Key unter den Banking-Einstellungen im Yuvomi-UI hinterlegt werden. Die
+Werte werden in der separaten Banking-Datenbank verschlüsselt gespeichert.
 
 ```sh
 chmod 600 secrets/enablebanking/enablebanking-private.pem
@@ -85,9 +87,9 @@ Zusätzlich kann der Healthcheck über die öffentliche Origin geprüft werden:
 
 Der Sidecar startet auch ohne Enable-Banking-Credentials. In diesem Zustand
 bleiben Bankauswahl und Consent absichtlich deaktiviert beziehungsweise liefern
-eine kontrollierte Provider-Fehlermeldung. Für echte Bankdaten müssen
-`ENABLE_BANKING_ENV`, `ENABLE_BANKING_APPLICATION_ID` und der passende Private
-Key gesetzt sein. Die Callback-URL lautet dann:
+eine kontrollierte Provider-Fehlermeldung. Für echte Bankdaten müssen Umgebung,
+Application-ID und der passende Private Key gesetzt sein. Das kann vollständig
+über die Banking-Einstellungen erfolgen. Die Callback-URL lautet dann:
 
 `https://<deine-domain>/api/extensions/banking/enablebanking/callback`
 

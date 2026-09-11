@@ -12,7 +12,7 @@ import {
 } from './services/push-delivery-worker.js';
 
 const database = openBankingDatabase();
-const enableBankingClient = new EnableBankingClient();
+const enableBankingClient = new EnableBankingClient({ database });
 const weeklyBudgetScheduler = startWeeklyBudgetScheduler({
   database,
   client: enableBankingClient,

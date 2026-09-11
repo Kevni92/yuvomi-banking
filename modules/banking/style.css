@@ -677,26 +677,73 @@
 }
 
 .banking-category-dialog {
+  box-sizing: border-box;
   width: min(34rem, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  max-height: min(92vh, 60rem);
+  max-height: min(92dvh, 60rem);
   padding: 0;
+  overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   color: var(--color-text-primary);
 }
 
+.banking-category-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
 .banking-category-dialog::backdrop {
   background: rgb(0 0 0 / .45);
 }
 
-.banking-category-dialog__form,
-.banking-category-dialog__body {
-  display: grid;
-  gap: var(--space-3, .75rem);
+.banking-category-dialog__form {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.banking-category-dialog__header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2, .5rem);
+  padding: var(--space-4, 1rem);
+  border-bottom: 1px solid var(--color-border-subtle, rgba(0,0,0,.08));
+}
+
+.banking-category-dialog__header h2 {
+  min-width: 0;
+  margin: 0;
 }
 
 .banking-category-dialog__body {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  gap: var(--space-3, .75rem);
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-4, 1rem);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.banking-category-dialog__footer {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: var(--space-4, 1rem);
+  border-top: 1px solid var(--color-border-subtle, rgba(0,0,0,.08));
+}
+
+.banking-category-dialog__footer > .banking-feedback {
+  margin-bottom: 0;
 }
 
 .banking-category-dialog__actions {
@@ -1101,21 +1148,46 @@
 [data-banking-transactions-pagination] > .banking-transactions-pagination__pages { grid-column: 2; grid-row: 1; }
 [data-banking-transactions-pagination] > .banking-transactions-pagination__page-size { grid-column: 3; grid-row: 1; }
 
-.banking-transaction-dialog { width: min(54rem, calc(100vw - 2rem)); max-height: min(90vh, 60rem); padding: 0; border: 1px solid var(--color-border, #d1d5db); border-radius: var(--radius-lg, 16px); background: var(--color-surface, #fff); color: inherit; }
+.banking-transaction-dialog {
+  box-sizing: border-box;
+  width: min(60rem, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  max-height: min(92vh, 60rem);
+  max-height: min(92dvh, 60rem);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: var(--radius-lg, 16px);
+  background: var(--color-surface, #fff);
+  color: inherit;
+}
+.banking-transaction-dialog[open] { display: flex; flex-direction: column; }
 .banking-transaction-dialog::backdrop { background: rgba(0, 0, 0, .45); }
-.banking-transaction-dialog__header { justify-content: space-between; padding: var(--space-4, 1rem); border-bottom: 1px solid var(--color-border-subtle, rgba(0,0,0,.08)); }
+.banking-transaction-dialog > .banking-transaction-dialog__header { flex: 0 0 auto; position: relative; z-index: 1; justify-content: space-between; padding: var(--space-4, 1rem); border-bottom: 1px solid var(--color-border-subtle, rgba(0,0,0,.08)); background: var(--color-surface, #fff); }
 .banking-transaction-dialog__header h2, .banking-transaction-dialog__header h3, .banking-transaction-dialog__header p { margin: 0; }
-.banking-transaction-dialog__header > div { display: grid; gap: var(--space-1, .25rem); min-width: 0; }
 .banking-transaction-dialog__header small { color: var(--color-text-secondary, #6b7280); }
-.banking-transaction-dialog__body { overflow: auto; max-height: calc(90vh - 5rem); padding: var(--space-4, 1rem); }
+.banking-transaction-dialog__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-4, 1rem);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.banking-transaction-detail-summary { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3, .75rem); min-width: 0; padding-bottom: var(--space-4, 1rem); border-bottom: 1px solid var(--color-border-subtle, rgba(0,0,0,.08)); }
+.banking-transaction-detail-summary > div { display: grid; gap: var(--space-1, .25rem); min-width: 0; }
+.banking-transaction-detail-summary > .banking-transactions-table__amount { min-width: 0; overflow-wrap: anywhere; text-align: right; }
+.banking-transaction-detail-summary small { color: var(--color-text-secondary, #6b7280); }
 .banking-transaction-detail-section { margin-top: var(--space-4, 1rem); }
 .banking-transaction-detail-section h3 { margin: 0 0 var(--space-2, .5rem); font-size: 1rem; }
 .banking-transaction-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2, .5rem) var(--space-4, 1rem); margin: 0; }
 .banking-transaction-detail-grid > div { min-width: 0; }
 .banking-transaction-detail-grid dt { color: var(--color-text-secondary, #6b7280); font-size: .8rem; }
-.banking-transaction-detail-grid dd { margin: var(--space-1, .25rem) 0 0; overflow-wrap: anywhere; }
+.banking-transaction-detail-grid dd { min-width: 0; margin: var(--space-1, .25rem) 0 0; overflow-wrap: anywhere; word-break: break-word; }
 .banking-transaction-detail-raw { margin-top: var(--space-4, 1rem); }
-.banking-transaction-detail-raw pre { overflow: auto; max-height: 24rem; padding: var(--space-3, .75rem); border-radius: var(--radius-sm, 10px); background: var(--color-surface-3, rgba(0,0,0,.05)); font-size: .78rem; }
+.banking-transaction-detail-raw pre { max-width: 100%; overflow-x: auto; overflow-y: visible; padding: var(--space-3, .75rem); border-radius: var(--radius-sm, 10px); background: var(--color-surface-3, rgba(0,0,0,.05)); font-size: .78rem; white-space: pre; }
 
 @media (max-width: 767px) {
   .banking-connect-form,
@@ -1158,5 +1230,33 @@
 
   .banking-connection-row__status {
     text-align: left;
+  }
+}
+
+@media (max-width: 42rem) {
+  .banking-transaction-dialog,
+  .banking-category-dialog {
+    width: calc(100vw - 1rem);
+    max-width: calc(100vw - 1rem);
+    max-height: calc(100vh - 1rem);
+    max-height: calc(100dvh - 1rem);
+    border-radius: var(--radius-md, 12px);
+  }
+
+  .banking-transaction-dialog__header,
+  .banking-transaction-dialog__body,
+  .banking-category-dialog__header,
+  .banking-category-dialog__body,
+  .banking-category-dialog__footer {
+    padding: var(--space-3, .75rem);
+  }
+
+  .banking-transaction-detail-summary > .banking-transactions-table__amount {
+    flex: 1 1 100%;
+    text-align: left;
+  }
+
+  .banking-transaction-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

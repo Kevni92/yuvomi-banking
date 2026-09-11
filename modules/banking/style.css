@@ -458,6 +458,40 @@
   overflow-wrap: anywhere;
 }
 
+.banking-weekly-direct-expenses {
+  margin: 0 0 var(--space-4, 1rem);
+}
+
+.banking-weekly-direct-expenses summary {
+  cursor: pointer;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.banking-weekly-direct-expenses ul {
+  display: grid;
+  gap: var(--space-2, 0.5rem);
+  margin: var(--space-3, 0.75rem) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.banking-weekly-direct-expenses li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-2, 0.5rem);
+  align-items: start;
+}
+
+.banking-weekly-direct-expenses li > span:first-child,
+.banking-weekly-direct-expenses small {
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.banking-weekly-direct-expenses small {
+  display: block;
+  margin-top: var(--space-1, 0.25rem);
+}
+
 .banking-weekly-settings {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

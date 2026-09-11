@@ -8,7 +8,6 @@ import {
 } from '../services/weekly-budget-overview.js';
 import {
   assertTimeZone,
-  localDateForInstant,
   weeklyBudgetWindow
 } from '../services/weekly-budget-schedule.js';
 import {
@@ -102,8 +101,16 @@ export function createWeeklyBudgetRouter({
       const now = clock();
       const existing = findWeeklyBudgetConfig(database, user.id);
       const activationChanged = !existing || (!existing.enabled && input.enabled);
+      const activationWindow = activationChanged
+        ? weeklyBudgetWindow({
+            now,
+            cutoffWeekday: input.cutoffWeekday,
+            cutoffTime: input.cutoffTime,
+            timezone: input.timezone
+          })
+        : null;
       const effectiveFromDate = activationChanged
-        ? localDateForInstant(now, input.timezone)
+        ? activationWindow!.periodStartDate
         : existing.effective_from_date;
       const nowIso = now.toISOString();
       const effectiveFromAt = activationChanged

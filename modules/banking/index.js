@@ -1358,6 +1358,12 @@ function renderWeeklyBudget(host, form, current, accounts, canWrite, recipients 
   } else {
     const calculation = current?.provisional_calculation;
     const balance = current?.balance;
+    const directExpenses = Array.isArray(current?.direct_expenses) ? current.direct_expenses : [];
+    const directExpenseCount = directExpenses.length;
+    const directExpensePeriod = formatInclusiveDateRange(
+      current?.period?.start_date,
+      current?.period?.end_date
+    );
     host.insertAdjacentHTML('beforeend', `
       <div class="banking-weekly-summary">
         ${weeklySummaryCard(
@@ -1373,9 +1379,7 @@ function renderWeeklyBudget(host, form, current, accounts, canWrite, recipients 
           formatCents(current?.direct_expense_cents, settings?.currency),
           summaryMeta(
             settings?.source_account?.display_name,
-            localized('weeklyBudgetDirectCount', '{count} included transactions', {
-              count: Array.isArray(current?.direct_expenses) ? current.direct_expenses.length : 0
-            })
+            weeklyBudgetDirectExpenseSummary(directExpenseCount, directExpensePeriod)
           )
         )}
         ${weeklySummaryCard(
@@ -1388,6 +1392,7 @@ function renderWeeklyBudget(host, form, current, accounts, canWrite, recipients 
           })
         )}
       </div>
+      ${weeklyDirectExpensesMarkup(directExpenses, settings?.currency)}
       ${weeklyGiroCodeMarkup(current?.latest_suggestion)}
     `);
     configureGiroCodeShare(host);
@@ -1542,6 +1547,42 @@ function summaryMeta(accountName, detail) {
   return [accountName, detail]
     .filter((value) => typeof value === 'string' && value.trim())
     .join(' · ');
+}
+
+function weeklyBudgetDirectExpenseSummary(count, period) {
+  const countText = localized(
+    count === 1 ? 'weeklyBudgetDirectCount' : 'weeklyBudgetDirectCountPlural',
+    count === 1 ? '{count} included transaction' : '{count} included transactions',
+    { count }
+  );
+  return period
+    ? localized('weeklyBudgetDirectPeriod', '{countText} · {period}', { countText, period })
+    : countText;
+}
+
+function weeklyDirectExpensesMarkup(expenses, currency) {
+  if (!Array.isArray(expenses) || expenses.length === 0) return '';
+  const rows = expenses.map((expense) => {
+    const decision = expense?.decision_source === 'transaction_override'
+      ? localized('weeklyBudgetDecisionTransactionOverride', 'Transaction explicitly included')
+      : localized('weeklyBudgetDecisionCategoryDefault', 'Category belongs to the weekly budget');
+    const category = typeof expense?.category_name === 'string' && expense.category_name.trim()
+      ? expense.category_name
+      : localized('uncategorized', 'Without category');
+    return `
+      <li>
+        <span>${esc(formatDate(expense?.booking_date) || '')}</span>
+        <span><strong>${esc(expense?.counterparty_name || category)}</strong><small>${esc(`${localized('transactionCategory', 'Category')}: ${category} · ${decision}`)}</small></span>
+        <strong>${esc(formatCents(expense?.amount_cents, expense?.currency || currency))}</strong>
+      </li>
+    `;
+  }).join('');
+  return `
+    <details class="banking-weekly-direct-expenses">
+      <summary>${esc(localized('weeklyBudgetShowDirectExpenses', 'Show included direct expenses'))}</summary>
+      <ul>${rows}</ul>
+    </details>
+  `;
 }
 
 function weeklySummaryCard(label, value, detail) {
@@ -2767,6 +2808,24 @@ function formatDate(value) {
     || date.getDate() !== day
   ) return '';
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'short' }).format(date);
+}
+
+function formatInclusiveDateRange(startDate, exclusiveEndDate) {
+  if (typeof startDate !== 'string' || typeof exclusiveEndDate !== 'string') return '';
+  const startMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(startDate);
+  const endMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(exclusiveEndDate);
+  if (!startMatch || !endMatch || !formatDate(startDate) || !formatDate(exclusiveEndDate)) return '';
+
+  // Treat API dates as calendar dates. UTC is used only for calendar arithmetic;
+  // formatDate constructs the final local calendar date for display.
+  const inclusiveEnd = new Date(Date.UTC(
+    Number(endMatch[1]), Number(endMatch[2]) - 1, Number(endMatch[3]) - 1
+  ));
+  if (inclusiveEnd.getTime() < Date.UTC(
+    Number(startMatch[1]), Number(startMatch[2]) - 1, Number(startMatch[3])
+  )) return '';
+  const inclusiveEndDate = `${inclusiveEnd.getUTCFullYear().toString().padStart(4, '0')}-${String(inclusiveEnd.getUTCMonth() + 1).padStart(2, '0')}-${String(inclusiveEnd.getUTCDate()).padStart(2, '0')}`;
+  return `${formatDate(startDate)}–${formatDate(inclusiveEndDate)}`;
 }
 
 function formatMoney(value, currency) {

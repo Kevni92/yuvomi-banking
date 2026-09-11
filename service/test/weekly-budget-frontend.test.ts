@@ -151,6 +151,12 @@ test('weekly-budget locale keys exist in German and English', () => {
     'weeklyBudgetLateCandidates',
     'weeklyBudgetClosingBalance',
     'weeklyBudgetRevisions',
+    'weeklyBudgetDirectCount',
+    'weeklyBudgetDirectCountPlural',
+    'weeklyBudgetDirectPeriod',
+    'weeklyBudgetShowDirectExpenses',
+    'weeklyBudgetDecisionCategoryDefault',
+    'weeklyBudgetDecisionTransactionOverride',
     'weeklyBudgetInherit',
     'weeklyBudgetInclude',
     'weeklyBudgetExclude',
@@ -182,6 +188,15 @@ test('weekly-budget locale keys exist in German and English', () => {
     assert.ok(german[key], `Missing German locale key ${key}`);
     assert.ok(english[key], `Missing English locale key ${key}`);
   }
+});
+
+test('weekly-budget summary exposes its inclusive calendar period and included expenses', () => {
+  const source = moduleFile('index.js');
+  assert.match(source, /function formatInclusiveDateRange\(startDate, exclusiveEndDate\)/);
+  assert.match(source, /weeklyBudgetDirectExpenseSummary\(directExpenseCount, directExpensePeriod\)/);
+  assert.match(source, /weeklyDirectExpensesMarkup\(directExpenses, settings\?\.currency\)/);
+  assert.match(source, /weeklyBudgetDecisionCategoryDefault/);
+  assert.match(source, /weeklyBudgetDecisionTransactionOverride/);
 });
 
 test('weekly-budget user-facing source stays provider-neutral', () => {

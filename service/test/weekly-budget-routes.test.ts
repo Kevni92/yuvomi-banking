@@ -266,7 +266,7 @@ test('protects and stores weekly-budget settings without exposing an IBAN', asyn
     assert.equal(saved.status, 200);
     const savedBody = await saved.json();
     assert.equal(savedBody.data.target_amount_cents, 45000);
-    assert.equal(savedBody.data.effective_from_date, '2026-09-10');
+    assert.equal(savedBody.data.effective_from_date, '2026-09-06');
     assert.equal(savedBody.data.effective_from_at, NOW.toISOString());
     assert.deepEqual(savedBody.data.source_account, {
       id: 1,
@@ -307,6 +307,118 @@ test('protects and stores weekly-budget settings without exposing an IBAN', asyn
       active: true,
       weekly_budget_default: true
     }]);
+  } finally {
+    await close(server);
+    database.close();
+    config.secrets.dataEncryptionKey = previousKey;
+  }
+});
+
+test('starts a new weekly-budget configuration at the current nominal period start', async () => {
+  const previousKey = config.secrets.dataEncryptionKey;
+  const activationNow = new Date('2026-09-11T19:00:00.000Z');
+  config.secrets.dataEncryptionKey = TEST_KEY;
+  const database = createFixture();
+  const { server, origin } = await listen(createApp({
+    database,
+    resolveSession: async () => writeUser(),
+    clock: () => activationNow
+  }));
+  try {
+    const response = await fetch(`${origin}/api/extensions/banking/weekly-budget/settings`, {
+      method: 'PUT',
+      headers: mutationHeaders(),
+      body: JSON.stringify({
+        ...settingsBody(), cutoff_weekday: 4, cutoff_time: '08:00'
+      })
+    });
+    assert.equal(response.status, 200);
+    const saved = (await response.json()).data;
+    assert.equal(saved.effective_from_date, '2026-09-10');
+    assert.equal(saved.effective_from_at, activationNow.toISOString());
+  } finally {
+    await close(server);
+    database.close();
+    config.secrets.dataEncryptionKey = previousKey;
+  }
+});
+
+test('reactivating weekly budget restarts at the current nominal period start', async () => {
+  const previousKey = config.secrets.dataEncryptionKey;
+  const activationNow = new Date('2026-09-11T19:00:00.000Z');
+  config.secrets.dataEncryptionKey = TEST_KEY;
+  const database = createFixture();
+  const { server, origin } = await listen(createApp({
+    database,
+    resolveSession: async () => writeUser(),
+    clock: () => activationNow
+  }));
+  try {
+    const initial = await fetch(`${origin}/api/extensions/banking/weekly-budget/settings`, {
+      method: 'PUT',
+      headers: mutationHeaders(),
+      body: JSON.stringify({
+        ...settingsBody(), enabled: false, cutoff_weekday: 4, cutoff_time: '08:00'
+      })
+    });
+    assert.equal(initial.status, 200);
+    database.prepare(`
+      UPDATE weekly_budget_configs
+      SET effective_from_date = '2026-08-01', effective_from_at = '2026-08-01T00:00:00.000Z'
+    `).run();
+
+    const reactivated = await fetch(`${origin}/api/extensions/banking/weekly-budget/settings`, {
+      method: 'PUT',
+      headers: mutationHeaders(),
+      body: JSON.stringify({
+        ...settingsBody(), enabled: true, cutoff_weekday: 4, cutoff_time: '08:00'
+      })
+    });
+    assert.equal(reactivated.status, 200);
+    const saved = (await reactivated.json()).data;
+    assert.equal(saved.effective_from_date, '2026-09-10');
+    assert.equal(saved.effective_from_at, activationNow.toISOString());
+  } finally {
+    await close(server);
+    database.close();
+    config.secrets.dataEncryptionKey = previousKey;
+  }
+});
+
+test('editing an active weekly-budget configuration preserves its effective-from date', async () => {
+  const previousKey = config.secrets.dataEncryptionKey;
+  const activationNow = new Date('2026-09-11T19:00:00.000Z');
+  config.secrets.dataEncryptionKey = TEST_KEY;
+  const database = createFixture();
+  const { server, origin } = await listen(createApp({
+    database,
+    resolveSession: async () => writeUser(),
+    clock: () => activationNow
+  }));
+  try {
+    const initial = await fetch(`${origin}/api/extensions/banking/weekly-budget/settings`, {
+      method: 'PUT',
+      headers: mutationHeaders(),
+      body: JSON.stringify({ ...settingsBody(), cutoff_weekday: 4, cutoff_time: '08:00' })
+    });
+    assert.equal(initial.status, 200);
+    database.prepare(`
+      UPDATE weekly_budget_configs
+      SET effective_from_date = '2026-09-03', effective_from_at = '2026-09-03T08:00:00.000Z'
+    `).run();
+
+    const updated = await fetch(`${origin}/api/extensions/banking/weekly-budget/settings`, {
+      method: 'PUT',
+      headers: mutationHeaders(),
+      body: JSON.stringify({
+        ...settingsBody(), cutoff_weekday: 4, cutoff_time: '08:00', target_amount_cents: 45100
+      })
+    });
+    assert.equal(updated.status, 200);
+    const saved = (await updated.json()).data;
+    assert.equal(saved.target_amount_cents, 45100);
+    assert.equal(saved.effective_from_date, '2026-09-03');
+    assert.equal(saved.effective_from_at, '2026-09-03T08:00:00.000Z');
   } finally {
     await close(server);
     database.close();
@@ -433,6 +545,104 @@ test('current overview applies transaction override before category and excludes
     assert.equal(staleBody.available_to_spend_cents, 10000);
     assert.equal(staleBody.balance.stale, true);
     assert.equal(staleBody.provisional_calculation, null);
+  } finally {
+    await close(server);
+    database.close();
+    config.secrets.dataEncryptionKey = previousKey;
+    config.secrets.counterpartyHmac = previousHmac;
+  }
+});
+
+test('current overview includes first-day weekly expenses only when category or override opts in', async () => {
+  const previousKey = config.secrets.dataEncryptionKey;
+  const previousHmac = config.secrets.counterpartyHmac;
+  const currentNow = new Date('2026-09-11T19:00:00.000Z');
+  config.secrets.dataEncryptionKey = TEST_KEY;
+  config.secrets.counterpartyHmac = TEST_HMAC;
+  const database = createFixture();
+  database.prepare(`
+    INSERT INTO weekly_budget_configs (
+      yuvomi_user_id, enabled, source_account_id, target_account_id,
+      target_amount_cents, currency, cutoff_weekday, cutoff_time, timezone,
+      sync_time_1, sync_time_2, balance_stale_after_minutes,
+      notification_enabled, notification_qr_preview, purpose_prefix,
+      effective_from_date, effective_from_at, created_at, updated_at
+    ) VALUES (7, 1, 1, 2, 45000, 'EUR', 4, '08:00', 'Europe/Berlin',
+              '06:00', '18:00', 840, 0, 0, 'WB', '2026-09-10', ?, ?, ?)
+  `).run(currentNow.toISOString(), currentNow.toISOString(), currentNow.toISOString());
+  database.prepare(`
+    INSERT INTO categories (name, type, weekly_budget_default, created_at, updated_at)
+    VALUES ('Cash', 'expense', 1, ?, ?)
+  `).run(currentNow.toISOString(), currentNow.toISOString());
+  database.prepare(`
+    INSERT INTO transactions (
+      account_id, provider_transaction_id, booking_date, amount_cents, currency,
+      direction, category_id, weekly_budget_override, status, created_at, updated_at
+    ) VALUES (1, 'cash-first-day', '2026-09-10', -4000, 'EUR',
+              'outgoing', 1, 'inherit', 'BOOK', ?, ?)
+  `).run(currentNow.toISOString(), currentNow.toISOString());
+  persistAccountBalanceSnapshots({
+    database,
+    accountId: 2,
+    syncRunKey: 'first-day-expense-balance',
+    fetchedAt: currentNow,
+    balances: [{
+      balance_amount: { amount: '45.42', currency: 'EUR' },
+      balance_type: 'ITAV',
+      last_change_date_time: currentNow.toISOString()
+    }]
+  });
+  const { server, origin } = await listen(createApp({
+    database,
+    resolveSession: async () => writeUser(),
+    clock: () => currentNow
+  }));
+  try {
+    const current = async () => {
+      const response = await fetch(`${origin}/api/extensions/banking/weekly-budget/current`, {
+        headers: { cookie: 'yuvomi.sid=test' }
+      });
+      assert.equal(response.status, 200);
+      return (await response.json()).data;
+    };
+
+    const categoryIncluded = await current();
+    assert.deepEqual(categoryIncluded.period, {
+      start_date: '2026-09-10',
+      end_date: '2026-09-17',
+      next_cutoff_at: '2026-09-17T06:00:00.000Z'
+    });
+    assert.equal(categoryIncluded.direct_expense_cents, 4000);
+    assert.equal(categoryIncluded.direct_expenses.length, 1);
+    assert.equal(categoryIncluded.provisional_calculation.transfer_amount_cents, 36458);
+
+    database.prepare('UPDATE categories SET weekly_budget_default = 0 WHERE id = 1').run();
+    const categoryExcluded = await current();
+    assert.equal(categoryExcluded.direct_expense_cents, 0);
+    assert.equal(categoryExcluded.provisional_calculation.transfer_amount_cents, 40458);
+
+    const includedOverride = await fetch(
+      `${origin}/api/extensions/banking/transactions/1/weekly-budget`,
+      {
+        method: 'PATCH',
+        headers: mutationHeaders(),
+        body: JSON.stringify({ weekly_budget_override: 'include' })
+      }
+    );
+    assert.equal(includedOverride.status, 200);
+    assert.equal((await current()).direct_expense_cents, 4000);
+
+    database.prepare('UPDATE categories SET weekly_budget_default = 1 WHERE id = 1').run();
+    const excludedOverride = await fetch(
+      `${origin}/api/extensions/banking/transactions/1/weekly-budget`,
+      {
+        method: 'PATCH',
+        headers: mutationHeaders(),
+        body: JSON.stringify({ weekly_budget_override: 'exclude' })
+      }
+    );
+    assert.equal(excludedOverride.status, 200);
+    assert.equal((await current()).direct_expense_cents, 0);
   } finally {
     await close(server);
     database.close();

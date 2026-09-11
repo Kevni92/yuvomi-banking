@@ -9,6 +9,7 @@ import { createEnableBankingRouter } from './api/enable-banking-routes.js';
 import { createWeeklyBudgetRouter } from './api/weekly-budget-routes.js';
 import { EnableBankingClient } from './enable-banking/client.js';
 import { createCategorizationRouter } from './api/categorization-routes.js';
+import { createOpenAiSettingsRouter } from './api/openai-settings-routes.js';
 import { OpenAiCategorizer, type CategorizationClient } from './openai/categorizer.js';
 import { createPushRouter } from './api/push-routes.js';
 import { createTransactionRouter } from './api/transaction-routes.js';
@@ -31,10 +32,11 @@ export function createApp({
   resolveSession = resolveYuvomiUser,
   database,
   enableBankingClient = new EnableBankingClient(),
-  categorizationClient = new OpenAiCategorizer(),
+  categorizationClient,
   clock = () => new Date()
 }: AppDependencies = {}): Express {
   const app = express();
+  const resolvedCategorizationClient = categorizationClient ?? new OpenAiCategorizer(database);
 
   app.disable('x-powered-by');
   app.use(express.json({ limit: '256kb' }));
@@ -95,9 +97,10 @@ export function createApp({
     app.use(`${API_PREFIX}`, createCategorizationRouter({
       database,
       resolveSession,
-      categorizer: categorizationClient,
+      categorizer: resolvedCategorizationClient,
       clock
     }));
+    app.use(`${API_PREFIX}`, createOpenAiSettingsRouter({ database, resolveSession, clock }));
     app.use(`${API_PREFIX}`, createTransactionRouter({ database, resolveSession }));
     app.use(`${API_PREFIX}`, createPushRouter({ database, resolveSession, clock }));
   }

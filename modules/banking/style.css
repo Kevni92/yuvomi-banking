@@ -429,6 +429,26 @@
   border-top: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.08));
 }
 
+.banking-openai-settings__form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3, 0.75rem);
+  padding-top: var(--space-4, 1rem);
+  border-top: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+.banking-openai-settings__form > .banking-muted,
+.banking-openai-settings__actions,
+.banking-openai-settings__form > .banking-feedback {
+  grid-column: 1 / -1;
+}
+
+.banking-openai-settings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 0.5rem);
+}
+
 .banking-field--checkbox {
   display: flex;
   grid-column: 1 / -1;
@@ -678,6 +698,7 @@
   .banking-account-card__details,
   .banking-weekly-summary,
   .banking-weekly-settings,
+  .banking-openai-settings__form,
   .banking-weekly-category-list,
   .banking-girocode {
     grid-template-columns: 1fr;

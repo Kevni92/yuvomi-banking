@@ -33,9 +33,14 @@ async function loadJson(path, { signal, method = 'GET', body, headers = {} } = {
 
   const response = await fetch(`${API_PREFIX}/${path}`, init);
   if (!response.ok) {
-    const error = new Error(
-      `${localized('errors.request', 'Banking request failed')} (HTTP ${response.status})`
-    );
+    let detail = '';
+    try {
+      const payload = await response.clone().json();
+      detail = typeof payload?.error === 'string' ? payload.error : '';
+    } catch {
+      // Some proxy errors do not return JSON.
+    }
+    const error = new Error(detail || `${localized('errors.request', 'Banking request failed')} (HTTP ${response.status})`);
     error.status = response.status;
     throw error;
   }
@@ -155,6 +160,18 @@ function renderSettingsMarkup() {
           <div data-banking-connections aria-live="polite"><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
         </div>
       </details>
+
+      <section class="banking-panel banking-openai-settings" data-banking-openai-settings>
+        <div class="banking-panel__header"><div><h2>${esc(localized('openAiSettingsTitle', 'OpenAI configuration'))}</h2><p class="banking-panel__description">${esc(localized('openAiSettingsDescription', 'Store the API key securely and choose the model used for transaction analysis.'))}</p></div></div>
+        <form class="banking-openai-settings__form" data-openai-settings-form>
+          <label class="banking-field"><span>${esc(localized('openAiApiKey', 'OpenAI API key'))}</span><input class="form-input" type="password" autocomplete="new-password" data-openai-api-key placeholder="${esc(localized('openAiApiKeyPlaceholder', 'Enter a new key; leave blank to keep the current key'))}"></label>
+          <label class="banking-field"><span>${esc(localized('openAiModel', 'Model'))}</span><select class="form-input" data-openai-model><option value="">${esc(localized('openAiChooseModel', 'Choose a model'))}</option></select></label>
+          <p class="banking-muted" data-openai-api-key-status role="status"></p>
+          <p class="banking-muted" data-openai-models-feedback role="status"></p>
+          <div class="banking-openai-settings__actions"><button class="btn btn--secondary" type="button" data-action="load-openai-models">${esc(localized('openAiLoadModels', 'Load available models'))}</button><button class="btn btn--primary" type="submit" data-action="save-openai-settings">${esc(localized('openAiSave', 'Save OpenAI settings'))}</button></div>
+          <p class="banking-feedback" data-openai-settings-feedback role="status"></p>
+        </form>
+      </section>
 
       <section class="banking-panel" data-banking-weekly-budget>
         <div class="banking-panel__header"><div><h2>${esc(localized('weeklyBudgetConfigureTitle', 'Configure weekly budget'))}</h2><p class="banking-panel__description">${esc(localized('weeklyBudgetDescription', 'Sparkasse expenses and the current N26 balance determine the next refill.'))}</p></div></div>
@@ -345,6 +362,11 @@ function configureSettingsInteractions(container, permission, signal) {
   const feedback = container.querySelector('[data-banking-connect-feedback]');
   const weeklySettings = container.querySelector('[data-weekly-budget-settings]');
   const weeklyCategories = container.querySelector('[data-weekly-budget-categories]');
+  const openAiForm = container.querySelector('[data-openai-settings-form]');
+  const openAiApiKey = container.querySelector('[data-openai-api-key]');
+  const openAiModel = container.querySelector('[data-openai-model]');
+  const openAiLoadModelsButton = container.querySelector('[data-action="load-openai-models"]');
+  const openAiSaveButton = container.querySelector('[data-action="save-openai-settings"]');
   const pushHost = container.querySelector('[data-banking-push]');
   const enablePushButton = container.querySelector('[data-action="enable-banking-push"]');
   const testPushButton = container.querySelector('[data-action="test-banking-push"]');
@@ -352,7 +374,7 @@ function configureSettingsInteractions(container, permission, signal) {
 
   if (!canWrite) {
     feedback.textContent = localized('readOnly', 'Your Banking permission is read-only.');
-    for (const control of [country, bank, loadButton, connectButton, enablePushButton, testPushButton]) {
+    for (const control of [country, bank, loadButton, connectButton, openAiApiKey, openAiModel, openAiLoadModelsButton, openAiSaveButton, enablePushButton, testPushButton]) {
       control.disabled = true;
     }
   }
@@ -377,6 +399,13 @@ function configureSettingsInteractions(container, permission, signal) {
     const checkbox = event.target.closest('input[data-weekly-category-id]');
     if (checkbox) void updateCategoryWeeklyBudget({ container, checkbox, signal });
   }, { signal });
+  openAiForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void saveOpenAiSettings({ container, form: openAiForm, signal });
+  }, { signal });
+  openAiLoadModelsButton.addEventListener('click', () => {
+    void loadOpenAiModels({ container, signal });
+  }, { signal });
   enablePushButton.addEventListener('click', () => {
     void enableBankingPush({ container, button: enablePushButton, signal });
   }, { signal });
@@ -395,6 +424,7 @@ async function loadMainView(container, signal, canWrite) {
   const categoriesHost = container.querySelector('[data-weekly-budget-categories]');
   const historyHost = container.querySelector('[data-weekly-budget-history]');
   const categorizationHost = container.querySelector('[data-banking-categorization]');
+  const runCategorizationButton = container.querySelector('[data-action="run-categorization"]');
   const [accountsResult, weeklyBudgetResult, categoriesResult, periodsResult, reviewsResult, suggestionsResult] = await Promise.allSettled([
     loadJson('accounts', { signal }),
     loadJson('weekly-budget/current', { signal }),
@@ -406,6 +436,15 @@ async function loadMainView(container, signal, canWrite) {
   if (signal.aborted) return;
   const accounts = accountsResult.status === 'fulfilled' && Array.isArray(accountsResult.value?.data) ? accountsResult.value.data : [];
   const categories = categoriesResult.status === 'fulfilled' && Array.isArray(categoriesResult.value?.data) ? categoriesResult.value.data : [];
+  const hasActiveCategories = categories.some((category) => category?.active !== false);
+  if (canWrite && runCategorizationButton && categoriesResult.status === 'fulfilled' && !hasActiveCategories) {
+    runCategorizationButton.disabled = true;
+    const categorizationFeedback = container.querySelector('[data-categorization-feedback]');
+    if (categorizationFeedback) categorizationFeedback.textContent = localized(
+      'categorizationNeedsCategories',
+      'Create at least one active Banking category before analyzing transactions.'
+    );
+  }
   if (accountsResult.status === 'fulfilled') renderAccounts(accountsHost, accounts, canWrite);
   else renderError(accountsHost, accountsResult.reason);
   if (weeklyBudgetResult.status === 'fulfilled') renderWeeklyBudget(weeklyBudgetHost, null, weeklyBudgetResult.value?.data, accounts, canWrite);
@@ -429,13 +468,16 @@ async function loadSettingsView(container, signal, canWrite) {
   const connectionsHost = container.querySelector('[data-banking-connections]');
   const weeklyBudgetHost = container.querySelector('[data-weekly-budget-current]');
   const categoriesHost = container.querySelector('[data-weekly-budget-categories]');
-  const [connectionsResult, accountsResult, weeklyBudgetResult, categoriesResult, recipientsResult, usersResult] = await Promise.allSettled([
+  const openAiHost = container.querySelector('[data-banking-openai-settings]');
+  const [connectionsResult, accountsResult, weeklyBudgetResult, categoriesResult, recipientsResult, usersResult, openAiResult, openAiModelsResult] = await Promise.allSettled([
     loadJson('connections', { signal }),
     loadJson('accounts', { signal }),
     loadJson('weekly-budget/current', { signal }),
     loadJson('categories', { signal }),
     loadJson('push/recipients', { signal }),
-    api.get('/auth/users')
+    api.get('/auth/users'),
+    loadJson('openai/settings', { signal }),
+    loadJson('openai/models', { signal })
   ]);
   if (signal.aborted) return;
   if (connectionsResult.status === 'fulfilled') {
@@ -451,7 +493,132 @@ async function loadSettingsView(container, signal, canWrite) {
   } else renderError(weeklyBudgetHost, weeklyBudgetResult.reason);
   if (categoriesResult.status === 'fulfilled') renderWeeklyBudgetCategories(categoriesHost, categoriesResult.value?.data, canWrite);
   else renderError(categoriesHost, categoriesResult.reason);
+  if (openAiResult.status === 'fulfilled') renderOpenAiSettings(
+    openAiHost,
+    openAiResult.value?.data,
+    openAiModelsResult.status === 'fulfilled' ? openAiModelsResult.value?.data : null,
+    canWrite
+  );
+  else renderOpenAiSettingsError(openAiHost, openAiResult.reason, canWrite);
   await loadBankingPushPanel(container, signal, canWrite);
+}
+
+function renderOpenAiSettings(host, settings, modelsPayload, canWrite) {
+  if (!host) return;
+  const form = host.querySelector('[data-openai-settings-form]');
+  const apiKey = host.querySelector('[data-openai-api-key]');
+  const model = host.querySelector('[data-openai-model]');
+  const status = host.querySelector('[data-openai-api-key-status]');
+  const modelsFeedback = host.querySelector('[data-openai-models-feedback]');
+  const loadModelsButton = host.querySelector('[data-action="load-openai-models"]');
+  const saveButton = host.querySelector('[data-action="save-openai-settings"]');
+  if (!form || !apiKey || !model || !status || !modelsFeedback || !loadModelsButton || !saveButton) return;
+
+  const selectedModel = typeof settings?.model === 'string' ? settings.model : '';
+  renderOpenAiModelOptions(model, selectedModel, modelsPayload?.models);
+  apiKey.value = '';
+  form.dataset.apiKeyConfigured = settings?.api_key_configured === true ? 'true' : 'false';
+  status.textContent = settings?.api_key_configured === true
+    ? localized('openAiApiKeyConfigured', 'An OpenAI API key is stored securely.')
+    : localized('openAiApiKeyNotConfigured', 'No OpenAI API key has been stored yet.');
+  apiKey.disabled = !canWrite;
+  model.disabled = !canWrite || model.options.length <= 1;
+  loadModelsButton.disabled = !canWrite || form.dataset.apiKeyConfigured !== 'true';
+  saveButton.disabled = !canWrite;
+  modelsFeedback.textContent = modelsPayload?.error
+    ? modelsPayload.error
+    : modelsPayload?.models?.length
+      ? localized('openAiModelsLoaded', '{count} models available from OpenAI.', { count: modelsPayload.models.length })
+      : settings?.api_key_configured === true
+        ? localized('openAiNoModels', 'No compatible OpenAI models were returned.')
+        : '';
+  if (!canWrite) {
+    const feedback = host.querySelector('[data-openai-settings-feedback]');
+    if (feedback) feedback.textContent = localized('readOnly', 'Your Banking permission is read-only.');
+  }
+}
+
+function renderOpenAiModelOptions(select, selectedModel, models) {
+  select.replaceChildren(createOption('', localized('openAiChooseModel', 'Choose a model')));
+  const modelOptions = Array.isArray(models) ? models : [];
+  const ids = new Set();
+  for (const option of modelOptions) {
+    if (typeof option?.id !== 'string' || !option.id || ids.has(option.id)) continue;
+    ids.add(option.id);
+    select.appendChild(createOption(option.id, typeof option.label === 'string' ? option.label : option.id));
+  }
+  if (selectedModel && !ids.has(selectedModel)) {
+    select.appendChild(createOption(selectedModel, `${selectedModel} (${localized('openAiCurrentModel', 'current')})`));
+  }
+  select.value = selectedModel;
+}
+
+async function loadOpenAiModels({ container, signal }) {
+  const host = container.querySelector('[data-banking-openai-settings]');
+  const button = host?.querySelector('[data-action="load-openai-models"]');
+  const feedback = host?.querySelector('[data-openai-models-feedback]');
+  if (!host || !button || !feedback) return;
+  button.disabled = true;
+  feedback.textContent = localized('openAiLoadingModels', 'Loading available models from OpenAI ...');
+  try {
+    const result = await loadJson('openai/models', { signal });
+    const settingsResult = await loadJson('openai/settings', { signal });
+    if (signal.aborted) return;
+    renderOpenAiSettings(host, settingsResult?.data, result?.data, true);
+  } catch (error) {
+    if (!signal.aborted) feedback.textContent = error instanceof Error
+      ? error.message
+      : localized('openAiModelsFailed', 'OpenAI models could not be loaded.');
+  } finally {
+    if (!signal.aborted) button.disabled = false;
+  }
+}
+
+function renderOpenAiSettingsError(host, error, canWrite) {
+  if (!host) return;
+  const feedback = host.querySelector('[data-openai-settings-feedback]');
+  if (feedback) feedback.textContent = error instanceof Error
+    ? error.message
+    : localized('openAiLoadFailed', 'OpenAI settings could not be loaded.');
+  const form = host.querySelector('[data-openai-settings-form]');
+  if (form && !canWrite) {
+    for (const control of form.querySelectorAll('input, select, button')) control.disabled = true;
+  }
+}
+
+async function saveOpenAiSettings({ container, form, signal }) {
+  const feedback = form.querySelector('[data-openai-settings-feedback]');
+  const saveButton = form.querySelector('[data-action="save-openai-settings"]');
+  const apiKey = form.querySelector('[data-openai-api-key]');
+  const model = form.querySelector('[data-openai-model]');
+  saveButton.disabled = true;
+  feedback.textContent = localized('openAiSaving', 'Saving OpenAI settings ...');
+  try {
+    const key = apiKey.value.trim();
+    if (!key && form.dataset.apiKeyConfigured !== 'true') {
+      throw new Error(localized('openAiApiKeyRequired', 'Enter an OpenAI API key first.'));
+    }
+    const csrf = await loadJson('csrf', { signal });
+    const body = {};
+    if (key) body.api_key = key;
+    if (model.value) body.model = model.value;
+    if (!Object.keys(body).length) throw new Error(localized('openAiApiKeyRequired', 'Enter an OpenAI API key first.'));
+    const result = await loadJson('openai/settings', {
+      method: 'PUT',
+      headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body,
+      signal
+    });
+    const models = await loadJson('openai/models', { signal });
+    renderOpenAiSettings(container.querySelector('[data-banking-openai-settings]'), result?.data, models?.data, true);
+    feedback.textContent = localized('openAiSaved', 'OpenAI settings saved.');
+  } catch (error) {
+    if (!signal.aborted) feedback.textContent = error instanceof Error
+      ? error.message
+      : localized('openAiSaveFailed', 'OpenAI settings could not be saved.');
+  } finally {
+    if (!signal.aborted) saveButton.disabled = false;
+  }
 }
 
 function createTransactionState() {

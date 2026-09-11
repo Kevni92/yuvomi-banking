@@ -1,4 +1,5 @@
-import { config } from '../config.js';
+import type { DatabaseSync } from 'node:sqlite';
+import { readOpenAiRuntimeSettings } from '../services/openai-settings.js';
 
 export interface CategorizationCategory {
   id: number;
@@ -44,12 +45,13 @@ export class CategorizationUnavailableError extends Error {}
  * payload, credentials, or a browser session token.
  */
 export class OpenAiCategorizer implements CategorizationClient {
+  constructor(private readonly database?: DatabaseSync) {}
+
   async categorize(input: {
     categories: CategorizationCategory[];
     transactions: CategorizationTransaction[];
   }): Promise<CategorizationResult[]> {
-    const apiKey = config.secrets.openAiApiKey;
-    const model = config.openAiModel;
+    const { apiKey, model } = readOpenAiRuntimeSettings(this.database);
     if (!apiKey || !model) {
       throw new CategorizationUnavailableError('OpenAI categorization is not configured.');
     }

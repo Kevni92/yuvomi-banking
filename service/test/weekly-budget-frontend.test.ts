@@ -34,6 +34,7 @@ test('banking page exposes weekly-budget settings and both override controls', (
     'merchant_logo_available',
     'data-banking-categorization',
     'data-action="run-categorization"',
+    'categorizationNeedsCategories',
     'data-categorization-suggestion-id',
     'accept-category-suggestion',
     'dismiss-category-suggestion',
@@ -53,7 +54,14 @@ test('banking page exposes weekly-budget settings and both override controls', (
     'data-weekly-notification-qr-preview',
     "navigator.serviceWorker.register('/modules/banking/push-worker.js'",
     "scope: '/modules/banking/'",
-    "loadJson('push/test'"
+    "loadJson('push/test'",
+    "loadJson('openai/settings'",
+    "loadJson('openai/models'",
+    'data-openai-api-key',
+    'data-openai-model',
+    'data-action="load-openai-models"',
+    'data-action="save-openai-settings"',
+    'api_key_configured',
   ]) assert.ok(source.includes(marker), `Missing frontend contract marker: ${marker}`);
 
   assert.doesNotMatch(source, /https?:\/\//i);
@@ -152,7 +160,12 @@ test('weekly-budget locale keys exist in German and English', () => {
     'pushTestQueued',
     'weeklyBudgetNotifications',
     'weeklyBudgetNotificationRecipient',
-    'weeklyBudgetNotificationQrPreview'
+    'weeklyBudgetNotificationQrPreview',
+    'openAiSettingsTitle',
+    'openAiApiKey',
+    'openAiModel',
+    'openAiLoadModels',
+    'openAiSaved'
   ]) {
     assert.ok(german[key], `Missing German locale key ${key}`);
     assert.ok(english[key], `Missing English locale key ${key}`);

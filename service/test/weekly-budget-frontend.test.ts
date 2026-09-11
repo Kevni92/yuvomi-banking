@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 
 function moduleFile(relativePath: string): string {
@@ -122,10 +123,38 @@ test('banking push worker is scoped to the module and never imports app-shell co
 
 test('dashboard widget reads the local current-weekly-budget endpoint', () => {
   const source = moduleFile('widgets/weekly-budget.js');
+  const manifest = JSON.parse(moduleFile('module.json')) as {
+    capabilities?: { widgets?: Array<{ id?: string; defaultVisible?: boolean }> };
+  };
+  const widget = manifest.capabilities?.widgets?.find((entry) => entry.id === 'weekly-budget');
+  assert.ok(widget, 'weekly-budget widget must remain registered');
+  assert.equal(widget.defaultVisible, true);
   assert.match(source, /\/api\/extensions\/banking\/weekly-budget\/current/);
   assert.match(source, /available_to_spend_cents/);
-  assert.match(source, /transfer_amount_cents/);
+  assert.match(source, /period\?\.next_cutoff_at/);
+  assert.match(source, /wrapper\.dataset\.route\s*=\s*['"]\/m\/banking/);
+  assert.match(source, /wrapper\.href\s*=\s*['"]\/m\/banking/);
+  assert.match(source, /banking-weekly-widget__remaining/);
+  assert.doesNotMatch(source, /transfer_amount_cents/);
   assert.doesNotMatch(source, /https?:\/\//i);
+});
+
+test('dashboard widget countdown handles exact, partial and invalid cutoffs', async () => {
+  const widget = await import(pathToFileURL(resolve(process.cwd(), '../modules/banking/widgets/weekly-budget.js')).href) as {
+    calculateRemainingWeeklyBudgetDays: (nextCutoffAt: unknown, now?: number | Date) => number | null;
+    formatRemainingWeeklyBudget: (nextCutoffAt: unknown, now?: number | Date, locale?: string) => string;
+  };
+  const now = Date.parse('2026-09-11T10:00:00.000Z');
+  const day = 24 * 60 * 60 * 1000;
+  const cutoff = (days: number) => new Date(now + days * day).toISOString();
+
+  assert.equal(widget.calculateRemainingWeeklyBudgetDays(cutoff(5.2), now), 6);
+  assert.equal(widget.formatRemainingWeeklyBudget(cutoff(1), now, 'de'), 'noch 1 Tag');
+  assert.equal(widget.formatRemainingWeeklyBudget(cutoff(0.5), now, 'de'), 'noch 1 Tag');
+  assert.equal(widget.formatRemainingWeeklyBudget(cutoff(0), now, 'de'), 'noch heute');
+  assert.equal(widget.formatRemainingWeeklyBudget(cutoff(-1), now, 'en'), 'ends today');
+  assert.equal(widget.formatRemainingWeeklyBudget(undefined, now, 'de'), 'Zeitraum nicht verfügbar');
+  assert.equal(widget.formatRemainingWeeklyBudget('not-a-date', now, 'en'), 'Period unavailable.');
 });
 
 test('weekly-budget locale keys exist in German and English', () => {

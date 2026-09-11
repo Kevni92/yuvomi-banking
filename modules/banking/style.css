@@ -934,7 +934,25 @@
 
 .banking-weekly-widget {
   display: grid;
+  align-content: start;
   gap: var(--space-2, 0.5rem);
+  box-sizing: border-box;
+  height: 100%;
+  min-width: 0;
+  padding: var(--space-4, 1rem);
+  color: var(--color-text-primary, #111827);
+  text-decoration: none;
+}
+
+.banking-weekly-widget:hover {
+  background: var(--color-surface-hover, rgba(0, 0, 0, .03));
+}
+
+.banking-weekly-widget:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--color-accent, #4f46e5);
+  outline-offset: -2px;
 }
 
 .banking-weekly-widget p,
@@ -945,7 +963,13 @@
 
 .banking-weekly-widget__amount {
   font-size: 1.65rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   line-height: 1.1;
+}
+
+.banking-weekly-widget__remaining {
+  font-size: var(--text-sm, .875rem);
 }
 
 .banking-weekly-category small,

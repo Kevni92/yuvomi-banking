@@ -46,7 +46,7 @@
         "labelKey": "widgets.weekly-budget",
         "icon": "wallet-cards",
         "defaultSize": "1x2",
-        "defaultVisible": false
+        "defaultVisible": true
       }
     ],
     "api": {

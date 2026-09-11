@@ -527,6 +527,15 @@ Damit bleibt der Versand unabhängig vom Yuvomi-Budget und benötigt keine
 Änderung am Yuvomi Core. VAPID Private Key und Subscription-Secrets bleiben im
 Sidecar beziehungsweise verschlüsselt in `banking.db`.
 
+Die persistente Grundlage verwendet `banking_push_subscriptions` mit einem
+SHA-256-Endpunktfingerprint ausschließlich zur Deduplizierung. Der Endpunkt und
+die Browser-Schlüssel liegen nur AES-GCM-verschlüsselt vor. `GET
+/push/subscriptions` gibt deshalb ausschließlich sichere Gerätemetadaten
+zurück; Anlegen und Abmelden erfordern Session, Origin-Prüfung und Banking-CSRF.
+`weekly_budget_notification_deliveries` ist die idempotente Outbox: sie
+speichert auch den Benachrichtigungsinhalt verschlüsselt, bevor ein künftiger
+Sender ihn zustellt oder erneut versucht.
+
 ### 11.2 Inhalt
 
 Für einen positiven Vorschlag:

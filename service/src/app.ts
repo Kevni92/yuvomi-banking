@@ -10,6 +10,7 @@ import { createWeeklyBudgetRouter } from './api/weekly-budget-routes.js';
 import { EnableBankingClient } from './enable-banking/client.js';
 import { createCategorizationRouter } from './api/categorization-routes.js';
 import { OpenAiCategorizer, type CategorizationClient } from './openai/categorizer.js';
+import { createPushRouter } from './api/push-routes.js';
 
 const API_PREFIX = '/api/extensions/banking';
 
@@ -96,6 +97,7 @@ export function createApp({
       categorizer: categorizationClient,
       clock
     }));
+    app.use(`${API_PREFIX}`, createPushRouter({ database, resolveSession, clock }));
   }
 
   return app;

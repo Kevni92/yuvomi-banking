@@ -119,6 +119,10 @@ Adapters dürfen das Wochenbudget nicht beeinträchtigen.
 
 ## Phase 10 - Scheduler + Notifications
 
+Status: In Arbeit. Scheduler und frische Stichtagsverarbeitung sind umgesetzt;
+die verschlüsselte Subscription-Verwaltung und die idempotente Zustell-Outbox
+sind vorhanden. Als Nächstes folgen VAPID-Versand, Worker und die Zustellung.
+
 - zwei kontrollierte Bank-Syncs täglich
 - erzwungener frischer Sync beider Konten am Stichtag
 - Consent-Warnung

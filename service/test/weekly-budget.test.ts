@@ -16,7 +16,7 @@ import {
 
 test('weekly-budget migrations add settings, overrides, history, and revisions', () => {
   const database = new DatabaseSync(':memory:');
-  assert.deepEqual(migrateDatabase(database), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+  assert.deepEqual(migrateDatabase(database), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
 
   const categoryColumns = database.prepare('PRAGMA table_info(categories)').all() as Array<{
     name: string;
@@ -52,7 +52,9 @@ test('weekly-budget migrations add settings, overrides, history, and revisions',
     'weekly_budget_period_transactions',
     'weekly_budget_job_runs',
     'scheduled_account_sync_runs',
-    'ai_categorization_reviews'
+    'ai_categorization_reviews',
+    'banking_push_subscriptions',
+    'weekly_budget_notification_deliveries'
   ];
   const tableNames = new Set((database.prepare(
     "SELECT name FROM sqlite_master WHERE type = 'table'"
@@ -128,7 +130,7 @@ test('weekly-budget migrations preserve legacy transfer suggestions', () => {
               'legacy-like', 'proposed', '2026-09-14', '2026-09-14')
   `).run();
 
-  assert.deepEqual(migrateDatabase(database), [7, 8, 9, 10, 11, 12, 13]);
+  assert.deepEqual(migrateDatabase(database), [7, 8, 9, 10, 11, 12, 13, 14]);
   const preservedSuggestion = database.prepare(`
     SELECT source_account_id, target_account_id, period_id, calculation_version
     FROM transfer_suggestions

@@ -50,21 +50,23 @@ async function loadJson(path, { signal, method = 'GET', body, headers = {} } = {
 export async function render(container, context) {
   const signal = context?.signal ?? new AbortController().signal;
   const requestedView = new URLSearchParams(window.location.search).get('view');
-  const view = requestedView === 'settings' ? 'settings' : 'main';
-  const canReturnToMain = view === 'settings';
+  const view = requestedView === 'settings' || requestedView === 'girocode-test' ? requestedView : 'main';
+  const canReturnToMain = view !== 'main';
 
   container.replaceChildren();
   container.insertAdjacentHTML(
     'beforeend',
     renderPageHeader({
-      title: renderPageTitle(localized(canReturnToMain ? 'settingsTitle' : 'title', canReturnToMain ? 'Banking settings' : 'Banking')),
+      title: renderPageTitle(view === 'girocode-test'
+        ? localized('girocodeTestTitle', 'GiroCode/notification test')
+        : localized(canReturnToMain ? 'settingsTitle' : 'title', canReturnToMain ? 'Banking settings' : 'Banking')),
       actions: renderPageActions(canReturnToMain
         ? `<a class="btn btn--secondary" href="/m/banking">${esc(localized('backToBanking', 'Back to Banking'))}</a>`
         : `<a class="btn btn--secondary" href="/m/banking?view=settings">${esc(localized('settings', 'Settings'))}</a>`)
     }) +
       renderPageBody({
         content: renderPageSection({
-          content: view === 'settings' ? renderSettingsMarkup() : renderMainMarkup()
+          content: view === 'settings' ? renderSettingsMarkup() : view === 'girocode-test' ? renderGiroCodeTestViewMarkup() : renderMainMarkup()
         })
       })
   );
@@ -85,6 +87,8 @@ export async function render(container, context) {
   if (view === 'settings') {
     configureSettingsInteractions(container, permission, signal);
     await loadSettingsView(container, signal, permission === 'write');
+  } else if (view === 'girocode-test') {
+    await loadGiroCodeTestView(container, signal);
   } else {
     configureMainInteractions(container, permission, signal);
     await loadMainView(container, signal, permission === 'write');
@@ -210,6 +214,11 @@ function renderSettingsMarkup() {
         <p class="banking-feedback" data-banking-push-feedback role="status"></p><div data-banking-push-subscriptions></div>
       </section>
 
+      <details class="banking-panel banking-girocode-test" data-girocode-test>
+        <summary>${esc(localized('girocodeTestTitle', 'GiroCode/notification test'))}</summary>
+        <div class="banking-girocode-test__body"><p class="banking-panel__description">${esc(localized('girocodeTestDescription', 'Create a GiroCode manually and send it to one registered device. No payment is initiated.'))}</p><form class="banking-girocode-test__form" data-girocode-test-form><label class="banking-field"><span>${esc(localized('girocodeTestBeneficiary', 'Recipient'))}</span><input class="form-input" maxlength="70" required data-girocode-test-beneficiary></label><label class="banking-field"><span>${esc(localized('girocodeTestIban', 'IBAN'))}</span><input class="form-input" autocomplete="off" required data-girocode-test-iban></label><label class="banking-field"><span>${esc(localized('girocodeTestBic', 'BIC (optional)'))}</span><input class="form-input" maxlength="11" autocomplete="off" data-girocode-test-bic></label><label class="banking-field"><span>${esc(localized('girocodeTestAmount', 'Amount'))}</span><input class="form-input" inputmode="decimal" placeholder="25,00" required data-girocode-test-amount></label><label class="banking-field"><span>${esc(localized('girocodeTestRemittance', 'Remittance information'))}</span><input class="form-input" maxlength="140" value="${esc(localized('girocodeTestDefaultRemittance', 'Yuvomi GiroCode Test'))}" required data-girocode-test-remittance></label><label class="banking-field"><span>${esc(localized('girocodeTestDevice', 'Target device'))}</span><select class="form-input" required data-girocode-test-subscription><option value="">${esc(localized('girocodeTestNoDevice', 'Choose a registered device'))}</option></select></label><div class="banking-girocode-test__actions"><button class="btn btn--secondary" type="submit" data-action="generate-girocode-test">${esc(localized('girocodeTestGenerate', 'Generate QR code'))}</button><button class="btn btn--primary" type="button" disabled data-action="send-girocode-test-push">${esc(localized('girocodeTestSend', 'Send test notification'))}</button></div></form><p class="banking-feedback" data-girocode-test-feedback role="status"></p><div data-girocode-test-preview></div></div>
+      </details>
+
       <section class="banking-panel banking-category-management" id="banking-categories" data-banking-category-management>
         <div class="banking-category-management__header"><div><h2>${esc(localized('categoriesTitle', 'Categories'))}</h2><p class="banking-panel__description">${esc(localized('categoriesDescription', 'Manage categories for transactions, rules and the weekly budget.'))}</p></div><button class="btn btn--primary" type="button" data-action="add-category">${esc(localized('categoryAdd', 'Add category'))}</button></div>
         <p class="banking-feedback" data-category-feedback role="status"></p><div data-banking-categories></div>
@@ -222,6 +231,10 @@ function renderSettingsMarkup() {
       </dialog>
     </div>
   `;
+}
+
+function renderGiroCodeTestViewMarkup() {
+  return `<div data-girocode-test-view aria-live="polite"><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>`;
 }
 
 function weeklyBudgetSettingsMarkup() {
@@ -523,11 +536,13 @@ function configureSettingsInteractions(container, permission, signal) {
   const pushHost = container.querySelector('[data-banking-push]');
   const enablePushButton = container.querySelector('[data-action="enable-banking-push"]');
   const testPushButton = container.querySelector('[data-action="test-banking-push"]');
+  const giroCodeTestForm = container.querySelector('[data-girocode-test-form]');
+  const giroCodeTestSend = container.querySelector('[data-action="send-girocode-test-push"]');
   const aspspsByName = new Map();
 
   if (!canWrite) {
     feedback.textContent = localized('readOnly', 'Your Banking permission is read-only.');
-    for (const control of [country, bank, loadButton, connectButton, providerEnvironment, providerApiUrl, providerApplicationId, providerApiKey, providerPrivateKey, providerSaveButton, openAiApiKey, openAiModel, openAiLoadModelsButton, openAiSaveButton, enablePushButton, testPushButton]) {
+    for (const control of [country, bank, loadButton, connectButton, providerEnvironment, providerApiUrl, providerApplicationId, providerApiKey, providerPrivateKey, providerSaveButton, openAiApiKey, openAiModel, openAiLoadModelsButton, openAiSaveButton, enablePushButton, testPushButton, ...giroCodeTestForm.querySelectorAll('input, select, button')]) {
       control.disabled = true;
     }
     categoryManagement?.querySelector('[data-action="add-category"]')?.setAttribute('disabled', '');
@@ -590,6 +605,9 @@ function configureSettingsInteractions(container, permission, signal) {
     const button = event.target.closest('button[data-banking-push-subscription-id]');
     if (button) void disableBankingPushSubscription({ container, button, signal });
   }, { signal });
+  giroCodeTestForm.addEventListener('submit', (event) => { event.preventDefault(); void previewGiroCodeTest({ container, form: giroCodeTestForm, button: giroCodeTestForm.querySelector('[data-action="generate-girocode-test"]'), signal }); }, { signal });
+  giroCodeTestForm.addEventListener('input', () => clearGiroCodeTestPreview(container), { signal });
+  giroCodeTestSend.addEventListener('click', () => { void sendGiroCodeTestPush({ container, form: giroCodeTestForm, button: giroCodeTestSend, signal }); }, { signal });
 }
 
 async function loadMainView(container, signal, canWrite) {
@@ -684,6 +702,7 @@ async function loadSettingsView(container, signal, canWrite) {
   );
   else renderOpenAiSettingsError(openAiHost, openAiResult.reason, canWrite);
   await loadBankingPushPanel(container, signal, canWrite);
+  await loadGiroCodeTestSubscriptions(container, signal, canWrite);
 }
 
 function renderEnableBankingSettings(host, settings, canWrite) {
@@ -2122,6 +2141,81 @@ function parseEuroCents(value) {
     throw new Error(localized('weeklyBudgetInvalidAmount', 'Enter a valid positive euro amount.'));
   }
   return result;
+}
+
+function giroCodeTestPayment(form) {
+  const beneficiary_name = form.querySelector('[data-girocode-test-beneficiary]').value.trim();
+  const iban = form.querySelector('[data-girocode-test-iban]').value.trim();
+  const bic = form.querySelector('[data-girocode-test-bic]').value.trim();
+  const remittance = form.querySelector('[data-girocode-test-remittance]').value.trim();
+  if (!beneficiary_name || !iban || !remittance) throw new Error(localized('girocodeTestRequired', 'Please complete all required fields.'));
+  return { beneficiary_name, iban, bic: bic || null, amount_cents: parseEuroCents(form.querySelector('[data-girocode-test-amount]').value), remittance };
+}
+
+async function loadGiroCodeTestSubscriptions(container, signal, canWrite) {
+  const select = container.querySelector('[data-girocode-test-subscription]');
+  if (!select) return;
+  try {
+    const result = await loadJson('push/subscriptions', { signal });
+    if (signal.aborted) return;
+    const subscriptions = Array.isArray(result?.data) ? result.data.filter((item) => item?.status === 'active') : [];
+    select.replaceChildren(createOption('', localized('girocodeTestNoDevice', 'Choose a registered device')));
+    for (const subscription of subscriptions) if (/^\d+$/.test(String(subscription?.id ?? ''))) select.append(createOption(String(subscription.id), subscription.device_name || localized('girocodeTestDeviceFallback', 'Device #{id}', { id: subscription.id })));
+    select.disabled = !canWrite || subscriptions.length === 0;
+  } catch { select.disabled = true; }
+}
+
+function clearGiroCodeTestPreview(container) {
+  const preview = container.querySelector('[data-girocode-test-preview]');
+  const send = container.querySelector('[data-action="send-girocode-test-push"]');
+  if (preview?.dataset.ready === 'true') preview.replaceChildren();
+  if (preview) delete preview.dataset.ready;
+  if (send) send.disabled = true;
+}
+
+async function previewGiroCodeTest({ container, form, button, signal }) {
+  const feedback = container.querySelector('[data-girocode-test-feedback]');
+  const preview = container.querySelector('[data-girocode-test-preview]');
+  button.disabled = true;
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    const result = await loadJson('tools/girocode/preview', { method: 'POST', headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' }, body: giroCodeTestPayment(form), signal });
+    if (signal.aborted) return;
+    const data = result?.data;
+    if (!data?.png_data_url) throw new Error(localized('girocodeTestPreviewFailed', 'GiroCode preview could not be generated.'));
+    preview.dataset.ready = 'true';
+    preview.replaceChildren();
+    preview.insertAdjacentHTML('beforeend', `<div class="banking-girocode"><div><h3>${esc(formatCents(data.amount_cents, data.currency))}</h3><dl><div><dt>${esc(localized('girocodeTestBeneficiary', 'Recipient'))}</dt><dd>${esc(data.beneficiary_name)}</dd></div><div><dt>${esc(localized('girocodeTestIban', 'IBAN'))}</dt><dd>${esc(data.iban_masked)}</dd></div><div><dt>${esc(localized('girocodeTestRemittance', 'Remittance information'))}</dt><dd>${esc(data.remittance)}</dd></div></dl><div class="banking-girocode__actions"><a class="btn btn--secondary" href="${esc(data.png_data_url)}" target="_blank" rel="noopener">${esc(localized('girocodeTestOpenPng', 'Open PNG'))}</a></div></div><img src="${esc(data.png_data_url)}" alt="${esc(localized('girocodeTestQrAlt', 'GiroCode QR code'))}"></div>`);
+    container.querySelector('[data-action="send-girocode-test-push"]').disabled = false;
+    feedback.textContent = '';
+  } catch (error) { if (!signal.aborted) feedback.textContent = error instanceof Error ? error.message : localized('girocodeTestPreviewFailed', 'GiroCode preview could not be generated.'); }
+  finally { if (!signal.aborted) button.disabled = false; }
+}
+
+async function sendGiroCodeTestPush({ container, form, button, signal }) {
+  const feedback = container.querySelector('[data-girocode-test-feedback]');
+  button.disabled = true;
+  try {
+    const subscription_id = Number(form.querySelector('[data-girocode-test-subscription]').value);
+    if (!Number.isSafeInteger(subscription_id) || subscription_id < 1) throw new Error(localized('girocodeTestNoDevice', 'Choose a registered device'));
+    const csrf = await loadJson('csrf', { signal });
+    const result = await loadJson('tools/girocode/notify', { method: 'POST', headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' }, body: { ...giroCodeTestPayment(form), subscription_id }, signal });
+    feedback.textContent = result?.data?.queued ? localized('girocodeTestQueued', 'Test notification was queued for the selected device.') : localized('girocodeTestSendFailed', 'Test notification could not be queued.');
+  } catch (error) { if (!signal.aborted) feedback.textContent = error instanceof Error ? error.message : localized('girocodeTestSendFailed', 'Test notification could not be queued.'); }
+  finally { if (!signal.aborted) button.disabled = false; }
+}
+
+async function loadGiroCodeTestView(container, signal) {
+  const host = container.querySelector('[data-girocode-test-view]');
+  const token = new URLSearchParams(window.location.search).get('token');
+  if (!token) { host.textContent = localized('girocodeTestExpired', 'This GiroCode test is unavailable or has expired.'); return; }
+  try {
+    const result = await loadJson(`tools/girocode/view/${encodeURIComponent(token)}`, { signal });
+    if (signal.aborted) return;
+    const data = result?.data;
+    host.replaceChildren();
+    host.insertAdjacentHTML('beforeend', `<div class="banking-girocode banking-girocode--test"><div><h2>${esc(formatCents(data.amount_cents, data.currency))}</h2><p>${esc(data.beneficiary_name)}</p><p>${esc(data.iban_masked)}</p><p>${esc(data.remittance)}</p></div><img src="${esc(data.png_data_url)}" alt="${esc(localized('girocodeTestQrAlt', 'GiroCode QR code'))}"></div>`);
+  } catch (error) { renderError(host, error); }
 }
 
 function centsToInput(value) {

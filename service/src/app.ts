@@ -14,6 +14,7 @@ import { createCategorizationRouter } from './api/categorization-routes.js';
 import { createOpenAiSettingsRouter } from './api/openai-settings-routes.js';
 import { OpenAiCategorizer, type CategorizationClient } from './openai/categorizer.js';
 import { createPushRouter } from './api/push-routes.js';
+import { createGiroCodeTestRouter } from './api/girocode-test-routes.js';
 import { createTransactionRouter } from './api/transaction-routes.js';
 import type { EncryptionService } from './security/encryption.js';
 
@@ -113,6 +114,7 @@ export function createApp({
       database, resolveSession, encryption, client: resolvedEnableBankingClient
     }));
     app.use(`${API_PREFIX}`, createPushRouter({ database, resolveSession, clock }));
+    app.use(`${API_PREFIX}`, createGiroCodeTestRouter({ database, resolveSession, clock }));
   }
 
   return app;

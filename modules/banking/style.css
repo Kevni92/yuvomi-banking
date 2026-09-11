@@ -591,6 +591,12 @@
   margin-top: var(--space-3, 0.75rem);
 }
 
+.banking-girocode-test { padding: 0; }
+.banking-girocode-test > summary { cursor: pointer; padding: var(--space-4, 1rem); font-weight: 700; list-style-position: inside; }
+.banking-girocode-test__body { padding: 0 var(--space-4, 1rem) var(--space-4, 1rem); }
+.banking-girocode-test__form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3, .75rem); margin-top: var(--space-4, 1rem); }
+.banking-girocode-test__actions { display: flex; flex-wrap: wrap; gap: var(--space-2, .5rem); grid-column: 1 / -1; }
+
 .banking-weekly-categories {
   margin-top: var(--space-4, 1rem);
   padding-top: var(--space-4, 1rem);
@@ -1120,6 +1126,10 @@
   .banking-openai-settings__form,
   .banking-weekly-category-list,
   .banking-girocode {
+    grid-template-columns: 1fr;
+  }
+
+  .banking-girocode-test__form {
     grid-template-columns: 1fr;
   }
 

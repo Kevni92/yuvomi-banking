@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import express from 'express';
 import {
@@ -8,6 +9,8 @@ import {
   PushSubscriptionValidationError,
   upsertPushSubscription
 } from '../services/push-subscriptions.js';
+import { enqueuePushDelivery } from '../services/push-outbox.js';
+import { configuredVapidDetails } from '../services/push-delivery-worker.js';
 import {
   mutationIsAllowed,
   noStore,
@@ -25,6 +28,24 @@ export function createPushRouter({
   clock?: () => Date;
 }): express.Router {
   const router = express.Router();
+
+  router.get('/push/vapid-public-key', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'read');
+    if (!user) return;
+    try {
+      const vapid = configuredVapidDetails();
+      if (!vapid) {
+        noStore(response);
+        response.status(503).json({ error: 'Banking push is not configured.' });
+        return;
+      }
+      noStore(response);
+      response.json({ data: { public_key: vapid.publicKey } });
+    } catch {
+      noStore(response);
+      response.status(503).json({ error: 'Banking push is not configured.' });
+    }
+  });
 
   router.get('/push/subscriptions', async (request, response) => {
     const user = await resolveAuthorizedUser(request, response, resolveSession, 'read');
@@ -81,6 +102,42 @@ export function createPushRouter({
       response.status(error instanceof PushSubscriptionNotFoundError ? 404 : 500).json({
         error: error instanceof Error ? error.message : 'Push subscription could not be removed.'
       });
+    }
+  });
+
+  router.post('/push/test', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'write');
+    if (!user || !mutationIsAllowed(request, response)) return;
+    try {
+      if (!configuredVapidDetails()) {
+        noStore(response);
+        response.status(503).json({ error: 'Banking push is not configured.' });
+        return;
+      }
+      const now = clock();
+      let queued = 0;
+      for (const subscription of listPushSubscriptions(database, user.id)) {
+        if (subscription.status !== 'active') continue;
+        const result = enqueuePushDelivery(database, {
+          subscriptionId: subscription.id,
+          recipientYuvomiUserId: user.id,
+          idempotencyKey: `push-test:${user.id}:${subscription.id}:${crypto.randomUUID()}`,
+          notificationType: 'test',
+          payload: {
+            title: 'Banking-Benachrichtigung aktiv',
+            body: 'Testnachricht des Wochenbudget-Moduls.',
+            url: '/m/banking?view=weekly-budget',
+            tag: `banking-push-test-${subscription.id}`
+          },
+          now
+        });
+        if (result.created) queued += 1;
+      }
+      noStore(response);
+      response.json({ data: { queued } });
+    } catch {
+      noStore(response);
+      response.status(503).json({ error: 'Banking push is not configured.' });
     }
   });
 

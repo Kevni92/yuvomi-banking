@@ -542,6 +542,14 @@ Datenbanktransaktion wie der Vorschlag. Ihr Schlüssel umfasst Konfiguration,
 Periodenschlüssel, Revision und Subscription. So führt ein Scheduler-Replay
 weder zu einem zweiten Vorschlag noch zu einer doppelten Zustellung.
 
+Der Versandworker least jeweils eine fällige Outbox-Zeile für höchstens 90
+Sekunden. Temporäre Providerfehler werden mit Backoff erneut versucht;
+`404`/`410` deaktivieren nur die betreffende Subscription und schreiben den
+Delivery-Status `no_subscription`. VAPID wird nur aktiviert, wenn
+`BANKING_VAPID_SUBJECT`, `BANKING_VAPID_PUBLIC_KEY` und
+`BANKING_VAPID_PRIVATE_KEY` gesetzt sind. Nur der öffentliche Schlüssel ist
+nach authentifizierter Abfrage über `/push/vapid-public-key` verfügbar.
+
 ### 11.2 Inhalt
 
 Für einen positiven Vorschlag:

@@ -18,6 +18,11 @@ export const config = {
   publicOrigin: optional('PUBLIC_ORIGIN', 'http://localhost:8080'),
   dbPath: path.resolve(optional('BANKING_DB_PATH', '../data/banking.db')),
   merchantLogoCacheDir: path.resolve(optional('MERCHANT_LOGO_CACHE_DIR', '../data/merchant-logos')),
+  vapid: {
+    subject: optional('BANKING_VAPID_SUBJECT'),
+    publicKey: optional('BANKING_VAPID_PUBLIC_KEY'),
+    privateKey: optional('BANKING_VAPID_PRIVATE_KEY')
+  },
 
   enableBanking: {
     environment: optional('ENABLE_BANKING_ENV', 'sandbox'),

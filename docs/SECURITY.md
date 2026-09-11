@@ -19,6 +19,7 @@ Produktiv als read-only Secret in den Sidecar mounten.
 - `OPENAI_API_KEY`
 - `BANKING_VAPID_PRIVATE_KEY`
 - `BANKING_VAPID_PUBLIC_KEY`
+- `BANKING_VAPID_SUBJECT`
 
 Nicht in:
 

@@ -121,8 +121,9 @@ Adapters dürfen das Wochenbudget nicht beeinträchtigen.
 
 Status: In Arbeit. Scheduler und frische Stichtagsverarbeitung sind umgesetzt;
 die verschlüsselte Subscription-Verwaltung, die idempotente Zustell-Outbox und
-die atomare Einreihung neuer Vorschläge sind vorhanden. Als Nächstes folgen
-VAPID-Versand, Worker und die Zustellung.
+die atomare Einreihung neuer Vorschläge sind vorhanden. VAPID-Versand,
+Outbox-Leasing und Retry sind umgesetzt. Als Nächstes folgen der Browser-Worker
+und die Banking-Oberfläche zur expliziten Subscription-Verwaltung.
 
 - zwei kontrollierte Bank-Syncs täglich
 - erzwungener frischer Sync beider Konten am Stichtag

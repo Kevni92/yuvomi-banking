@@ -83,7 +83,12 @@ export async function render(container, context) {
   }
 
   configureConnectionForm(container, permission, signal);
-  if (session) await loadOverview(container, signal, permission === 'write');
+  if (session) {
+    await Promise.all([
+      loadOverview(container, signal, permission === 'write'),
+      loadBankingPushPanel(container, signal, permission === 'write')
+    ]);
+  }
 }
 
 function renderOverviewMarkup() {
@@ -168,6 +173,25 @@ function renderOverviewMarkup() {
       <div data-weekly-budget-current aria-live="polite">
         <p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p>
       </div>
+
+      <section class="banking-push" data-banking-push aria-live="polite">
+        <div class="banking-panel__header">
+          <div>
+            <h3>${esc(localized('pushTitle', 'Banking notifications'))}</h3>
+            <p class="banking-panel__description">${esc(localized('pushDescription', 'Enable notifications explicitly on this device.'))}</p>
+          </div>
+          <div class="banking-weekly-settings__actions">
+            <button class="btn btn--secondary" type="button" data-action="enable-banking-push">
+              ${esc(localized('pushEnable', 'Enable on this device'))}
+            </button>
+            <button class="btn btn--secondary" type="button" data-action="test-banking-push">
+              ${esc(localized('pushTest', 'Send test'))}
+            </button>
+          </div>
+        </div>
+        <p class="banking-feedback" data-banking-push-feedback role="status"></p>
+        <div data-banking-push-subscriptions></div>
+      </section>
 
       <form class="banking-weekly-settings" data-weekly-budget-settings>
         <label class="banking-field banking-field--checkbox">
@@ -290,6 +314,9 @@ function configureConnectionForm(container, permission, signal) {
   const runCategorizationButton = container.querySelector('[data-action="run-categorization"]');
   const weeklyHistory = container.querySelector('[data-weekly-budget-history]');
   const reloadWeeklyBudget = container.querySelector('[data-action="reload-weekly-budget"]');
+  const pushHost = container.querySelector('[data-banking-push]');
+  const enablePushButton = container.querySelector('[data-action="enable-banking-push"]');
+  const testPushButton = container.querySelector('[data-action="test-banking-push"]');
   const aspspsByName = new Map();
 
   if (permission !== 'write') {
@@ -297,7 +324,10 @@ function configureConnectionForm(container, permission, signal) {
       ? localized('readOnly', 'Your Banking permission is read-only.')
       : localized('noPermission', 'No permission');
     feedback.textContent = message;
-    for (const control of [country, bank, loadButton, connectButton, runCategorizationButton]) control.disabled = true;
+    for (const control of [
+      country, bank, loadButton, connectButton, runCategorizationButton,
+      enablePushButton, testPushButton
+    ]) control.disabled = true;
   }
 
   loadButton.addEventListener('click', () => {
@@ -385,6 +415,166 @@ function configureConnectionForm(container, permission, signal) {
   reloadWeeklyBudget.addEventListener('click', () => {
     void refreshWeeklyBudget(container, signal, permission === 'write');
   }, { signal });
+
+  enablePushButton.addEventListener('click', () => {
+    void enableBankingPush({ container, button: enablePushButton, signal });
+  }, { signal });
+  testPushButton.addEventListener('click', () => {
+    void enqueueBankingPushTest({ container, button: testPushButton, signal });
+  }, { signal });
+  pushHost.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-banking-push-subscription-id]');
+    if (!button) return;
+    void disableBankingPushSubscription({ container, button, signal });
+  }, { signal });
+}
+
+async function loadBankingPushPanel(container, signal, canWrite) {
+  const feedback = container.querySelector('[data-banking-push-feedback]');
+  const subscriptionsHost = container.querySelector('[data-banking-push-subscriptions]');
+  const enableButton = container.querySelector('[data-action="enable-banking-push"]');
+  const testButton = container.querySelector('[data-action="test-banking-push"]');
+  const [vapidResult, subscriptionsResult] = await Promise.allSettled([
+    loadJson('push/vapid-public-key', { signal }),
+    loadJson('push/subscriptions', { signal })
+  ]);
+  if (signal.aborted) return;
+  const configured = vapidResult.status === 'fulfilled'
+    && typeof vapidResult.value?.data?.public_key === 'string';
+  const supported = supportsBankingPush();
+  enableButton.disabled = !canWrite || !configured || !supported;
+  testButton.disabled = !canWrite || !configured;
+  if (!canWrite) {
+    feedback.textContent = localized('readOnly', 'Your Banking permission is read-only.');
+  } else if (!supported) {
+    feedback.textContent = localized('pushUnsupported', 'This browser does not support Banking notifications.');
+  } else if (!configured) {
+    feedback.textContent = localized('pushUnavailable', 'Banking notifications are not configured on this server.');
+  } else if (Notification.permission === 'denied') {
+    feedback.textContent = localized('pushDenied', 'Notifications are blocked in this browser.');
+  } else {
+    feedback.textContent = Notification.permission === 'granted'
+      ? localized('pushReady', 'Notifications are enabled for this browser.')
+      : localized('pushReadyToEnable', 'Enable notifications only if you want Banking alerts on this device.');
+  }
+  const subscriptions = subscriptionsResult.status === 'fulfilled'
+    && Array.isArray(subscriptionsResult.value?.data)
+    ? subscriptionsResult.value.data
+    : [];
+  renderBankingPushSubscriptions(subscriptionsHost, subscriptions, canWrite);
+}
+
+function renderBankingPushSubscriptions(host, subscriptions, canWrite) {
+  host.replaceChildren();
+  if (!subscriptions.length) {
+    host.insertAdjacentHTML('beforeend', `<p class="banking-muted">${esc(localized('pushNoDevices', 'No Banking device is registered.'))}</p>`);
+    return;
+  }
+  const rows = subscriptions.map((subscription) => `
+    <li>
+      <span>${esc(subscription?.device_name || localized('pushUnnamedDevice', 'This device'))}</span>
+      <small>${esc(subscription?.status === 'active'
+        ? localized('pushActive', 'Active')
+        : localized('pushDisabled', 'Disabled'))}</small>
+      ${canWrite && subscription?.status === 'active' && /^\d+$/.test(String(subscription?.id ?? ''))
+        ? `<button class="btn btn--secondary" type="button" data-banking-push-subscription-id="${esc(String(subscription.id))}">${esc(localized('pushRemove', 'Remove'))}</button>`
+        : ''}
+    </li>
+  `).join('');
+  host.insertAdjacentHTML('beforeend', `<ul class="banking-list">${rows}</ul>`);
+}
+
+async function enableBankingPush({ container, button, signal }) {
+  const feedback = container.querySelector('[data-banking-push-feedback]');
+  button.disabled = true;
+  feedback.textContent = localized('pushEnabling', 'Enabling Banking notifications ...');
+  try {
+    if (!supportsBankingPush()) {
+      throw new Error(localized('pushUnsupported', 'This browser does not support Banking notifications.'));
+    }
+    const vapid = await loadJson('push/vapid-public-key', { signal });
+    const publicKey = vapid?.data?.public_key;
+    if (typeof publicKey !== 'string' || !publicKey) {
+      throw new Error(localized('pushUnavailable', 'Banking notifications are not configured on this server.'));
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') throw new Error(localized('pushDenied', 'Notifications are blocked in this browser.'));
+    const registration = await navigator.serviceWorker.register('/modules/banking/push-worker.js', {
+      scope: '/modules/banking/'
+    });
+    const existing = await registration.pushManager.getSubscription();
+    const subscription = existing ?? await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey)
+    });
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson('push/subscriptions', {
+      method: 'POST',
+      headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body: { subscription: subscription.toJSON(), device_name: localized('pushThisDevice', 'This device') },
+      signal
+    });
+    feedback.textContent = localized('pushEnabled', 'Banking notifications are enabled on this device.');
+    await loadBankingPushPanel(container, signal, true);
+  } catch (error) {
+    if (!signal.aborted) feedback.textContent = error instanceof Error
+      ? error.message
+      : localized('pushEnableFailed', 'Banking notifications could not be enabled.');
+  } finally {
+    if (!signal.aborted) button.disabled = false;
+  }
+}
+
+async function disableBankingPushSubscription({ container, button, signal }) {
+  const id = button.dataset.bankingPushSubscriptionId;
+  if (!/^\d+$/.test(id)) return;
+  const feedback = container.querySelector('[data-banking-push-feedback]');
+  button.disabled = true;
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson(`push/subscriptions/${encodeURIComponent(id)}`, {
+      method: 'DELETE', headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' }, signal
+    });
+    feedback.textContent = localized('pushRemoved', 'Banking device removed.');
+    await loadBankingPushPanel(container, signal, true);
+  } catch (error) {
+    if (!signal.aborted) feedback.textContent = error instanceof Error
+      ? error.message
+      : localized('pushRemoveFailed', 'Banking device could not be removed.');
+  } finally {
+    if (!signal.aborted) button.disabled = false;
+  }
+}
+
+async function enqueueBankingPushTest({ container, button, signal }) {
+  const feedback = container.querySelector('[data-banking-push-feedback]');
+  button.disabled = true;
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    const result = await loadJson('push/test', {
+      method: 'POST', headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' }, body: {}, signal
+    });
+    feedback.textContent = Number(result?.data?.queued) > 0
+      ? localized('pushTestQueued', 'Test notification queued.')
+      : localized('pushNoDevices', 'No Banking device is registered.');
+  } catch (error) {
+    if (!signal.aborted) feedback.textContent = error instanceof Error
+      ? error.message
+      : localized('pushTestFailed', 'Test notification could not be queued.');
+  } finally {
+    if (!signal.aborted) button.disabled = false;
+  }
+}
+
+function supportsBankingPush() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+function urlBase64ToUint8Array(value) {
+  const padded = `${value}${'='.repeat((4 - value.length % 4) % 4)}`
+    .replace(/-/g, '+').replace(/_/g, '/');
+  const raw = window.atob(padded);
+  return Uint8Array.from(raw, (character) => character.charCodeAt(0));
 }
 
 async function loadBanks({ country, bank, connectButton, loadButton, feedback, aspspsByName, signal }) {

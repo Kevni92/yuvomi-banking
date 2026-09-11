@@ -39,11 +39,25 @@ test('banking page exposes weekly-budget settings and both override controls', (
     'target_amount_cents: targetAmountCents',
     'target_beneficiary_name:',
     'girocode.png',
-    "cutoff_time: form.querySelector('[data-weekly-time]').value"
+    "cutoff_time: form.querySelector('[data-weekly-time]').value",
+    "loadJson('push/vapid-public-key'",
+    "loadJson('push/subscriptions'",
+    "navigator.serviceWorker.register('/modules/banking/push-worker.js'",
+    "scope: '/modules/banking/'",
+    "loadJson('push/test'"
   ]) assert.ok(source.includes(marker), `Missing frontend contract marker: ${marker}`);
 
   assert.doesNotMatch(source, /https?:\/\//i);
   assert.doesNotMatch(source, /\.innerHTML\s*=/);
+});
+
+test('banking push worker is scoped to the module and never imports app-shell code', () => {
+  const worker = moduleFile('push-worker.js');
+  assert.match(worker, /self\.addEventListener\('push'/);
+  assert.match(worker, /self\.addEventListener\('notificationclick'/);
+  assert.match(worker, /showNotification/);
+  assert.match(worker, /clients\.openWindow/);
+  assert.doesNotMatch(worker, /importScripts|https?:\/\//i);
 });
 
 test('dashboard widget reads the local current-weekly-budget endpoint', () => {
@@ -85,7 +99,10 @@ test('weekly-budget locale keys exist in German and English', () => {
     'categorizationSuggestionsTitle',
     'categorizationAcceptSuggestion',
     'loadMerchantLogos',
-    'merchantLogosLoaded'
+    'merchantLogosLoaded',
+    'pushTitle',
+    'pushEnable',
+    'pushTestQueued'
   ]) {
     assert.ok(german[key], `Missing German locale key ${key}`);
     assert.ok(english[key], `Missing English locale key ${key}`);

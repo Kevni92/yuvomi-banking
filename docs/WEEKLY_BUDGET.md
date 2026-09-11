@@ -550,6 +550,12 @@ Delivery-Status `no_subscription`. VAPID wird nur aktiviert, wenn
 `BANKING_VAPID_PRIVATE_KEY` gesetzt sind. Nur der öffentliche Schlüssel ist
 nach authentifizierter Abfrage über `/push/vapid-public-key` verfügbar.
 
+Das Banking-Frontend registriert den isolierten Worker
+`/modules/banking/push-worker.js` nur nach explizitem Klick. Sein Scope ist
+`/modules/banking/`; der vorhandene Yuvomi-App-Shell-Worker bleibt unverändert.
+Der Worker zeigt ausschließlich den serverseitig verschlüsselten Payload an und
+öffnet bei Klick die relative Banking-Detail-URL.
+
 ### 11.2 Inhalt
 
 Für einen positiven Vorschlag:

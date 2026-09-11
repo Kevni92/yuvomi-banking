@@ -134,19 +134,41 @@ test('dashboard widget reads the local current-weekly-budget endpoint', () => {
   assert.match(source, /period\?\.next_cutoff_at/);
   assert.match(source, /wrapper\.dataset\.route\s*=\s*['"]\/m\/banking/);
   assert.match(source, /wrapper\.href\s*=\s*['"]\/m\/banking/);
+  assert.match(source, /banking-weekly-widget__title/);
+  assert.match(source, /banking-weekly-widget__content/);
+  assert.match(source, /banking-weekly-widget__progress/);
+  assert.match(source, /banking-weekly-widget__progress-fill/);
   assert.match(source, /banking-weekly-widget__remaining/);
+  assert.match(source, /progress\.setAttribute\('role', 'progressbar'\)/);
+  assert.match(source, /progress\.setAttribute\('aria-valuenow', String\(percentage\)\)/);
   assert.doesNotMatch(source, /transfer_amount_cents/);
   assert.doesNotMatch(source, /https?:\/\//i);
+  const style = bankingStyle();
+  assert.match(style, /\.banking-weekly-widget\s*\{[^}]*grid-template-rows:\s*auto minmax\(0,\s*1fr\)/s);
+  assert.match(style, /\.banking-weekly-widget__content\s*\{[^}]*align-content:\s*center;[^}]*justify-items:\s*center/s);
+  assert.match(style, /\.banking-weekly-widget__amount\s*\{[^}]*font-size:\s*clamp\(/s);
+  assert.match(style, /\.banking-weekly-widget__progress-fill\s*\{[^}]*background:\s*var\(--color-accent/s);
 });
 
 test('dashboard widget countdown handles exact, partial and invalid cutoffs', async () => {
   const widget = await import(pathToFileURL(resolve(process.cwd(), '../modules/banking/widgets/weekly-budget.js')).href) as {
+    calculateRemainingWeeklyBudgetProgress: (nextCutoffAt: unknown, now?: number | Date) => number | null;
     calculateRemainingWeeklyBudgetDays: (nextCutoffAt: unknown, now?: number | Date) => number | null;
     formatRemainingWeeklyBudget: (nextCutoffAt: unknown, now?: number | Date, locale?: string) => string;
   };
   const now = Date.parse('2026-09-11T10:00:00.000Z');
   const day = 24 * 60 * 60 * 1000;
   const cutoff = (days: number) => new Date(now + days * day).toISOString();
+
+  assert.equal(widget.calculateRemainingWeeklyBudgetProgress(cutoff(7), now), 1);
+  assert.ok(Math.abs(widget.calculateRemainingWeeklyBudgetProgress(cutoff(6), now)! - (6 / 7)) < 1e-10);
+  assert.equal(widget.calculateRemainingWeeklyBudgetProgress(cutoff(3.5), now), 0.5);
+  assert.ok(Math.abs(widget.calculateRemainingWeeklyBudgetProgress(cutoff(1), now)! - (1 / 7)) < 1e-10);
+  assert.equal(widget.calculateRemainingWeeklyBudgetProgress(cutoff(0), now), 0);
+  assert.equal(widget.calculateRemainingWeeklyBudgetProgress(cutoff(-1), now), 0);
+  assert.equal(widget.calculateRemainingWeeklyBudgetProgress(cutoff(8), now), 1);
+  assert.equal(widget.calculateRemainingWeeklyBudgetProgress(undefined, now), null);
+  assert.equal(widget.calculateRemainingWeeklyBudgetProgress('not-a-date', now), null);
 
   assert.equal(widget.calculateRemainingWeeklyBudgetDays(cutoff(5.2), now), 6);
   assert.equal(widget.formatRemainingWeeklyBudget(cutoff(1), now, 'de'), 'noch 1 Tag');

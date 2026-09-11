@@ -934,8 +934,7 @@
 
 .banking-weekly-widget {
   display: grid;
-  align-content: start;
-  gap: var(--space-2, 0.5rem);
+  grid-template-rows: auto minmax(0, 1fr);
   box-sizing: border-box;
   height: 100%;
   min-width: 0;
@@ -955,21 +954,68 @@
   outline-offset: -2px;
 }
 
+.banking-weekly-widget__title {
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.banking-weekly-widget__content {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: var(--space-3, .75rem);
+  min-width: 0;
+  min-height: 0;
+  text-align: center;
+}
+
+.banking-weekly-widget__amount {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: clamp(2.25rem, 2rem + 1.5vw, 3.25rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  text-align: center;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.banking-weekly-widget__progress {
+  width: min(100%, 18rem);
+  height: .6rem;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle, rgba(0, 0, 0, .08));
+  border-radius: 999px;
+  background: var(--color-surface-3, rgba(0, 0, 0, .06));
+}
+
+.banking-weekly-widget__progress-fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent, #4f46e5);
+  transition: width 180ms ease-out;
+}
+
+.banking-weekly-widget__remaining {
+  margin: 0;
+  color: var(--color-text-secondary, #6b7280);
+  font-size: var(--text-sm, .875rem);
+  text-align: center;
+}
+
 .banking-weekly-widget p,
 .banking-weekly-widget small {
   margin: 0;
   color: var(--color-text-secondary, #6b7280);
 }
 
-.banking-weekly-widget__amount {
-  font-size: 1.65rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-}
-
-.banking-weekly-widget__remaining {
-  font-size: var(--text-sm, .875rem);
+@media (prefers-reduced-motion: reduce) {
+  .banking-weekly-widget__progress-fill {
+    transition: none;
+  }
 }
 
 .banking-weekly-category small,

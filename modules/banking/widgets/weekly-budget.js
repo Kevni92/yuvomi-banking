@@ -1,4 +1,5 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
 
 export async function renderWidget(container) {
   container.replaceChildren();
@@ -11,13 +12,37 @@ export async function renderWidget(container) {
   wrapper.setAttribute('aria-busy', 'true');
 
   const title = document.createElement('strong');
+  title.className = 'banking-weekly-widget__title';
   title.textContent = message('Wochenbudget', 'Weekly budget');
 
   const text = document.createElement('p');
   text.className = 'banking-weekly-widget__remaining';
   text.textContent = message('Wird geladen …', 'Loading ...');
 
-  wrapper.append(title, text);
+  const amount = document.createElement('strong');
+  amount.className = 'banking-weekly-widget__amount';
+  amount.hidden = true;
+
+  const progress = document.createElement('div');
+  progress.className = 'banking-weekly-widget__progress';
+  progress.hidden = true;
+  progress.setAttribute('role', 'progressbar');
+  progress.setAttribute('aria-label', message(
+    'Verbleibende Zeit dieser Budgetwoche',
+    'Remaining time in this budget week'
+  ));
+  progress.setAttribute('aria-valuemin', '0');
+  progress.setAttribute('aria-valuemax', '100');
+
+  const progressFill = document.createElement('span');
+  progressFill.className = 'banking-weekly-widget__progress-fill';
+  progressFill.style.width = '0%';
+  progress.append(progressFill);
+
+  const content = document.createElement('div');
+  content.className = 'banking-weekly-widget__content';
+  content.append(amount, progress, text);
+  wrapper.append(title, content);
   container.append(wrapper);
 
   try {
@@ -37,21 +62,42 @@ export async function renderWidget(container) {
       return;
     }
 
-    const amount = document.createElement('strong');
-    amount.className = 'banking-weekly-widget__amount';
+    amount.hidden = false;
     amount.textContent = formatCents(current?.available_to_spend_cents);
+    const progressValue = calculateRemainingWeeklyBudgetProgress(
+      current?.period?.next_cutoff_at,
+      Date.now()
+    );
+    if (progressValue === null) {
+      progress.hidden = true;
+      progress.removeAttribute('aria-valuenow');
+    } else {
+      const percentage = Math.round(progressValue * 100);
+      progress.hidden = false;
+      progress.setAttribute('aria-valuenow', String(percentage));
+      progressFill.style.width = `${percentage}%`;
+    }
     text.textContent = formatRemainingWeeklyBudget(
       current?.period?.next_cutoff_at,
       Date.now(),
       document.documentElement.lang
     );
-    text.replaceWith(amount);
-    wrapper.append(text);
   } catch {
     text.textContent = message('Wochenbudget nicht verfügbar.', 'Weekly budget unavailable.');
   } finally {
     wrapper.removeAttribute('aria-busy');
   }
+}
+
+export function calculateRemainingWeeklyBudgetProgress(nextCutoffAt, now = Date.now()) {
+  const cutoffMs = nextCutoffAt instanceof Date
+    ? nextCutoffAt.getTime()
+    : typeof nextCutoffAt === 'string'
+      ? Date.parse(nextCutoffAt)
+      : Number.NaN;
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
+  if (!Number.isFinite(cutoffMs) || !Number.isFinite(nowMs)) return null;
+  return Math.min(1, Math.max(0, (cutoffMs - nowMs) / WEEK_MS));
 }
 
 export function calculateRemainingWeeklyBudgetDays(nextCutoffAt, now = Date.now()) {

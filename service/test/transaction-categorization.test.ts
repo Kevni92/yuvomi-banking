@@ -5,6 +5,7 @@ import type { CategorizationClient } from '../src/openai/categorizer.js';
 import { redactCategorizationText } from '../src/openai/categorizer.js';
 import { migrateDatabase } from '../src/db/database.js';
 import { categorizeUnresolvedTransactions } from '../src/services/transaction-categorization.js';
+import { acceptCategorySuggestion } from '../src/services/category-suggestions.js';
 
 const NOW = new Date('2026-09-19T09:00:00.000Z');
 const RAW_IBAN = 'DE89370400440532013000';
@@ -133,4 +134,33 @@ test('categorizes only the allowlist and leaves low-confidence results for revie
   } finally {
     database.close();
   }
+});
+
+test('bootstraps category suggestions with an empty allowlist', async () => {
+  const database = fixture();
+  database.exec('DELETE FROM categories;');
+  let receivedCategories: unknown;
+  const categorizer: CategorizationClient = {
+    categorize: async ({ categories, transactions }) => {
+      receivedCategories = categories;
+      return transactions.map((transaction) => ({
+        transaction_id: transaction.transaction_id,
+        category_id: null,
+        confidence: 0.6,
+        reason: 'Grocery purchase',
+        suggested_category: { name: 'Lebensmittel', type: 'expense' as const }
+      }));
+    }
+  };
+  try {
+    const result = await categorizeUnresolvedTransactions(database, 7, categorizer, NOW);
+    assert.equal(result.submitted, 3);
+    assert.deepEqual(receivedCategories, []);
+    assert.equal(database.prepare('SELECT count(*) AS count FROM category_suggestions').get()?.count, 1);
+    acceptCategorySuggestion(database, { yuvomiUserId: 7, suggestionId: 1, now: NOW });
+    database.prepare(`INSERT INTO transactions (account_id, provider_transaction_id, amount_cents, currency, direction, status, created_at, updated_at) VALUES (1, 'bootstrap-next', 500, 'EUR', 'outgoing', 'BOOK', ?, ?)`)
+      .run(NOW.toISOString(), NOW.toISOString());
+    await categorizeUnresolvedTransactions(database, 7, categorizer, NOW);
+    assert.deepEqual((receivedCategories as Array<{ name: string; type: string }>).map(({ name, type }) => ({ name, type })), [{ name: 'Lebensmittel', type: 'expense' }]);
+  } finally { database.close(); }
 });

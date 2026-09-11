@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-
-type CategoryType = 'expense' | 'income' | 'transfer';
+import { isCategoryType, normalizeCategoryName, type CategoryType } from './categories.js';
 
 export class CategorySuggestionNotFoundError extends Error {}
 export class CategorySuggestionValidationError extends Error {}
@@ -131,16 +130,6 @@ function assertInput(yuvomiUserId: number, suggestionId: number, now: Date): voi
   ) {
     throw new CategorySuggestionValidationError('Category suggestion input is invalid.');
   }
-}
-
-function normalizeCategoryName(value: string): string {
-  return typeof value === 'string'
-    ? value.normalize('NFKC').trim().replace(/\s+/g, ' ')
-    : '';
-}
-
-function isCategoryType(value: string): value is CategoryType {
-  return value === 'expense' || value === 'income' || value === 'transfer';
 }
 
 function rollback(database: DatabaseSync, transactionOpen: boolean): void {

@@ -569,6 +569,101 @@
   margin: 0;
 }
 
+.banking-category-management {
+  scroll-margin-top: var(--space-6, 1.5rem);
+}
+
+.banking-category-management__header,
+.banking-category-row,
+.banking-category-row__actions,
+.banking-category-dialog__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, .75rem);
+}
+
+.banking-category-management__header,
+.banking-category-row {
+  justify-content: space-between;
+}
+
+.banking-category-list {
+  margin-top: var(--space-3, .75rem);
+}
+
+.banking-category-list > .banking-category-row + .banking-category-row {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.banking-category-row {
+  min-width: 0;
+  padding-block: var(--space-3, .75rem);
+}
+
+.banking-category-row__identity,
+.banking-category-row__meta {
+  display: grid;
+  gap: var(--space-1, .25rem);
+  min-width: 0;
+}
+
+.banking-category-row__meta {
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  align-items: center;
+  color: var(--color-text-secondary);
+  font-size: .8125rem;
+}
+
+.banking-category-type {
+  padding: var(--space-1, .25rem) var(--space-2, .5rem);
+  border-radius: var(--radius-full, 999px);
+  background: var(--color-fill-well);
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.banking-category-row.is-inactive {
+  color: var(--color-text-secondary);
+}
+
+.banking-category-inactive {
+  margin-top: var(--space-3, .75rem);
+}
+
+.banking-category-inactive > summary {
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+
+.banking-category-dialog {
+  width: min(34rem, calc(100vw - 2rem));
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+}
+
+.banking-category-dialog::backdrop {
+  background: rgb(0 0 0 / .45);
+}
+
+.banking-category-dialog__form,
+.banking-category-dialog__body {
+  display: grid;
+  gap: var(--space-3, .75rem);
+}
+
+.banking-category-dialog__body {
+  padding: var(--space-4, 1rem);
+}
+
+.banking-category-dialog__actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .banking-categorization h4 {
   margin: var(--space-4, 1rem) 0 0;
 }
@@ -852,10 +947,17 @@
   }
 
   .banking-panel__header,
+  .banking-category-management__header,
+  .banking-category-row,
   .banking-connection-row,
   .banking-account-card__header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .banking-category-row__actions {
+    align-self: stretch;
+    flex-wrap: wrap;
   }
 
   .banking-account-card__actions {

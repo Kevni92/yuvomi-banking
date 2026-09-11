@@ -43,9 +43,6 @@ export async function categorizeUnresolvedTransactions(
 
   applyRulesForUser(database, yuvomiUserId, now);
   const categories = activeCategories(database);
-  if (categories.length === 0) {
-    throw new Error('Create at least one active Banking category before categorizing transactions.');
-  }
   const candidates = unresolvedTransactions(database, yuvomiUserId);
   if (candidates.length === 0) {
     return { submitted: 0, applied: 0, pendingReview: 0, categorySuggestions: 0 };

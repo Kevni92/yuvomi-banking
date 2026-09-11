@@ -72,6 +72,9 @@ export class OpenAiCategorizer implements CategorizationClient {
             'Classify each banking transaction using only the supplied category allowlist.',
             'Return one result for every supplied transaction_id.',
             'Use category_id only when it is in the allowlist; otherwise use null.',
+            'If no supplied category fits, return category_id null and provide a concise suggested_category.',
+            'If the category allowlist is empty, return category_id null and propose the best reusable category for each transaction.',
+            'Prefer reusable household-finance categories over merchant-specific categories (for example Lebensmittel instead of REWE, Abonnements instead of Spotify).',
             'Do not infer, request, or output banking identifiers, IBANs, account numbers, or personal data.',
             'Keep reason short and factual.'
           ].join(' '),

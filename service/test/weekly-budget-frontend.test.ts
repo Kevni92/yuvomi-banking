@@ -20,7 +20,12 @@ test('banking page exposes weekly-budget settings and both override controls', (
     "loadJson('weekly-budget/periods'",
     "loadJson('categorization/reviews'",
     "loadJson('category-suggestions'",
-    'data-weekly-category-id',
+    'data-banking-category-management',
+    'data-banking-category-dialog',
+    'data-action="add-category"',
+    'data-action="save-category"',
+    'refreshCategoryDependentViews',
+    'transactionCategoryOptions',
     'data-weekly-period-id',
     'data-action="recalculate-weekly-period"',
     'data-action="dismiss-weekly-transfer"',
@@ -34,7 +39,7 @@ test('banking page exposes weekly-budget settings and both override controls', (
     'merchant_logo_available',
     'data-banking-categorization',
     'data-action="run-categorization"',
-    'categorizationNeedsCategories',
+    'categorizationNoCategoriesHint',
     'data-categorization-suggestion-id',
     'accept-category-suggestion',
     'dismiss-category-suggestion',
@@ -168,6 +173,10 @@ test('weekly-budget locale keys exist in German and English', () => {
     'openAiModel',
     'openAiLoadModels',
     'openAiSaved'
+    , 'categoriesTitle'
+    , 'categoryAdd'
+    , 'categoryReactivate'
+    , 'inactiveCategories'
   ]) {
     assert.ok(german[key], `Missing German locale key ${key}`);
     assert.ok(english[key], `Missing English locale key ${key}`);

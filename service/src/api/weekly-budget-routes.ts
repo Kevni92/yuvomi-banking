@@ -344,43 +344,6 @@ export function createWeeklyBudgetRouter({
     }
   });
 
-  router.get('/categories', async (request, response) => {
-    const user = await resolveAuthorizedUser(request, response, resolveSession, 'read');
-    if (!user) return;
-    const categories = database.prepare(`
-      SELECT id, name, type, active, weekly_budget_default
-      FROM categories
-      ORDER BY active DESC, type, name, id
-    `).all() as Array<Record<string, unknown>>;
-    noStore(response);
-    response.json({
-      data: categories.map((category) => ({
-        ...category,
-        active: Boolean(category.active),
-        weekly_budget_default: Boolean(category.weekly_budget_default)
-      }))
-    });
-  });
-
-  router.patch('/categories/:categoryId/weekly-budget', async (request, response) => {
-    const user = await resolveAuthorizedUser(request, response, resolveSession, 'write');
-    if (!user || !mutationIsAllowed(request, response)) return;
-    const categoryId = positivePathId(request.params.categoryId);
-    if (!categoryId || typeof request.body?.weekly_budget_default !== 'boolean') {
-      response.status(400).json({ error: 'A boolean weekly_budget_default is required.' });
-      return;
-    }
-    const result = database.prepare(`
-      UPDATE categories SET weekly_budget_default = ?, updated_at = ? WHERE id = ?
-    `).run(request.body.weekly_budget_default ? 1 : 0, clock().toISOString(), categoryId);
-    if (Number(result.changes) !== 1) {
-      response.status(404).json({ error: 'Category not found.' });
-      return;
-    }
-    noStore(response);
-    response.json({ data: { id: categoryId, weekly_budget_default: request.body.weekly_budget_default } });
-  });
-
   router.patch('/transactions/:transactionId/weekly-budget', async (request, response) => {
     const user = await resolveAuthorizedUser(request, response, resolveSession, 'write');
     if (!user || !mutationIsAllowed(request, response)) return;

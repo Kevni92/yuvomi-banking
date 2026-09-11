@@ -1,51 +1,3 @@
-.banking-empty-state {
-  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.12));
-  border-radius: var(--radius-lg, 16px);
-  padding: var(--space-4, 1rem);
-  background: var(--color-surface, transparent);
-}
-
-.banking-integration-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-4, 1rem);
-  margin-bottom: var(--space-4, 1rem);
-}
-
-.banking-integration-card {
-  display: grid;
-  gap: var(--space-2, 0.5rem);
-  min-width: 0;
-  padding: var(--space-4, 1rem);
-  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.12));
-  border-radius: var(--radius-lg, 16px);
-  background: var(--color-surface, transparent);
-}
-
-.banking-integration-card__label {
-  color: var(--color-text-secondary, #6b7280);
-  font-size: 0.875rem;
-}
-
-.banking-integration-card__value {
-  overflow-wrap: anywhere;
-}
-
-.banking-integration-card__value[data-state="connected"],
-.banking-integration-card__value[data-state="read"],
-.banking-integration-card__value[data-state="write"] {
-  color: var(--color-success, #15803d);
-}
-
-.banking-integration-card__value[data-state="disconnected"],
-.banking-integration-card__value[data-state="none"] {
-  color: var(--color-text-secondary, #6b7280);
-}
-
-.banking-empty-state p {
-  margin-bottom: 0;
-}
-
 .banking-panel {
   margin-bottom: var(--space-4, 1rem);
   padding: var(--space-4, 1rem);
@@ -178,7 +130,7 @@
 
 .banking-account-card__details {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4, 1rem);
   padding-top: var(--space-3, 0.75rem);
 }
@@ -243,6 +195,125 @@
 
 .banking-transaction-row__amount {
   white-space: nowrap;
+}
+
+.banking-transactions-panel {
+  padding: 0;
+}
+
+.banking-transactions-panel > summary,
+.banking-weekly-history-panel > summary,
+.banking-settings-connections > summary {
+  cursor: pointer;
+  padding: var(--space-4, 1rem);
+  font-weight: 700;
+  list-style-position: inside;
+}
+
+.banking-transactions-panel__body {
+  padding: 0 var(--space-4, 1rem) var(--space-4, 1rem);
+}
+
+.banking-transaction-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3, 0.75rem);
+  align-items: end;
+  margin-bottom: var(--space-4, 1rem);
+}
+
+.banking-transaction-filters__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 0.5rem);
+}
+
+.banking-transactions-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.banking-transactions-table {
+  width: 100%;
+  min-width: 58rem;
+  border-collapse: collapse;
+}
+
+.banking-transactions-table th,
+.banking-transactions-table td {
+  padding: var(--space-3, 0.75rem) var(--space-2, 0.5rem);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.banking-transactions-table th {
+  color: var(--color-text-secondary, #6b7280);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.banking-transactions-table tbody tr + tr {
+  border-top: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+.banking-transactions-table__sort {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.banking-transactions-table__merchant {
+  display: grid;
+  gap: var(--space-1, 0.25rem);
+  min-width: 12rem;
+}
+
+.banking-transactions-table__merchant small {
+  color: var(--color-text-secondary, #6b7280);
+  overflow-wrap: anywhere;
+}
+
+.banking-transactions-table__amount {
+  color: var(--color-text-primary, inherit);
+  text-align: right !important;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.banking-transactions-table__amount[data-direction="outgoing"] {
+  color: var(--color-danger, #b42318);
+}
+
+.banking-transactions-table__amount[data-direction="incoming"] {
+  color: var(--color-success, #15803d);
+}
+
+.banking-transactions-table__empty {
+  padding-block: var(--space-5, 1.25rem) !important;
+  color: var(--color-text-secondary, #6b7280);
+  text-align: center !important;
+}
+
+.banking-transactions-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  padding-top: var(--space-3, 0.75rem);
+}
+
+.banking-transactions-pagination > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 0.5rem);
+}
+
+.banking-account-card__maintenance {
+  padding-top: var(--space-3, 0.75rem);
 }
 
 .banking-weekly-summary {
@@ -524,10 +595,6 @@
 }
 
 @media (max-width: 767px) {
-  .banking-integration-grid {
-    grid-template-columns: 1fr;
-  }
-
   .banking-connect-form,
   .banking-account-card__details,
   .banking-weekly-summary,

@@ -11,6 +11,7 @@ import { EnableBankingClient } from './enable-banking/client.js';
 import { createCategorizationRouter } from './api/categorization-routes.js';
 import { OpenAiCategorizer, type CategorizationClient } from './openai/categorizer.js';
 import { createPushRouter } from './api/push-routes.js';
+import { createTransactionRouter } from './api/transaction-routes.js';
 
 const API_PREFIX = '/api/extensions/banking';
 
@@ -97,6 +98,7 @@ export function createApp({
       categorizer: categorizationClient,
       clock
     }));
+    app.use(`${API_PREFIX}`, createTransactionRouter({ database, resolveSession }));
     app.use(`${API_PREFIX}`, createPushRouter({ database, resolveSession, clock }));
   }
 

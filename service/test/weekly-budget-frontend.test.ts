@@ -56,6 +56,26 @@ test('banking page exposes weekly-budget settings and both override controls', (
   assert.doesNotMatch(source, /\.innerHTML\s*=/);
 });
 
+test('banking redesign keeps configuration out of the main view and exposes a global transaction table', () => {
+  const source = moduleFile('index.js');
+  for (const marker of [
+    'renderMainMarkup()',
+    'renderSettingsMarkup()',
+    'renderTransactionsPanelMarkup()',
+    "new URLSearchParams(window.location.search).get('view')",
+    'transactions?${params.toString()}',
+    'data-banking-transactions-panel',
+    'data-transaction-filters',
+    'data-transaction-sort',
+    'data-transaction-page',
+    'yuvomi:banking:transactions-open',
+    'settingsTitle',
+    'backToBanking'
+  ]) assert.ok(source.includes(marker), `Missing redesign contract marker: ${marker}`);
+  assert.match(JSON.parse(moduleFile('module.json')).page.width, /^wide$/);
+  assert.doesNotMatch(source, /data-account-transactions/);
+});
+
 test('banking push worker is scoped to the module and never imports app-shell code', () => {
   const worker = moduleFile('push-worker.js');
   assert.match(worker, /self\.addEventListener\('push'/);

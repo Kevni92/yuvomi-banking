@@ -1,6 +1,7 @@
 import {
   renderPageHeader,
   renderPageTitle,
+  renderPageActions,
   renderPageBody,
   renderPageSection
 } from '/utils/page-layout.js';
@@ -43,373 +44,201 @@ async function loadJson(path, { signal, method = 'GET', body, headers = {} } = {
 
 export async function render(container, context) {
   const signal = context?.signal ?? new AbortController().signal;
+  const requestedView = new URLSearchParams(window.location.search).get('view');
+  const view = requestedView === 'settings' ? 'settings' : 'main';
+  const canReturnToMain = view === 'settings';
 
   container.replaceChildren();
   container.insertAdjacentHTML(
     'beforeend',
-    renderPageHeader({ title: renderPageTitle(localized('title', 'Banking')) }) +
+    renderPageHeader({
+      title: renderPageTitle(localized(canReturnToMain ? 'settingsTitle' : 'title', canReturnToMain ? 'Banking settings' : 'Banking')),
+      actions: renderPageActions(canReturnToMain
+        ? `<a class="btn btn--secondary" href="/m/banking">${esc(localized('backToBanking', 'Back to Banking'))}</a>`
+        : `<a class="btn btn--secondary" href="/m/banking?view=settings">${esc(localized('settings', 'Settings'))}</a>`)
+    }) +
       renderPageBody({
         content: renderPageSection({
-          content: renderOverviewMarkup()
+          content: view === 'settings' ? renderSettingsMarkup() : renderMainMarkup()
         })
       })
   );
 
-  const statusNode = container.querySelector('[data-banking-status]');
-  const userNode = container.querySelector('[data-banking-user]');
-  const permissionNode = container.querySelector('[data-banking-permission]');
-
-  const [healthResult, sessionResult] = await Promise.allSettled([
-    loadJson('health', { signal }),
-    loadJson('me', { signal })
-  ]);
+  const sessionResult = await Promise.allSettled([loadJson('me', { signal })]);
   if (signal.aborted) return;
 
-  renderHealth(statusNode, healthResult);
-
-  const session = sessionResult.status === 'fulfilled' ? sessionResult.value?.data : null;
+  const session = sessionResult[0].status === 'fulfilled' ? sessionResult[0].value?.data : null;
   const permission = session?.banking_permission ?? 'none';
   container.dataset.bankingPermission = permission;
-  if (session) {
-    userNode.textContent = session.display_name || localized('unknownUser', 'Unknown user');
-    permissionNode.textContent = permission;
-    permissionNode.dataset.state = permission;
-  } else {
-    const error = sessionResult.reason;
-    userNode.textContent = error instanceof Error
-      ? error.message
-      : localized('sessionUnavailable', 'Yuvomi session unavailable.');
-    permissionNode.textContent = localized('noPermission', 'No permission');
-    permissionNode.dataset.state = 'none';
+  if (!session) {
+    const error = sessionResult[0].reason;
+    const host = container.querySelector('[data-banking-main-content]') ?? container.querySelector('[data-banking-settings-content]');
+    if (host) renderError(host, error);
+    return;
   }
 
-  configureConnectionForm(container, permission, signal);
-  if (session) {
-    await Promise.all([
-      loadOverview(container, signal, permission === 'write'),
-      loadBankingPushPanel(container, signal, permission === 'write')
-    ]);
+  if (view === 'settings') {
+    configureSettingsInteractions(container, permission, signal);
+    await loadSettingsView(container, signal, permission === 'write');
+  } else {
+    configureMainInteractions(container, permission, signal);
+    await loadMainView(container, signal, permission === 'write');
   }
 }
 
-function renderOverviewMarkup() {
+function renderMainMarkup() {
   return `
-    <div class="banking-integration-grid" aria-live="polite">
-      <article class="banking-integration-card">
-        <span class="banking-integration-card__label">${esc(localized('sidecar', 'Banking sidecar'))}</span>
-        <strong class="banking-integration-card__value" data-banking-status>${esc(localized('sidecarChecking', 'Checking connection ...'))}</strong>
-      </article>
-
-      <article class="banking-integration-card">
-        <span class="banking-integration-card__label">${esc(localized('user', 'Signed-in Yuvomi user'))}</span>
-        <strong class="banking-integration-card__value" data-banking-user>${esc(localized('checking', 'Checking ...'))}</strong>
-      </article>
-
-      <article class="banking-integration-card">
-        <span class="banking-integration-card__label">${esc(localized('permission', 'Banking permission'))}</span>
-        <strong class="banking-integration-card__value" data-banking-permission>${esc(localized('checking', 'Checking ...'))}</strong>
-      </article>
-    </div>
-
-    <section class="banking-panel" data-banking-connect-panel>
-      <div class="banking-panel__header">
-        <div>
-          <h2>${esc(localized('connectTitle', 'Bank connection'))}</h2>
-          <p class="banking-panel__description">${esc(localized('connectDescription', 'Connect a bank through the Enable Banking sandbox.'))}</p>
-        </div>
-      </div>
-      <form class="banking-connect-form" data-banking-connect-form>
-        <label class="banking-field">
-          <span>${esc(localized('country', 'Country'))}</span>
-          <select class="form-input" data-banking-country>
-            <option value="DE">${esc(localized('germany', 'Germany'))}</option>
-            <option value="AT">${esc(localized('austria', 'Austria'))}</option>
-            <option value="CH">${esc(localized('switzerland', 'Switzerland'))}</option>
-          </select>
-        </label>
-        <label class="banking-field">
-          <span>${esc(localized('bank', 'Bank'))}</span>
-          <select class="form-input" data-banking-bank disabled>
-            <option value="">${esc(localized('loadBanksFirst', 'Load banks first'))}</option>
-          </select>
-        </label>
-        <div class="banking-connect-form__actions">
-          <button class="btn btn--secondary" type="button" data-action="load-banks">
-            ${esc(localized('loadBanks', 'Load banks'))}
-          </button>
-          <button class="btn btn--primary" type="submit" data-action="connect-bank" disabled>
-            ${esc(localized('connectBank', 'Connect bank'))}
-          </button>
-        </div>
-      </form>
-      <p class="banking-feedback" data-banking-connect-feedback role="status"></p>
-    </section>
-
-    <section class="banking-panel">
-      <div class="banking-panel__header">
-        <div>
-          <h2>${esc(localized('connectionsTitle', 'Bank connections'))}</h2>
-          <p class="banking-panel__description">${esc(localized('connectionsDescription', 'Your connections are stored in the separate Banking database.'))}</p>
-        </div>
-        <button class="btn btn--secondary" type="button" data-action="reload-connections">
-          ${esc(localized('reload', 'Reload'))}
-        </button>
-      </div>
-      <div data-banking-connections aria-live="polite">
-        <p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p>
-      </div>
-    </section>
-
-    <section class="banking-panel" data-banking-weekly-budget>
-      <div class="banking-panel__header">
-        <div>
-          <h2>${esc(localized('weeklyBudgetTitle', 'Weekly budget'))}</h2>
-          <p class="banking-panel__description">${esc(localized('weeklyBudgetDescription', 'Sparkasse expenses and the current N26 balance determine the next refill.'))}</p>
-        </div>
-        <button class="btn btn--secondary" type="button" data-action="reload-weekly-budget">
-          ${esc(localized('reload', 'Reload'))}
-        </button>
-      </div>
-
-      <div data-weekly-budget-current aria-live="polite">
-        <p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p>
-      </div>
-
-      <section class="banking-push" data-banking-push aria-live="polite">
+    <div data-banking-main-content>
+      <section class="banking-panel" data-banking-weekly-budget>
         <div class="banking-panel__header">
           <div>
-            <h3>${esc(localized('pushTitle', 'Banking notifications'))}</h3>
-            <p class="banking-panel__description">${esc(localized('pushDescription', 'Enable notifications explicitly on this device.'))}</p>
+            <h2>${esc(localized('weeklyBudgetTitle', 'Weekly budget'))}</h2>
+            <p class="banking-panel__description">${esc(localized('weeklyBudgetDescription', 'Sparkasse expenses and the current N26 balance determine the next refill.'))}</p>
           </div>
-          <div class="banking-weekly-settings__actions">
-            <button class="btn btn--secondary" type="button" data-action="enable-banking-push">
-              ${esc(localized('pushEnable', 'Enable on this device'))}
-            </button>
-            <button class="btn btn--secondary" type="button" data-action="test-banking-push">
-              ${esc(localized('pushTest', 'Send test'))}
-            </button>
-          </div>
+          <button class="btn btn--secondary" type="button" data-action="reload-weekly-budget">${esc(localized('reload', 'Reload'))}</button>
         </div>
-        <p class="banking-feedback" data-banking-push-feedback role="status"></p>
-        <div data-banking-push-subscriptions></div>
+        <div data-weekly-budget-current aria-live="polite"><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
       </section>
 
-      <form class="banking-weekly-settings" data-weekly-budget-settings>
-        <label class="banking-field banking-field--checkbox">
-          <input type="checkbox" data-weekly-enabled>
-          <span>${esc(localized('weeklyBudgetEnabled', 'Enable weekly budget'))}</span>
-        </label>
-        <label class="banking-field">
-          <span>${esc(localized('weeklyBudgetSource', 'Source account'))}</span>
-          <select class="form-input" data-weekly-source required></select>
-        </label>
-        <label class="banking-field">
-          <span>${esc(localized('weeklyBudgetTarget', 'Target account'))}</span>
-          <select class="form-input" data-weekly-target required></select>
-        </label>
-        <label class="banking-field">
-          <span>${esc(localized('weeklyBudgetBeneficiary', 'Target account holder'))}</span>
-          <input class="form-input" maxlength="70" autocomplete="name" data-weekly-beneficiary required>
-        </label>
-        <label class="banking-field">
-          <span>${esc(localized('weeklyBudgetAmount', 'Weekly target in euros'))}</span>
-          <input class="form-input" inputmode="decimal" placeholder="450,00" data-weekly-amount required>
-        </label>
-        <label class="banking-field">
-          <span>${esc(localized('weeklyBudgetWeekday', 'Cutoff weekday'))}</span>
-          <select class="form-input" data-weekly-weekday required>${weekdayOptions()}</select>
-        </label>
-        <label class="banking-field">
-          <span>${esc(localized('weeklyBudgetTime', 'Cutoff time'))}</span>
-          <input class="form-input" type="time" data-weekly-time required>
-        </label>
-        <label class="banking-field">
-          <span>${esc(localized('weeklyBudgetTimezone', 'Timezone'))}</span>
-          <input class="form-input" value="Europe/Berlin" data-weekly-timezone required>
-        </label>
-        <label class="banking-field">
-          <span>${esc(localized('weeklyBudgetSyncOne', 'First daily sync'))}</span>
-          <input class="form-input" type="time" data-weekly-sync-one required>
-        </label>
-        <label class="banking-field">
-          <span>${esc(localized('weeklyBudgetSyncTwo', 'Second daily sync'))}</span>
-          <input class="form-input" type="time" data-weekly-sync-two required>
-        </label>
-        <label class="banking-field banking-field--checkbox">
-          <input type="checkbox" data-weekly-notifications-enabled>
-          <span>${esc(localized('weeklyBudgetNotifications', 'Send Banking notification'))}</span>
-        </label>
-        <label class="banking-field">
-          <span>${esc(localized('weeklyBudgetNotificationRecipient', 'Notification recipient'))}</span>
-          <select class="form-input" data-weekly-notification-recipient></select>
-        </label>
-        <label class="banking-field banking-field--checkbox">
-          <input type="checkbox" data-weekly-notification-qr-preview>
-          <span>${esc(localized('weeklyBudgetNotificationQrPreview', 'Include QR preview in notification'))}</span>
-        </label>
-        <div class="banking-weekly-settings__actions">
-          <button class="btn btn--primary" type="submit" data-action="save-weekly-budget">
-            ${esc(localized('weeklyBudgetSave', 'Save settings'))}
-          </button>
-        </div>
-        <p class="banking-feedback" data-weekly-budget-feedback role="status"></p>
-      </form>
-
-      <div class="banking-weekly-categories">
-        <h3>${esc(localized('weeklyBudgetCategories', 'Weekly-budget categories'))}</h3>
-        <p class="banking-panel__description">${esc(localized('weeklyBudgetCategoriesDescription', 'A transaction-specific setting overrides its category.'))}</p>
-        <div data-weekly-budget-categories></div>
-      </div>
-
-      <div class="banking-categorization" data-banking-categorization>
+      <section class="banking-panel">
         <div class="banking-panel__header">
           <div>
-            <h3>${esc(localized('categorizationTitle', 'Transaction categorization'))}</h3>
+            <h2>${esc(localized('accountsTitle', 'Accounts'))}</h2>
+            <p class="banking-panel__description">${esc(localized('accountsDescription', 'Balances are loaded through the Banking sidecar.'))}</p>
+          </div>
+        </div>
+        <div data-banking-accounts aria-live="polite"><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
+      </section>
+
+      ${renderTransactionsPanelMarkup()}
+
+      <section class="banking-panel" data-banking-categorization>
+        <div class="banking-panel__header">
+          <div>
+            <h2>${esc(localized('categorizationTitle', 'Transaction categorization'))}</h2>
             <p class="banking-panel__description">${esc(localized('categorizationDescription', 'Known recipients are handled locally first. Only unresolved transactions are sent as pseudonymized, reviewed suggestions.'))}</p>
           </div>
-          <button class="btn btn--secondary" type="button" data-action="run-categorization">
-            ${esc(localized('categorizationRun', 'Analyze unresolved transactions'))}
-          </button>
+          <button class="btn btn--secondary" type="button" data-action="run-categorization">${esc(localized('categorizationRun', 'Analyze unresolved transactions'))}</button>
         </div>
         <p class="banking-feedback" data-categorization-feedback role="status"></p>
         <div data-categorization-reviews></div>
         <div data-categorization-suggestions></div>
-      </div>
+      </section>
 
-      <div class="banking-weekly-history">
-        <h3>${esc(localized('weeklyBudgetHistory', 'Weekly-budget history'))}</h3>
+      <details class="banking-panel banking-weekly-history-panel" open>
+        <summary>${esc(localized('weeklyBudgetHistory', 'Weekly-budget history'))}</summary>
         <div data-weekly-budget-history></div>
-      </div>
-    </section>
-
-    <section class="banking-panel">
-      <div class="banking-panel__header">
-        <div>
-          <h2>${esc(localized('accountsTitle', 'Accounts'))}</h2>
-          <p class="banking-panel__description">${esc(localized('accountsDescription', 'Balances and transactions are loaded through the Banking sidecar.'))}</p>
-        </div>
-      </div>
-      <div data-banking-accounts aria-live="polite">
-        <p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p>
-      </div>
-    </section>
-
-    <div class="banking-empty-state">
-      <h2>${esc(localized('introTitle', 'Yuvomi Banking'))}</h2>
-      <p>${esc(localized('description', 'The Banking module is connected to its separate sidecar.'))}</p>
+      </details>
     </div>
   `;
 }
 
-function renderHealth(statusNode, result) {
-  if (result.status === 'fulfilled' && result.value?.ok === true) {
-    statusNode.textContent = localized('sidecarConnected', 'Connected');
-    statusNode.dataset.state = 'connected';
-    return;
-  }
-  statusNode.textContent = result.reason instanceof Error
-    ? result.reason.message
-    : localized('sidecarDisconnected', 'Not connected');
-  statusNode.dataset.state = 'disconnected';
+function renderSettingsMarkup() {
+  const callbackState = new URLSearchParams(window.location.search).get('banking');
+  const connectionsOpen = callbackState === 'error' || callbackState === 'connected';
+  const callbackFeedback = callbackState === 'connected'
+    ? `<p class="banking-feedback" role="status">${esc(localized('connectionCompleted', 'Bank connection completed.'))}</p>`
+    : callbackState === 'error'
+      ? `<p class="banking-error" role="alert">${esc(localized('connectionFailed', 'Bank connection could not be completed.'))}</p>`
+      : '';
+  return `
+    <div data-banking-settings-content>
+      <details class="banking-panel banking-settings-connections" data-banking-connections-panel${connectionsOpen ? ' open' : ''}>
+        <summary>${esc(localized('connectionsTitle', 'Bank connections'))}</summary>
+        <div class="banking-settings-connections__body">
+          <p class="banking-panel__description">${esc(localized('connectionsDescription', 'Your connections are stored in the separate Banking database.'))}</p>
+          ${callbackFeedback}
+          <form class="banking-connect-form" data-banking-connect-form>
+            <label class="banking-field"><span>${esc(localized('country', 'Country'))}</span><select class="form-input" data-banking-country><option value="DE">${esc(localized('germany', 'Germany'))}</option><option value="AT">${esc(localized('austria', 'Austria'))}</option><option value="CH">${esc(localized('switzerland', 'Switzerland'))}</option></select></label>
+            <label class="banking-field"><span>${esc(localized('bank', 'Bank'))}</span><select class="form-input" data-banking-bank disabled><option value="">${esc(localized('loadBanksFirst', 'Load banks first'))}</option></select></label>
+            <div class="banking-connect-form__actions"><button class="btn btn--secondary" type="button" data-action="load-banks">${esc(localized('loadBanks', 'Load banks'))}</button><button class="btn btn--primary" type="submit" data-action="connect-bank" disabled>${esc(localized('connectBank', 'Connect bank'))}</button></div>
+          </form>
+          <p class="banking-feedback" data-banking-connect-feedback role="status"></p>
+          <div data-banking-connections aria-live="polite"><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
+        </div>
+      </details>
+
+      <section class="banking-panel" data-banking-weekly-budget>
+        <div class="banking-panel__header"><div><h2>${esc(localized('weeklyBudgetConfigureTitle', 'Configure weekly budget'))}</h2><p class="banking-panel__description">${esc(localized('weeklyBudgetDescription', 'Sparkasse expenses and the current N26 balance determine the next refill.'))}</p></div></div>
+        <div data-weekly-budget-current aria-live="polite"><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
+        ${weeklyBudgetSettingsMarkup()}
+      </section>
+
+      <section class="banking-panel banking-push" data-banking-push aria-live="polite">
+        <div class="banking-panel__header"><div><h2>${esc(localized('pushTitle', 'Banking notifications'))}</h2><p class="banking-panel__description">${esc(localized('pushDescription', 'Enable notifications explicitly on this device.'))}</p></div><div class="banking-weekly-settings__actions"><button class="btn btn--secondary" type="button" data-action="enable-banking-push">${esc(localized('pushEnable', 'Enable on this device'))}</button><button class="btn btn--secondary" type="button" data-action="test-banking-push">${esc(localized('pushTest', 'Send test'))}</button></div></div>
+        <p class="banking-feedback" data-banking-push-feedback role="status"></p><div data-banking-push-subscriptions></div>
+      </section>
+
+      <section class="banking-panel banking-weekly-categories"><h2>${esc(localized('weeklyBudgetCategories', 'Weekly-budget categories'))}</h2><p class="banking-panel__description">${esc(localized('weeklyBudgetCategoriesDescription', 'A transaction-specific setting overrides its category.'))}</p><div data-weekly-budget-categories></div></section>
+    </div>
+  `;
 }
 
-function configureConnectionForm(container, permission, signal) {
-  const form = container.querySelector('[data-banking-connect-form]');
-  const country = container.querySelector('[data-banking-country]');
-  const bank = container.querySelector('[data-banking-bank]');
-  const loadButton = container.querySelector('[data-action="load-banks"]');
-  const connectButton = container.querySelector('[data-action="connect-bank"]');
-  const feedback = container.querySelector('[data-banking-connect-feedback]');
-  const reloadButton = container.querySelector('[data-action="reload-connections"]');
-  const weeklySettings = container.querySelector('[data-weekly-budget-settings]');
+function weeklyBudgetSettingsMarkup() {
+  return `
+    <form class="banking-weekly-settings" data-weekly-budget-settings>
+      <label class="banking-field banking-field--checkbox"><input type="checkbox" data-weekly-enabled><span>${esc(localized('weeklyBudgetEnabled', 'Enable weekly budget'))}</span></label>
+      <label class="banking-field"><span>${esc(localized('weeklyBudgetSource', 'Source account'))}</span><select class="form-input" data-weekly-source required></select></label>
+      <label class="banking-field"><span>${esc(localized('weeklyBudgetTarget', 'Target account'))}</span><select class="form-input" data-weekly-target required></select></label>
+      <label class="banking-field"><span>${esc(localized('weeklyBudgetBeneficiary', 'Target account holder'))}</span><input class="form-input" maxlength="70" autocomplete="name" data-weekly-beneficiary required></label>
+      <label class="banking-field"><span>${esc(localized('weeklyBudgetAmount', 'Weekly target in euros'))}</span><input class="form-input" inputmode="decimal" placeholder="450,00" data-weekly-amount required></label>
+      <label class="banking-field"><span>${esc(localized('weeklyBudgetWeekday', 'Cutoff weekday'))}</span><select class="form-input" data-weekly-weekday required>${weekdayOptions()}</select></label>
+      <label class="banking-field"><span>${esc(localized('weeklyBudgetTime', 'Cutoff time'))}</span><input class="form-input" type="time" data-weekly-time required></label>
+      <label class="banking-field"><span>${esc(localized('weeklyBudgetTimezone', 'Timezone'))}</span><input class="form-input" value="Europe/Berlin" data-weekly-timezone required></label>
+      <label class="banking-field"><span>${esc(localized('weeklyBudgetSyncOne', 'First daily sync'))}</span><input class="form-input" type="time" data-weekly-sync-one required></label>
+      <label class="banking-field"><span>${esc(localized('weeklyBudgetSyncTwo', 'Second daily sync'))}</span><input class="form-input" type="time" data-weekly-sync-two required></label>
+      <label class="banking-field banking-field--checkbox"><input type="checkbox" data-weekly-notifications-enabled><span>${esc(localized('weeklyBudgetNotifications', 'Send Banking notification'))}</span></label>
+      <label class="banking-field"><span>${esc(localized('weeklyBudgetNotificationRecipient', 'Notification recipient'))}</span><select class="form-input" data-weekly-notification-recipient></select></label>
+      <label class="banking-field banking-field--checkbox"><input type="checkbox" data-weekly-notification-qr-preview><span>${esc(localized('weeklyBudgetNotificationQrPreview', 'Include QR preview in notification'))}</span></label>
+      <div class="banking-weekly-settings__actions"><button class="btn btn--primary" type="submit" data-action="save-weekly-budget">${esc(localized('weeklyBudgetSave', 'Save settings'))}</button></div>
+      <p class="banking-feedback" data-weekly-budget-feedback role="status"></p>
+    </form>
+  `;
+}
+
+function renderTransactionsPanelMarkup() {
+  return `
+    <details class="banking-panel banking-transactions-panel" data-banking-transactions-panel open>
+      <summary>${esc(localized('transactions', 'Transactions'))}</summary>
+      <div class="banking-transactions-panel__body" data-banking-transactions>
+        <div data-transaction-filters></div>
+        <div class="banking-transactions-table-wrap" data-banking-transactions-table><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
+        <div data-banking-transactions-pagination></div>
+      </div>
+    </details>
+  `;
+}
+
+function configureMainInteractions(container, permission, signal) {
+  const canWrite = permission === 'write';
+  const reloadWeeklyBudget = container.querySelector('[data-action="reload-weekly-budget"]');
   const weeklyCategories = container.querySelector('[data-weekly-budget-categories]');
   const categorizationHost = container.querySelector('[data-banking-categorization]');
   const runCategorizationButton = container.querySelector('[data-action="run-categorization"]');
   const weeklyHistory = container.querySelector('[data-weekly-budget-history]');
-  const reloadWeeklyBudget = container.querySelector('[data-action="reload-weekly-budget"]');
-  const pushHost = container.querySelector('[data-banking-push]');
-  const enablePushButton = container.querySelector('[data-action="enable-banking-push"]');
-  const testPushButton = container.querySelector('[data-action="test-banking-push"]');
-  const aspspsByName = new Map();
+  const accountsHost = container.querySelector('[data-banking-accounts]');
+  const transactionsHost = container.querySelector('[data-banking-transactions]');
+  const transactionsPanel = container.querySelector('[data-banking-transactions-panel]');
 
-  if (permission !== 'write') {
-    const message = permission === 'read'
-      ? localized('readOnly', 'Your Banking permission is read-only.')
-      : localized('noPermission', 'No permission');
-    feedback.textContent = message;
-    for (const control of [
-      country, bank, loadButton, connectButton, runCategorizationButton,
-      enablePushButton, testPushButton
-    ]) control.disabled = true;
-  }
-
-  loadButton.addEventListener('click', () => {
-    void loadBanks({ country, bank, connectButton, loadButton, feedback, aspspsByName, signal });
+  if (!canWrite) runCategorizationButton.disabled = true;
+  reloadWeeklyBudget.addEventListener('click', () => {
+    void refreshWeeklyBudget(container, signal, canWrite);
   }, { signal });
-
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    void startConnection({ country, bank, connectButton, loadButton, feedback, aspspsByName, signal });
-  }, { signal });
-
-  reloadButton.addEventListener('click', () => {
-    void loadOverview(container, signal, permission === 'write');
-  }, { signal });
-
-  country.addEventListener('change', () => {
-    bank.replaceChildren(createOption('', localized('loadBanksFirst', 'Load banks first')));
-    aspspsByName.clear();
-    bank.disabled = true;
-    connectButton.disabled = true;
-  }, { signal });
-
-  container.querySelector('[data-banking-accounts]').addEventListener('click', (event) => {
-    const button = event.target.closest('button[data-action]');
-    if (!button) return;
-    const card = button.closest('[data-banking-account-card]');
-    if (button.dataset.action === 'show-account') {
-      void loadAccountDetails({ card, button, signal });
-    } else if (button.dataset.action === 'sync-account') {
-      void syncAccount({ card, button, signal });
-    } else if (button.dataset.action === 'load-merchant-logos') {
-      void loadMerchantLogos({ card, button, signal });
-    }
-  }, { signal });
-
-  container.querySelector('[data-banking-accounts]').addEventListener('change', (event) => {
-    const select = event.target.closest('select[data-weekly-budget-override]');
-    if (select) {
-      void updateTransactionWeeklyBudget({ container, select, signal });
-      return;
-    }
-    const categorySelect = event.target.closest('select[data-transaction-category-id]');
-    if (!categorySelect) return;
-    void updateTransactionCategory({ container, select: categorySelect, signal });
-  }, { signal });
-
-  weeklySettings.addEventListener('submit', (event) => {
-    event.preventDefault();
-    void saveWeeklyBudgetSettings({ container, form: weeklySettings, signal });
-  }, { signal });
-
-  weeklyCategories.addEventListener('change', (event) => {
+  if (weeklyCategories) weeklyCategories.addEventListener('change', (event) => {
     const checkbox = event.target.closest('input[data-weekly-category-id]');
-    if (!checkbox) return;
-    void updateCategoryWeeklyBudget({ container, checkbox, signal });
+    if (checkbox) void updateCategoryWeeklyBudget({ container, checkbox, signal });
   }, { signal });
-
   runCategorizationButton.addEventListener('click', () => {
     void runCategorization({ container, host: categorizationHost, button: runCategorizationButton, signal });
   }, { signal });
-
   categorizationHost.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-categorization-suggestion-id]');
     if (!button) return;
     const action = button.dataset.action;
-    if (action !== 'accept-category-suggestion' && action !== 'dismiss-category-suggestion') return;
-    void decideCategorySuggestion({ container, host: categorizationHost, button, action, signal });
+    if (action === 'accept-category-suggestion' || action === 'dismiss-category-suggestion') {
+      void decideCategorySuggestion({ container, host: categorizationHost, button, action, signal });
+    }
   }, { signal });
-
   weeklyHistory.addEventListener('click', (event) => {
     const actionButton = event.target.closest('button[data-action]');
     if (actionButton?.dataset.action === 'recalculate-weekly-period') {
@@ -421,14 +250,122 @@ function configureConnectionForm(container, permission, signal) {
       return;
     }
     const button = event.target.closest('button[data-weekly-period-id]');
+    if (button) void toggleWeeklyBudgetPeriodDetails({ button, signal });
+  }, { signal });
+  accountsHost.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-action]');
     if (!button) return;
-    void toggleWeeklyBudgetPeriodDetails({ button, signal });
+    const card = button.closest('[data-banking-account-card]');
+    if (button.dataset.action === 'show-account') void loadAccountDetails({ card, button, signal });
+    if (button.dataset.action === 'sync-account') void syncAccount({ card, button, signal });
+    if (button.dataset.action === 'load-merchant-logos') void loadMerchantLogos({ card, button, signal });
   }, { signal });
-
-  reloadWeeklyBudget.addEventListener('click', () => {
-    void refreshWeeklyBudget(container, signal, permission === 'write');
+  transactionsHost.addEventListener('change', (event) => {
+    const filter = event.target.closest('[data-transaction-filter]');
+    if (filter) {
+      updateTransactionFilterState(container, filter);
+      if (filter.dataset.transactionFilter !== 'q') void loadTransactionTable({ container, signal });
+      return;
+    }
+    const select = event.target.closest('select[data-weekly-budget-override]');
+    if (select) {
+      void updateTransactionWeeklyBudget({ container, select, signal });
+      return;
+    }
+    const categorySelect = event.target.closest('select[data-transaction-category-id]');
+    if (categorySelect) void updateTransactionCategory({ container, select: categorySelect, signal });
   }, { signal });
+  transactionsHost.addEventListener('submit', (event) => {
+    const form = event.target.closest('[data-transaction-filters]');
+    if (!form) return;
+    event.preventDefault();
+    updateTransactionFilterState(container, form);
+    void loadTransactionTable({ container, signal });
+  }, { signal });
+  transactionsHost.addEventListener('input', (event) => {
+    const input = event.target.closest('[data-transaction-filter="q"]');
+    if (!input) return;
+    clearTimeout(container.bankingTransactionDebounce);
+    updateTransactionFilterState(container, input);
+    container.bankingTransactionDebounce = setTimeout(() => {
+      void loadTransactionTable({ container, signal });
+    }, 250);
+  }, { signal });
+  transactionsHost.addEventListener('click', (event) => {
+    const sortButton = event.target.closest('[data-transaction-sort]');
+    if (sortButton) {
+      updateTransactionSort(container, sortButton.dataset.transactionSort);
+      void loadTransactionTable({ container, signal });
+      return;
+    }
+    const pageButton = event.target.closest('[data-transaction-page]');
+    if (pageButton && !pageButton.disabled) {
+      const state = container.bankingTransactionState;
+      state.offset = Math.max(0, state.offset + Number(pageButton.dataset.transactionPage) * state.limit);
+      void loadTransactionTable({ container, signal });
+      return;
+    }
+    if (event.target.closest('[data-action="reset-transaction-filters"]')) {
+      resetTransactionFilters(container);
+      void loadTransactionTable({ container, signal });
+    }
+  }, { signal });
+  transactionsPanel.addEventListener('toggle', () => {
+    try {
+      sessionStorage.setItem('yuvomi:banking:transactions-open', String(transactionsPanel.open));
+    } catch {
+      // A blocked sessionStorage must not affect the banking view.
+    }
+  }, { signal });
+  try {
+    if (sessionStorage.getItem('yuvomi:banking:transactions-open') === 'false') transactionsPanel.open = false;
+  } catch {
+    // Ignore storage restrictions.
+  }
+}
 
+function configureSettingsInteractions(container, permission, signal) {
+  const canWrite = permission === 'write';
+  const form = container.querySelector('[data-banking-connect-form]');
+  const country = container.querySelector('[data-banking-country]');
+  const bank = container.querySelector('[data-banking-bank]');
+  const loadButton = container.querySelector('[data-action="load-banks"]');
+  const connectButton = container.querySelector('[data-action="connect-bank"]');
+  const feedback = container.querySelector('[data-banking-connect-feedback]');
+  const weeklySettings = container.querySelector('[data-weekly-budget-settings]');
+  const weeklyCategories = container.querySelector('[data-weekly-budget-categories]');
+  const pushHost = container.querySelector('[data-banking-push]');
+  const enablePushButton = container.querySelector('[data-action="enable-banking-push"]');
+  const testPushButton = container.querySelector('[data-action="test-banking-push"]');
+  const aspspsByName = new Map();
+
+  if (!canWrite) {
+    feedback.textContent = localized('readOnly', 'Your Banking permission is read-only.');
+    for (const control of [country, bank, loadButton, connectButton, enablePushButton, testPushButton]) {
+      control.disabled = true;
+    }
+  }
+  loadButton.addEventListener('click', () => {
+    void loadBanks({ country, bank, connectButton, loadButton, feedback, aspspsByName, signal });
+  }, { signal });
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void startConnection({ country, bank, connectButton, loadButton, feedback, aspspsByName, signal });
+  }, { signal });
+  country.addEventListener('change', () => {
+    bank.replaceChildren(createOption('', localized('loadBanksFirst', 'Load banks first')));
+    aspspsByName.clear();
+    bank.disabled = true;
+    connectButton.disabled = true;
+  }, { signal });
+  weeklySettings.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void saveWeeklyBudgetSettings({ container, form: weeklySettings, signal });
+  }, { signal });
+  weeklyCategories.addEventListener('change', (event) => {
+    const checkbox = event.target.closest('input[data-weekly-category-id]');
+    if (checkbox) void updateCategoryWeeklyBudget({ container, checkbox, signal });
+  }, { signal });
   enablePushButton.addEventListener('click', () => {
     void enableBankingPush({ container, button: enablePushButton, signal });
   }, { signal });
@@ -437,9 +374,77 @@ function configureConnectionForm(container, permission, signal) {
   }, { signal });
   pushHost.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-banking-push-subscription-id]');
-    if (!button) return;
-    void disableBankingPushSubscription({ container, button, signal });
+    if (button) void disableBankingPushSubscription({ container, button, signal });
   }, { signal });
+}
+
+async function loadMainView(container, signal, canWrite) {
+  const accountsHost = container.querySelector('[data-banking-accounts]');
+  const weeklyBudgetHost = container.querySelector('[data-weekly-budget-current]');
+  const categoriesHost = container.querySelector('[data-weekly-budget-categories]');
+  const historyHost = container.querySelector('[data-weekly-budget-history]');
+  const categorizationHost = container.querySelector('[data-banking-categorization]');
+  const [accountsResult, weeklyBudgetResult, categoriesResult, periodsResult, reviewsResult, suggestionsResult] = await Promise.allSettled([
+    loadJson('accounts', { signal }),
+    loadJson('weekly-budget/current', { signal }),
+    loadJson('categories', { signal }),
+    loadJson('weekly-budget/periods', { signal }),
+    loadJson('categorization/reviews', { signal }),
+    loadJson('category-suggestions', { signal })
+  ]);
+  if (signal.aborted) return;
+  const accounts = accountsResult.status === 'fulfilled' && Array.isArray(accountsResult.value?.data) ? accountsResult.value.data : [];
+  const categories = categoriesResult.status === 'fulfilled' && Array.isArray(categoriesResult.value?.data) ? categoriesResult.value.data : [];
+  if (accountsResult.status === 'fulfilled') renderAccounts(accountsHost, accounts, canWrite);
+  else renderError(accountsHost, accountsResult.reason);
+  if (weeklyBudgetResult.status === 'fulfilled') renderWeeklyBudget(weeklyBudgetHost, null, weeklyBudgetResult.value?.data, accounts, canWrite);
+  else renderError(weeklyBudgetHost, weeklyBudgetResult.reason);
+  if (categoriesHost && categoriesResult.status === 'fulfilled') renderWeeklyBudgetCategories(categoriesHost, categories, canWrite);
+  else if (categoriesHost) renderError(categoriesHost, categoriesResult.reason);
+  if (periodsResult.status === 'fulfilled') renderWeeklyBudgetHistory(historyHost, periodsResult.value?.data, canWrite);
+  else renderError(historyHost, periodsResult.reason);
+  if (reviewsResult.status === 'fulfilled') renderCategorizationReviews(categorizationHost, reviewsResult.value?.data);
+  else renderError(categorizationHost.querySelector('[data-categorization-reviews]'), reviewsResult.reason);
+  if (suggestionsResult.status === 'fulfilled') renderCategorySuggestions(categorizationHost, suggestionsResult.value?.data, canWrite);
+  else renderError(categorizationHost.querySelector('[data-categorization-suggestions]'), suggestionsResult.reason);
+  container.bankingTransactionState = createTransactionState();
+  container.bankingTransactionAccounts = accounts;
+  container.bankingTransactionCategories = categories;
+  renderTransactionFilters(container.querySelector('[data-banking-transactions]'), accounts, categories, container.bankingTransactionState);
+  await loadTransactionTable({ container, signal, categories });
+}
+
+async function loadSettingsView(container, signal, canWrite) {
+  const connectionsHost = container.querySelector('[data-banking-connections]');
+  const weeklyBudgetHost = container.querySelector('[data-weekly-budget-current]');
+  const categoriesHost = container.querySelector('[data-weekly-budget-categories]');
+  const [connectionsResult, accountsResult, weeklyBudgetResult, categoriesResult, recipientsResult, usersResult] = await Promise.allSettled([
+    loadJson('connections', { signal }),
+    loadJson('accounts', { signal }),
+    loadJson('weekly-budget/current', { signal }),
+    loadJson('categories', { signal }),
+    loadJson('push/recipients', { signal }),
+    api.get('/auth/users')
+  ]);
+  if (signal.aborted) return;
+  if (connectionsResult.status === 'fulfilled') {
+    const connections = connectionsResult.value?.data;
+    renderConnections(connectionsHost, connections);
+    const callbackState = new URLSearchParams(window.location.search).get('banking');
+    const panel = container.querySelector('[data-banking-connections-panel]');
+    if (panel && callbackState !== 'error' && callbackState !== 'connected') panel.open = !Array.isArray(connections) || !connections.some((item) => item?.status === 'authorized');
+  } else renderError(connectionsHost, connectionsResult.reason);
+  const accounts = accountsResult.status === 'fulfilled' && Array.isArray(accountsResult.value?.data) ? accountsResult.value.data : [];
+  if (weeklyBudgetResult.status === 'fulfilled') {
+    renderWeeklyBudget(weeklyBudgetHost, container.querySelector('[data-weekly-budget-settings]'), weeklyBudgetResult.value?.data, accounts, canWrite, recipientsResult.status === 'fulfilled' ? recipientsResult.value?.data : [], usersResult.status === 'fulfilled' ? usersResult.value?.data : []);
+  } else renderError(weeklyBudgetHost, weeklyBudgetResult.reason);
+  if (categoriesResult.status === 'fulfilled') renderWeeklyBudgetCategories(categoriesHost, categoriesResult.value?.data, canWrite);
+  else renderError(categoriesHost, categoriesResult.reason);
+  await loadBankingPushPanel(container, signal, canWrite);
+}
+
+function createTransactionState() {
+  return { q: '', accountId: '', categoryId: '', uncategorized: false, direction: '', status: '', dateFrom: '', dateTo: '', sort: 'date', order: 'desc', limit: 50, offset: 0, requestId: 0, controller: null };
 }
 
 async function loadBankingPushPanel(container, signal, canWrite) {
@@ -657,78 +662,6 @@ async function startConnection({ country, bank, connectButton, loadButton, feedb
   }
 }
 
-async function loadOverview(container, signal, canWrite) {
-  const connectionsHost = container.querySelector('[data-banking-connections]');
-  const accountsHost = container.querySelector('[data-banking-accounts]');
-  const weeklyBudgetHost = container.querySelector('[data-weekly-budget-current]');
-  const categoriesHost = container.querySelector('[data-weekly-budget-categories]');
-  const historyHost = container.querySelector('[data-weekly-budget-history]');
-  const categorizationHost = container.querySelector('[data-banking-categorization]');
-  const [
-    connectionsResult,
-    accountsResult,
-    weeklyBudgetResult,
-    categoriesResult,
-    periodsResult,
-    categorizationReviewsResult,
-    categorySuggestionsResult
-  ] = await Promise.allSettled([
-    loadJson('connections', { signal }),
-    loadJson('accounts', { signal }),
-    loadJson('weekly-budget/current', { signal }),
-    loadJson('categories', { signal }),
-    loadJson('weekly-budget/periods', { signal }),
-    loadJson('categorization/reviews', { signal }),
-    loadJson('category-suggestions', { signal })
-  ]);
-  if (signal.aborted) return;
-
-  if (connectionsResult.status === 'fulfilled') {
-    renderConnections(connectionsHost, connectionsResult.value?.data);
-  } else {
-    renderError(connectionsHost, connectionsResult.reason);
-  }
-  if (accountsResult.status === 'fulfilled') {
-    renderAccounts(accountsHost, accountsResult.value?.data, canWrite);
-  } else {
-    renderError(accountsHost, accountsResult.reason);
-  }
-  const accounts = accountsResult.status === 'fulfilled' && Array.isArray(accountsResult.value?.data)
-    ? accountsResult.value.data
-    : [];
-  if (weeklyBudgetResult.status === 'fulfilled') {
-    renderWeeklyBudget(
-      weeklyBudgetHost,
-      container.querySelector('[data-weekly-budget-settings]'),
-      weeklyBudgetResult.value?.data,
-      accounts,
-      canWrite
-    );
-  } else {
-    renderError(weeklyBudgetHost, weeklyBudgetResult.reason);
-  }
-  if (categoriesResult.status === 'fulfilled') {
-    renderWeeklyBudgetCategories(categoriesHost, categoriesResult.value?.data, canWrite);
-  } else {
-    renderError(categoriesHost, categoriesResult.reason);
-  }
-  if (periodsResult.status === 'fulfilled') {
-    renderWeeklyBudgetHistory(historyHost, periodsResult.value?.data, canWrite);
-  } else {
-    renderError(historyHost, periodsResult.reason);
-  }
-  if (categorizationReviewsResult.status === 'fulfilled') {
-    renderCategorizationReviews(categorizationHost, categorizationReviewsResult.value?.data);
-  } else {
-    renderError(categorizationHost.querySelector('[data-categorization-reviews]'), categorizationReviewsResult.reason);
-  }
-  if (categorySuggestionsResult.status === 'fulfilled') {
-    renderCategorySuggestions(categorizationHost, categorySuggestionsResult.value?.data, canWrite);
-  } else {
-    renderError(categorizationHost.querySelector('[data-categorization-suggestions]'), categorySuggestionsResult.reason);
-  }
-}
-
 function renderCategorizationReviews(host, reviews) {
   const reviewsHost = host.querySelector('[data-categorization-reviews]');
   reviewsHost.replaceChildren();
@@ -808,7 +741,7 @@ async function decideCategorySuggestion({ container, host, button, action, signa
       signal
     });
     if (signal.aborted) return;
-    await loadOverview(container, signal, true);
+    await loadMainView(container, signal, true);
     const refreshedFeedback = container.querySelector('[data-categorization-feedback]');
     if (refreshedFeedback) {
       refreshedFeedback.textContent = action === 'accept-category-suggestion'
@@ -842,7 +775,7 @@ async function runCategorization({ container, host, button, signal }) {
       applied: data.applied ?? 0,
       review: data.pendingReview ?? 0
     });
-    await loadOverview(container, signal, true);
+    await loadMainView(container, signal, true);
   } catch (error) {
     if (!signal.aborted) feedback.textContent = error instanceof Error
       ? error.message
@@ -897,6 +830,8 @@ function renderWeeklyBudget(host, form, current, accounts, canWrite, recipients 
     `);
     configureGiroCodeShare(host);
   }
+
+  if (!form) return;
 
   fillAccountSelect(
     form.querySelector('[data-weekly-source]'),
@@ -1427,7 +1362,7 @@ async function updateTransactionWeeklyBudget({ container, select, signal }) {
       signal
     });
     select.dataset.currentValue = select.value;
-    await refreshWeeklyBudget(container, signal, true);
+    await reloadTransactionsAndBudget(container, signal);
   } catch {
     select.value = previous;
   } finally {
@@ -1545,9 +1480,6 @@ function renderAccounts(host, accounts, canWrite) {
             </button>
             ${canWrite ? `<button class="btn btn--primary" type="button" data-action="sync-account" data-account-id="${esc(id)}">
               ${esc(localized('syncAccount', 'Synchronize'))}
-            </button>
-            <button class="btn btn--secondary" type="button" data-action="load-merchant-logos" data-account-id="${esc(id)}">
-              ${esc(localized('loadMerchantLogos', 'Load merchant logos'))}
             </button>` : ''}
           </div>
         </div>
@@ -1557,10 +1489,7 @@ function renderAccounts(host, accounts, canWrite) {
             <h4>${esc(localized('balances', 'Balances'))}</h4>
             <div data-account-balances><p class="banking-muted">${esc(localized('notLoaded', 'Not loaded yet.'))}</p></div>
           </div>
-          <div>
-            <h4>${esc(localized('transactions', 'Transactions'))}</h4>
-            <div data-account-transactions><p class="banking-muted">${esc(localized('notLoaded', 'Not loaded yet.'))}</p></div>
-          </div>
+          ${canWrite ? `<div class="banking-account-card__maintenance"><button class="btn btn--secondary" type="button" data-action="load-merchant-logos" data-account-id="${esc(id)}">${esc(localized('loadMerchantLogos', 'Load merchant logos'))}</button></div>` : ''}
         </div>
       </article>
     `);
@@ -1573,40 +1502,24 @@ async function loadAccountDetails({ card, button, signal }) {
   if (!/^\d+$/.test(accountId)) return;
   const feedback = card.querySelector('[data-account-feedback]');
   const balancesHost = card.querySelector('[data-account-balances]');
-  const transactionsHost = card.querySelector('[data-account-transactions]');
   const details = card.querySelector('[data-account-details]');
   button.disabled = true;
   card.setAttribute('aria-busy', 'true');
   feedback.textContent = localized('loadingDetails', 'Loading account details ...');
   try {
-    const [balancesResult, transactionsResult, categoriesResult] = await Promise.allSettled([
-      loadJson(`accounts/${encodeURIComponent(accountId)}/balances`, { signal }),
-      loadJson(`accounts/${encodeURIComponent(accountId)}/transactions`, { signal }),
-      loadJson('categories', { signal })
+    const balancesResult = await Promise.allSettled([
+      loadJson(`accounts/${encodeURIComponent(accountId)}/balances`, { signal })
     ]);
     if (signal.aborted) return;
 
     details.hidden = false;
     if (balancesResult.status === 'fulfilled') renderBalances(balancesHost, balancesResult.value?.data);
     else renderError(balancesHost, balancesResult.reason);
-    if (transactionsResult.status === 'fulfilled') {
-      const categories = categoriesResult.status === 'fulfilled' && Array.isArray(categoriesResult.value?.data)
-        ? categoriesResult.value.data
-        : [];
-      card.bankingCategories = categories;
-      renderTransactions(
-        transactionsHost,
-        transactionsResult.value?.data?.transactions,
-        card.dataset.canWrite === 'true',
-        categories
-      );
-      feedback.textContent = localized('detailsLoaded', 'Account details loaded.');
-    } else {
-      renderError(transactionsHost, transactionsResult.reason);
-      feedback.textContent = transactionsResult.reason instanceof Error
-        ? transactionsResult.reason.message
+    feedback.textContent = balancesResult[0].status === 'fulfilled'
+      ? localized('detailsLoaded', 'Account details loaded.')
+      : balancesResult[0].reason instanceof Error
+        ? balancesResult[0].reason.message
         : localized('detailsFailed', 'Account details could not be loaded.');
-    }
   } catch (error) {
     if (!signal.aborted) feedback.textContent = error instanceof Error
       ? error.message
@@ -1625,7 +1538,6 @@ async function syncAccount({ card, button, signal }) {
   if (!/^\d+$/.test(accountId)) return;
   const feedback = card.querySelector('[data-account-feedback]');
   const balancesHost = card.querySelector('[data-account-balances]');
-  const transactionsHost = card.querySelector('[data-account-transactions]');
   const details = card.querySelector('[data-account-details]');
   button.disabled = true;
   card.setAttribute('aria-busy', 'true');
@@ -1633,14 +1545,13 @@ async function syncAccount({ card, button, signal }) {
   try {
     const csrf = await loadJson('csrf', { signal });
     const csrfToken = typeof csrf?.csrf_token === 'string' ? csrf.csrf_token : '';
-    const [balancesResult, syncResult, categoriesResult] = await Promise.allSettled([
+    const [balancesResult, syncResult] = await Promise.allSettled([
       loadJson(`accounts/${encodeURIComponent(accountId)}/balances`, { signal }),
       loadJson(`accounts/${encodeURIComponent(accountId)}/sync`, {
         method: 'POST',
         headers: { 'x-banking-csrf': csrfToken },
         signal
-      }),
-      loadJson('categories', { signal })
+      })
     ]);
     if (signal.aborted) return;
 
@@ -1649,11 +1560,6 @@ async function syncAccount({ card, button, signal }) {
     else renderError(balancesHost, balancesResult.reason);
     if (syncResult.status === 'fulfilled') {
       const data = syncResult.value?.data;
-      const categories = categoriesResult.status === 'fulfilled' && Array.isArray(categoriesResult.value?.data)
-        ? categoriesResult.value.data
-        : (card.bankingCategories ?? []);
-      card.bankingCategories = categories;
-      renderTransactions(transactionsHost, data?.transactions, card.dataset.canWrite === 'true', categories);
       const imported = data?.imported;
       feedback.textContent = imported
         ? localized('syncComplete', 'Sync complete: {inserted} new, {updated} updated.', {
@@ -1661,8 +1567,8 @@ async function syncAccount({ card, button, signal }) {
             updated: imported.updated ?? 0
           })
         : localized('syncCompleteShort', 'Sync complete.');
+      await reloadTransactionsAndBudget(card.closest('[data-composition]') || document, signal);
     } else {
-      renderError(transactionsHost, syncResult.reason);
       feedback.textContent = syncResult.reason instanceof Error
         ? syncResult.reason.message
         : localized('syncFailed', 'Synchronization failed.');
@@ -1684,7 +1590,6 @@ async function loadMerchantLogos({ card, button, signal }) {
   const accountId = card.dataset.accountId;
   if (!/^\d+$/.test(accountId)) return;
   const feedback = card.querySelector('[data-account-feedback]');
-  const transactionsHost = card.querySelector('[data-account-transactions]');
   button.disabled = true;
   feedback.textContent = localized('loadingMerchantLogos', 'Loading merchant logos ...');
   try {
@@ -1695,16 +1600,9 @@ async function loadMerchantLogos({ card, button, signal }) {
       body: {},
       signal
     });
-    const transactions = await loadJson(`accounts/${encodeURIComponent(accountId)}/transactions`, { signal });
     if (signal.aborted) return;
-    if (transactionsHost) {
-      renderTransactions(
-        transactionsHost,
-        transactions?.data?.transactions,
-        card.dataset.canWrite === 'true',
-        card.bankingCategories ?? []
-      );
-    }
+    const pageContainer = card.closest('[data-composition]') || document;
+    if (pageContainer.bankingTransactionState) await loadTransactionTable({ container: pageContainer, signal });
     const data = result?.data ?? {};
     feedback.textContent = localized('merchantLogosLoaded', '{cached} loaded, {unavailable} unavailable.', {
       cached: data.cached ?? 0,
@@ -1734,7 +1632,137 @@ function renderBalances(host, balances) {
   host.insertAdjacentHTML('beforeend', `<ul class="banking-balance-list">${list}</ul>`);
 }
 
-function renderTransactions(host, transactions, canWrite = false, categories = []) {
+function renderTransactionFilters(host, accounts, categories, state) {
+  const filterHost = host.querySelector('[data-transaction-filters]');
+  const accountOptions = (Array.isArray(accounts) ? accounts : []).map((account) => `<option value="${esc(String(account?.id ?? ''))}" ${String(account?.id ?? '') === state.accountId ? 'selected' : ''}>${esc(account?.display_name || localized('unknownAccount', 'Bank account'))}</option>`).join('');
+  const categoryOptions = (Array.isArray(categories) ? categories : []).filter((category) => category?.active !== false && /^\d+$/.test(String(category?.id ?? ''))).map((category) => `<option value="${esc(String(category.id))}" ${String(category.id) === state.categoryId ? 'selected' : ''}>${esc(category.name || localized('unknownTransaction', 'Category'))}</option>`).join('');
+  filterHost.replaceChildren();
+  filterHost.insertAdjacentHTML('beforeend', `
+    <form class="banking-transaction-filters" data-transaction-filters>
+      <label class="banking-field"><span>${esc(localized('transactionSearch', 'Search'))}</span><input class="form-input" type="search" data-transaction-filter="q" value="${esc(state.q)}" maxlength="200" placeholder="${esc(localized('transactionSearchPlaceholder', 'Merchant, recipient or purpose'))}"></label>
+      <label class="banking-field"><span>${esc(localized('transactionAccount', 'Account'))}</span><select class="form-input" data-transaction-filter="accountId"><option value="">${esc(localized('allAccounts', 'All accounts'))}</option>${accountOptions}</select></label>
+      <label class="banking-field"><span>${esc(localized('transactionCategoryFilter', 'Category'))}</span><select class="form-input" data-transaction-filter="categoryId"><option value="">${esc(localized('allCategories', 'All categories'))}</option>${categoryOptions}</select></label>
+      <label class="banking-field"><span>${esc(localized('transactionDirection', 'Direction'))}</span><select class="form-input" data-transaction-filter="direction"><option value="">${esc(localized('allDirections', 'All'))}</option><option value="incoming" ${state.direction === 'incoming' ? 'selected' : ''}>${esc(localized('incoming', 'Income'))}</option><option value="outgoing" ${state.direction === 'outgoing' ? 'selected' : ''}>${esc(localized('outgoing', 'Expenses'))}</option></select></label>
+      <label class="banking-field"><span>${esc(localized('transactionStatus', 'Status'))}</span><select class="form-input" data-transaction-filter="status"><option value="">${esc(localized('allStatuses', 'All statuses'))}</option><option value="BOOK" ${state.status === 'BOOK' ? 'selected' : ''}>${esc(localized('transactionBooked', 'Booked'))}</option><option value="PDNG" ${state.status === 'PDNG' ? 'selected' : ''}>${esc(localized('transactionPending', 'Pending'))}</option><option value="UNKNOWN" ${state.status === 'UNKNOWN' ? 'selected' : ''}>${esc(localized('transactionStatusUnknown', 'Status unknown'))}</option></select></label>
+      <label class="banking-field"><span>${esc(localized('dateFrom', 'Date from'))}</span><input class="form-input" type="date" data-transaction-filter="dateFrom" value="${esc(state.dateFrom)}"></label>
+      <label class="banking-field"><span>${esc(localized('dateTo', 'Date to'))}</span><input class="form-input" type="date" data-transaction-filter="dateTo" value="${esc(state.dateTo)}"></label>
+      <label class="banking-field banking-field--checkbox"><input type="checkbox" data-transaction-filter="uncategorized" ${state.uncategorized ? 'checked' : ''}><span>${esc(localized('uncategorized', 'Without category'))}</span></label>
+      <div class="banking-transaction-filters__actions"><button class="btn btn--secondary" type="submit">${esc(localized('applyFilters', 'Apply filters'))}</button><button class="btn btn--secondary" type="button" data-action="reset-transaction-filters">${esc(localized('resetFilters', 'Reset filters'))}</button></div>
+    </form>
+  `);
+}
+
+function updateTransactionFilterState(container, source) {
+  const state = container.bankingTransactionState;
+  if (!state) return;
+  const fields = source.matches?.('[data-transaction-filter]') ? [source] : [...source.querySelectorAll('[data-transaction-filter]')];
+  for (const field of fields) {
+    const key = field.dataset.transactionFilter;
+    state[key] = field.type === 'checkbox' ? field.checked : field.value;
+    if (key === 'categoryId' && field.value) state.uncategorized = false;
+    if (key === 'uncategorized' && field.checked) state.categoryId = '';
+  }
+  state.offset = 0;
+}
+
+function resetTransactionFilters(container) {
+  const state = container.bankingTransactionState;
+  Object.assign(state, { q: '', accountId: '', categoryId: '', uncategorized: false, direction: '', status: '', dateFrom: '', dateTo: '', offset: 0 });
+  renderTransactionFilters(container.querySelector('[data-banking-transactions]'), container.bankingTransactionAccounts ?? [], container.bankingTransactionCategories ?? [], state);
+}
+
+function updateTransactionSort(container, sort) {
+  const state = container.bankingTransactionState;
+  if (!['date', 'amount', 'merchant', 'account', 'category', 'status'].includes(sort)) return;
+  if (state.sort === sort) state.order = state.order === 'asc' ? 'desc' : 'asc';
+  else {
+    state.sort = sort;
+    state.order = 'desc';
+  }
+  state.offset = 0;
+}
+
+async function loadTransactionTable({ container, signal, categories = container.bankingTransactionCategories ?? [] }) {
+  const state = container.bankingTransactionState;
+  if (!state) return;
+  container.bankingTransactionCategories = categories;
+  const tableHost = container.querySelector('[data-banking-transactions-table]');
+  const paginationHost = container.querySelector('[data-banking-transactions-pagination]');
+  state.controller?.abort();
+  const controller = new AbortController();
+  state.controller = controller;
+  const requestId = ++state.requestId;
+  signal.addEventListener('abort', () => controller.abort(), { once: true });
+  const params = new URLSearchParams({ sort: state.sort, order: state.order, limit: String(state.limit), offset: String(state.offset) });
+  for (const [key, value] of [['q', state.q], ['account_id', state.accountId], ['category_id', state.categoryId], ['direction', state.direction], ['status', state.status], ['date_from', state.dateFrom], ['date_to', state.dateTo]]) {
+    if (value) params.set(key, value);
+  }
+  if (state.uncategorized) params.set('uncategorized', '1');
+  try {
+    const payload = await loadJson(`transactions?${params.toString()}`, { signal: controller.signal });
+    if (signal.aborted || requestId !== state.requestId) return;
+    renderTransactionTable(tableHost, payload?.data, state, container.dataset.bankingPermission === 'write', categories);
+    renderTransactionPagination(paginationHost, payload?.data?.pagination, state);
+  } catch (error) {
+    if (controller.signal.aborted || signal.aborted || requestId !== state.requestId) return;
+    renderError(tableHost, error);
+    paginationHost.replaceChildren();
+  }
+}
+
+function renderTransactionTable(host, payload, state, canWrite, categories) {
+  const transactions = Array.isArray(payload?.transactions) ? payload.transactions : [];
+  const sortHeader = (key, label) => {
+    const active = state.sort === key;
+    const ariaSort = active ? (state.order === 'asc' ? 'ascending' : 'descending') : 'none';
+    return `<th scope="col" aria-sort="${ariaSort}"><button class="banking-transactions-table__sort" type="button" data-transaction-sort="${esc(key)}">${esc(label)}${active ? ` <span aria-hidden="true">${state.order === 'asc' ? '↑' : '↓'}</span>` : ''}</button></th>`;
+  };
+  const rows = transactions.map((transaction) => {
+    const direction = transaction?.direction === 'outgoing' ? 'outgoing' : 'incoming';
+    const amount = Number(transaction?.amount);
+    const signedAmount = Number.isFinite(amount) ? (direction === 'outgoing' ? -Math.abs(amount) : Math.abs(amount)) : null;
+    const title = transaction?.merchant_name || transaction?.counterparty_name || transaction?.purpose || localized('unknownTransaction', 'Transaction');
+    const merchantKey = typeof transaction?.merchant_key === 'string' && /^[a-z0-9-]{1,40}$/.test(transaction.merchant_key) ? transaction.merchant_key : '';
+    const hasLogo = transaction?.merchant_logo_available === true || Number(transaction?.merchant_logo_available) === 1;
+    const mark = merchantKey && hasLogo ? `<img class="banking-merchant-mark" src="${API_PREFIX}/merchant-logos/${encodeURIComponent(merchantKey)}" alt="">` : `<span class="banking-merchant-mark banking-merchant-mark--fallback" aria-hidden="true">${esc(merchantInitials(String(title)))}</span>`;
+    const categoryId = String(transaction?.category_id ?? '');
+    const transactionId = String(transaction?.id ?? '');
+    const categoryOptions = (Array.isArray(categories) ? categories : []).filter((category) => category?.active !== false && /^\d+$/.test(String(category?.id ?? ''))).map((category) => `<option value="${esc(String(category.id))}" ${String(category.id) === categoryId ? 'selected' : ''}>${esc(category.name || localized('unknownTransaction', 'Category'))}</option>`).join('');
+    const override = ['inherit', 'include', 'exclude'].includes(transaction?.weekly_budget_override) ? transaction.weekly_budget_override : 'inherit';
+    const statusText = { PDNG: localized('transactionPending', 'Pending'), BOOK: localized('transactionBooked', 'Booked'), UNKNOWN: localized('transactionStatusUnknown', 'Status unknown') }[transaction?.status] || localized('transactionStatusUnknown', 'Status unknown');
+    const purpose = transaction?.purpose && transaction.purpose !== title ? transaction.purpose : '';
+    return `<tr>
+      <td>${esc(formatDate(transaction?.booking_date || transaction?.value_date || transaction?.transaction_date) || '–')}</td>
+      <td><div class="banking-transactions-table__merchant"><strong class="banking-merchant">${mark}<span>${esc(String(title))}</span></strong>${purpose ? `<small>${esc(String(purpose))}</small>` : ''}</div></td>
+      <td>${esc(transaction?.account_display_name || localized('unknownAccount', 'Bank account'))}</td>
+      <td><select class="form-input" data-transaction-category-id="${esc(transactionId)}" data-current-category-id="${esc(categoryId)}" ${canWrite && categoryOptions ? '' : 'disabled'}><option value="" ${categoryId ? '' : 'selected'}>${esc(localized('chooseCategory', 'Choose category'))}</option>${categoryOptions}</select></td>
+      <td><select class="form-input" data-weekly-budget-override data-transaction-id="${esc(transactionId)}" data-current-value="${esc(override)}" ${canWrite ? '' : 'disabled'}><option value="inherit" ${override === 'inherit' ? 'selected' : ''}>${esc(localized('weeklyBudgetInherit', 'Use category'))}</option><option value="include" ${override === 'include' ? 'selected' : ''}>${esc(localized('weeklyBudgetInclude', 'Include'))}</option><option value="exclude" ${override === 'exclude' ? 'selected' : ''}>${esc(localized('weeklyBudgetExclude', 'Exclude'))}</option></select></td>
+      <td>${esc(statusText)}</td>
+      <td class="banking-transactions-table__amount" data-direction="${esc(direction)}">${esc(formatMoney(signedAmount, transaction?.currency))}</td>
+    </tr>`;
+  }).join('');
+  host.replaceChildren();
+  host.insertAdjacentHTML('beforeend', `<table class="banking-transactions-table"><thead><tr>${sortHeader('date', localized('transactionDate', 'Date'))}${sortHeader('merchant', localized('transactionMerchant', 'Recipient / merchant'))}${sortHeader('account', localized('transactionAccount', 'Account'))}${sortHeader('category', localized('transactionCategory', 'Category'))}<th scope="col">${esc(localized('weeklyBudgetTransaction', 'Weekly budget'))}</th>${sortHeader('status', localized('transactionStatus', 'Status'))}${sortHeader('amount', localized('transactionAmount', 'Amount'))}</tr></thead><tbody>${rows || `<tr><td class="banking-transactions-table__empty" colspan="7">${esc(localized('noTransactionMatches', 'No transactions found.'))}</td></tr>`}</tbody></table>`);
+}
+
+function renderTransactionPagination(host, pagination, state) {
+  const total = Number(pagination?.total) || 0;
+  const from = total === 0 ? 0 : state.offset + 1;
+  const to = total === 0 ? 0 : Math.min(state.offset + state.limit, total);
+  const hasPrevious = state.offset > 0;
+  const hasNext = to < total;
+  host.replaceChildren();
+  host.insertAdjacentHTML('beforeend', `<div class="banking-transactions-pagination"><span>${esc(localized('paginationSummary', '{from}–{to} of {total}', { from, to, total }))}</span><div><button class="btn btn--secondary" type="button" data-transaction-page="-1" ${hasPrevious ? '' : 'disabled'}>${esc(localized('previousPage', 'Previous'))}</button><button class="btn btn--secondary" type="button" data-transaction-page="1" ${hasNext ? '' : 'disabled'}>${esc(localized('nextPage', 'Next'))}</button></div></div>`);
+}
+
+async function reloadTransactionsAndBudget(container, signal) {
+  await Promise.all([
+    loadTransactionTable({ container, signal }),
+    refreshWeeklyBudget(container, signal, container.dataset.bankingPermission === 'write')
+  ]);
+}
+
+function renderLegacyTransactions(host, transactions, canWrite = false, categories = []) {
   host.replaceChildren();
   if (!Array.isArray(transactions) || transactions.length === 0) {
     host.insertAdjacentHTML('beforeend', `<p class="banking-muted">${esc(localized('noTransactions', 'No transactions returned.'))}</p>`);
@@ -1807,8 +1835,8 @@ async function updateTransactionCategory({ container, select, signal }) {
   const categoryId = Number(select.value);
   if (!/^\d+$/.test(transactionId || '') || !Number.isSafeInteger(categoryId) || categoryId < 1) return;
   const previous = select.dataset.currentCategoryId || '';
-  const card = select.closest('[data-banking-account-card]');
-  const feedback = card?.querySelector('[data-account-feedback]');
+  const host = select.closest('[data-banking-transactions]');
+  const feedback = host?.querySelector('[data-transactions-feedback]');
   select.disabled = true;
   try {
     const csrf = await loadJson('csrf', { signal });
@@ -1819,19 +1847,7 @@ async function updateTransactionCategory({ container, select, signal }) {
       signal
     });
     select.dataset.currentCategoryId = String(categoryId);
-    const accountId = card?.dataset.accountId;
-    const transactionsHost = card?.querySelector('[data-account-transactions]');
-    if (/^\d+$/.test(accountId || '') && transactionsHost) {
-      const transactions = await loadJson(`accounts/${encodeURIComponent(accountId)}/transactions`, { signal });
-      if (!signal.aborted) {
-        renderTransactions(
-          transactionsHost,
-          transactions?.data?.transactions,
-          card.dataset.canWrite === 'true',
-          card.bankingCategories ?? []
-        );
-      }
-    }
+    await reloadTransactionsAndBudget(container, signal);
     await refreshCategorizationReviews(container, signal);
     if (feedback && !signal.aborted) {
       feedback.textContent = result?.data?.counterparty_rule_created

@@ -18,6 +18,7 @@ import { persistAccountBalanceSnapshots } from '../enable-banking/balances.js';
 import { createEncryptionService } from '../security/encryption.js';
 import { maskIban, normalizeIban } from '../services/counterparty.js';
 import { reconcileWeeklyBudgetLifecycle } from '../services/weekly-budget-revisions.js';
+import { listPublicTransactions } from '../services/transactions-query.js';
 import {
   cacheMerchantLogosForAccount,
   MerchantLogoNotFoundError,
@@ -300,7 +301,7 @@ export function createEnableBankingRouter({
       return;
     }
     noStore(response);
-    response.json({ data: { transactions: listPublicTransactions(database, account.id) } });
+    response.json({ data: { transactions: listPublicTransactions(database, user.id, account.id) } });
   });
 
   router.get('/merchant-logos/:merchantKey', async (request, response) => {
@@ -369,7 +370,7 @@ export function createEnableBankingRouter({
         data: {
           pages: result.pages,
           imported: importResult,
-          transactions: listPublicTransactions(database, account.id)
+          transactions: listPublicTransactions(database, user.id, account.id)
         }
       });
     } catch {
@@ -398,36 +399,6 @@ function ownedAccount(
     provider_account_id: string;
     currency: string | null;
   } | undefined;
-}
-
-function listPublicTransactions(database: DatabaseSync, accountId: number): Array<Record<string, unknown>> {
-  const rows = database.prepare(`
-    SELECT transactions.id, transactions.booking_date, transactions.value_date,
-           transactions.transaction_date, transactions.amount_cents,
-           transactions.currency, transactions.direction,
-           transactions.counterparty_name, transactions.purpose,
-           transactions.merchant_name, transactions.merchant_key, transactions.status,
-           transactions.category_id, transactions.category_source,
-           transactions.category_confidence,
-           categories.name AS category_name,
-           CASE WHEN merchant_logos.logo_key IS NULL THEN 0 ELSE 1 END AS merchant_logo_available,
-           transactions.weekly_budget_override,
-           categories.weekly_budget_default AS category_weekly_budget_default
-    FROM transactions
-    LEFT JOIN categories ON categories.id = transactions.category_id
-    LEFT JOIN merchant_logos ON merchant_logos.logo_key = transactions.merchant_key
-    WHERE transactions.account_id = ?
-    ORDER BY COALESCE(transactions.booking_date, transactions.value_date) DESC,
-             transactions.id DESC
-    LIMIT 100
-  `).all(accountId) as Array<Record<string, unknown>>;
-
-  return rows.map(({ amount_cents, ...row }) => ({
-    ...row,
-    // Keep the browser contract display-friendly without persisting or
-    // calculating money as a floating-point value.
-    amount: formatMinorUnits(amount_cents, row.currency)
-  }));
 }
 
 function selectAspsp(aspsps: Aspsp[], country: string, name: string): Aspsp | undefined {
@@ -464,6 +435,7 @@ function providerRedirectUrl(value: string): string {
 
 function redirectToModule(response: Response, status: 'connected' | 'error'): void {
   const url = new URL('/m/banking', `${config.publicOrigin}/`);
+  url.searchParams.set('view', 'settings');
   url.searchParams.set('banking', status);
   response.redirect(303, url.toString());
 }
@@ -689,18 +661,6 @@ async function cleanupProviderSession(client: EnableBankingClient, sessionId: st
   } catch {
     // Provider cleanup is best effort and must never hide the local error.
   }
-}
-
-function formatMinorUnits(value: unknown, currency: unknown): string {
-  const amount = typeof value === 'number' ? value : Number(value);
-  if (!Number.isSafeInteger(amount)) return '';
-  const code = typeof currency === 'string' ? currency.toUpperCase() : '';
-  const minorDigits = code === 'JPY' ? 0 : 2;
-  const negative = amount < 0;
-  const absolute = Math.abs(amount).toString().padStart(minorDigits + 1, '0');
-  if (minorDigits === 0) return `${negative ? '-' : ''}${absolute}`;
-  const split = absolute.length - minorDigits;
-  return `${negative ? '-' : ''}${absolute.slice(0, split)}.${absolute.slice(split)}`;
 }
 
 function bodyString(value: unknown, maxLength: number): string | null {

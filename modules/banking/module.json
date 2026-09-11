@@ -17,7 +17,7 @@
   },
   "page": {
     "composition": "data",
-    "width": "content",
+    "width": "wide",
     "navigation": "standard",
     "responsive": "standard"
   },

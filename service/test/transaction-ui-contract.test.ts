@@ -26,3 +26,10 @@ test('transaction UI exposes the compact-list and safe-detail contract', () => {
   assert.match(source, /data-weekly-budget-override/);
   assert.match(source, /formatTransactionAmount/);
 });
+
+test('transaction UI keeps merchant, counterparty and purpose fallback order', () => {
+  assert.match(
+    source,
+    /transaction\?\.merchant_name \|\| transaction\?\.counterparty_name \|\| transaction\?\.purpose \|\| localized\('unknownTransaction'/
+  );
+});

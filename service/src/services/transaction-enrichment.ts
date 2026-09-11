@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { EnableBankingApiError, type EnableBankingClient } from '../enable-banking/client.js';
 import type { EncryptionService } from '../security/encryption.js';
 import { applyCategoryRulesForAccount } from './category-rules.js';
+import { providerCounterpartyName } from './counterparty.js';
 import { normalizeMerchantsForAccount } from './merchants.js';
 import {
   mergeDetailPayload,
@@ -166,8 +167,7 @@ function persistDetail(database: DatabaseSync, row: Candidate, detail: Record<st
 }
 
 function counterpartyName(detail: Record<string, unknown>, direction: Candidate['direction']): string | null {
-  const party = detail[direction === 'incoming' ? 'debtor' : 'creditor'];
-  return party && typeof party === 'object' ? string((party as Record<string, unknown>).name) : null;
+  return providerCounterpartyName(detail, direction);
 }
 
 function purpose(value: unknown): string | null {

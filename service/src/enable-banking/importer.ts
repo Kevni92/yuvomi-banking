@@ -1,6 +1,11 @@
 import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { counterpartyId, normalizeIban } from '../services/counterparty.js';
+import {
+  backfillCounterpartyNamesFromProviderPayload,
+  counterpartyId,
+  normalizeIban,
+  providerCounterpartyName
+} from '../services/counterparty.js';
 import { applyCategoryRulesForAccount } from '../services/category-rules.js';
 import { normalizeMerchantsForAccount } from '../services/merchants.js';
 import {
@@ -21,10 +26,10 @@ export interface ProviderTransaction {
     amount?: unknown;
     currency?: unknown;
   };
-  creditor?: { name?: unknown };
-  creditor_account?: { iban?: unknown };
-  debtor?: { name?: unknown };
-  debtor_account?: { iban?: unknown };
+  creditor?: { name?: unknown } | null;
+  creditor_account?: { iban?: unknown } | null;
+  debtor?: { name?: unknown } | null;
+  debtor_account?: { iban?: unknown } | null;
   credit_debit_indicator?: unknown;
   booking_date?: unknown;
   value_date?: unknown;
@@ -151,6 +156,14 @@ export function importTransactions({
 
   if (manageTransaction) database.exec('BEGIN IMMEDIATE;');
   try {
+    // Repair legacy rows before replacing their list payload. This preserves a
+    // name that may only exist in an older encrypted payload when the current
+    // provider response omits it.
+    backfillCounterpartyNamesFromProviderPayload({
+      database,
+      accountId,
+      encryption
+    });
     for (const transaction of transactions) {
       const normalized = normalizeTransaction(transaction, hmacSecret, encryption);
       let existing = normalized.entryReference
@@ -207,7 +220,7 @@ export function importTransactions({
           normalized.currency,
           normalized.direction,
           counterpartyRef,
-          normalized.counterparty?.name ?? null,
+          normalized.counterpartyName,
           normalized.purpose,
           normalized.mcc,
           rawPayloadEncrypted,
@@ -235,7 +248,7 @@ export function importTransactions({
           normalized.currency,
           normalized.direction,
           counterpartyRef,
-          normalized.counterparty?.name ?? null,
+          normalized.counterpartyName,
           normalized.purpose,
           normalized.mcc,
           normalized.status,
@@ -254,6 +267,11 @@ export function importTransactions({
       if (existing) result.updated += 1;
       else result.inserted += 1;
     }
+    backfillCounterpartyNamesFromProviderPayload({
+      database,
+      accountId,
+      encryption
+    });
     // Resolve deterministic provider evidence before category rules, so rules
     // can use a merchant discovered from a list payload immediately.
     normalizeMerchantsForAccount(database, accountId, new Date(), encryption);
@@ -286,6 +304,7 @@ interface NormalizedTransaction {
   amountCents: number;
   currency: string;
   direction: 'incoming' | 'outgoing';
+  counterpartyName: string | null;
   counterparty: {
     id: string;
     name: string | null;
@@ -341,11 +360,11 @@ function normalizeTransaction(
     ? { party: transaction.debtor, account: transaction.debtor_account }
     : { party: transaction.creditor, account: transaction.creditor_account };
   const iban = stringValue(counterpartySource.account?.iban);
-  const name = stringValue(counterpartySource.party?.name);
+  const counterpartyName = providerCounterpartyName(transaction, direction);
   const counterparty = iban
     ? {
         id: counterpartyId(iban, hmacSecret),
-        name,
+        name: counterpartyName,
         ibanEncrypted: encryption.encrypt(normalizeIban(iban))
       }
     : null;
@@ -377,6 +396,7 @@ function normalizeTransaction(
     amountCents,
     currency,
     direction,
+    counterpartyName,
     counterparty,
     purpose,
     mcc,
@@ -444,7 +464,7 @@ function fallbackTransactionKey(value: NormalizedTransaction): string {
     value_date: value.valueDate,
     transaction_date: value.transactionDate,
     counterparty_id: value.counterparty?.id ?? null,
-    counterparty_name: normalizeForFingerprint(value.counterparty?.name ?? null),
+    counterparty_name: normalizeForFingerprint(value.counterpartyName),
     purpose: normalizeForFingerprint(value.purpose),
     mcc: value.mcc,
     reference_number: value.referenceNumber,
@@ -491,7 +511,7 @@ function matchesStrongly(
     ? existing.counterparty_id === incoming.counterparty.id
     : normalizeForFingerprint(existing.counterparty_name) !== null
       && normalizeForFingerprint(existing.counterparty_name)
-        === normalizeForFingerprint(incoming.counterparty?.name ?? null);
+        === normalizeForFingerprint(incoming.counterpartyName);
   if (!sameCounterparty) return false;
 
   const existingPurpose = normalizeForFingerprint(existing.purpose);

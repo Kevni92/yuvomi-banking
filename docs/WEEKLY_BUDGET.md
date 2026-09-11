@@ -556,6 +556,12 @@ Das Banking-Frontend registriert den isolierten Worker
 Der Worker zeigt ausschließlich den serverseitig verschlüsselten Payload an und
 öffnet bei Klick die relative Banking-Detail-URL.
 
+Die Empfängerauswahl verbindet im Browser `GET /api/v1/auth/users` mit dem
+geschützten Sidecar-Endpunkt `GET /push/recipients`. Dadurch sind nur bekannte
+Yuvomi-Benutzer mit mindestens einer aktiven Banking-Subscription auswählbar.
+Der Sidecar prüft dieselbe Voraussetzung erneut beim Speichern; eine
+Benutzer-ID aus dem Formular genügt nie.
+
 ### 11.2 Inhalt
 
 Für einen positiven Vorschlag:

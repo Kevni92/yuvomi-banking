@@ -123,8 +123,9 @@ Status: In Arbeit. Scheduler und frische Stichtagsverarbeitung sind umgesetzt;
 die verschlüsselte Subscription-Verwaltung, die idempotente Zustell-Outbox und
 die atomare Einreihung neuer Vorschläge sind vorhanden. VAPID-Versand,
 Outbox-Leasing, Retry, der isolierte Browser-Worker und die explizite
-Subscription-Verwaltung sind umgesetzt. Als Nächstes folgen die Empfängerwahl
-über die öffentliche Yuvomi-Benutzerliste und die optionale QR-Vorschau.
+Subscription-Verwaltung sowie die Empfängerwahl über die öffentliche
+Yuvomi-Benutzerliste sind umgesetzt. Als Nächstes folgt die optionale,
+kurzlebige QR-Vorschau in Benachrichtigungen.
 
 - zwei kontrollierte Bank-Syncs täglich
 - erzwungener frischer Sync beider Konten am Stichtag

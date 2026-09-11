@@ -42,6 +42,10 @@ test('banking page exposes weekly-budget settings and both override controls', (
     "cutoff_time: form.querySelector('[data-weekly-time]').value",
     "loadJson('push/vapid-public-key'",
     "loadJson('push/subscriptions'",
+    "loadJson('push/recipients'",
+    "api.get('/auth/users')",
+    'data-weekly-notifications-enabled',
+    'data-weekly-notification-recipient',
     "navigator.serviceWorker.register('/modules/banking/push-worker.js'",
     "scope: '/modules/banking/'",
     "loadJson('push/test'"
@@ -102,7 +106,9 @@ test('weekly-budget locale keys exist in German and English', () => {
     'merchantLogosLoaded',
     'pushTitle',
     'pushEnable',
-    'pushTestQueued'
+    'pushTestQueued',
+    'weeklyBudgetNotifications',
+    'weeklyBudgetNotificationRecipient'
   ]) {
     assert.ok(german[key], `Missing German locale key ${key}`);
     assert.ok(english[key], `Missing English locale key ${key}`);

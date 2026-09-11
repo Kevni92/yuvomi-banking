@@ -8,6 +8,7 @@ import { migrateDatabase } from '../src/db/database.js';
 import { persistAccountBalanceSnapshots } from '../src/enable-banking/balances.js';
 import { createEncryptionService } from '../src/security/encryption.js';
 import { counterpartyId } from '../src/services/counterparty.js';
+import { upsertPushSubscription } from '../src/services/push-subscriptions.js';
 
 const TEST_KEY = 'cd'.repeat(32);
 const TEST_HMAC = 'weekly-budget-route-hmac-secret';
@@ -229,6 +230,33 @@ test('protects and stores weekly-budget settings without exposing an IBAN', asyn
       body: JSON.stringify(settingsBody())
     });
     assert.equal(denied.status, 403);
+
+    const unreachableRecipient = await fetch(`${origin}/api/extensions/banking/weekly-budget/settings`, {
+      method: 'PUT',
+      headers: mutationHeaders(),
+      body: JSON.stringify({
+        ...settingsBody(), notification_enabled: true, notification_user_id: 7
+      })
+    });
+    assert.equal(unreachableRecipient.status, 400);
+
+    upsertPushSubscription(database, {
+      yuvomiUserId: 7,
+      subscription: {
+        endpoint: 'https://fcm.googleapis.com/fcm/send/settings-recipient',
+        keys: { p256dh: 'settings_p256dh', auth: 'settings_auth' }
+      },
+      now: NOW
+    });
+    const reachableRecipient = await fetch(`${origin}/api/extensions/banking/weekly-budget/settings`, {
+      method: 'PUT',
+      headers: mutationHeaders(),
+      body: JSON.stringify({
+        ...settingsBody(), notification_enabled: true, notification_user_id: 7
+      })
+    });
+    assert.equal(reachableRecipient.status, 200);
+    assert.equal((await reachableRecipient.json()).data.notification_enabled, true);
 
     const saved = await fetch(`${origin}/api/extensions/banking/weekly-budget/settings`, {
       method: 'PUT',

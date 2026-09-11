@@ -6,6 +6,7 @@ import {
 } from '/utils/page-layout.js';
 import { esc } from '/utils/html.js';
 import { t } from '/i18n.js';
+import { api } from '/api.js';
 
 const API_PREFIX = '/api/extensions/banking';
 
@@ -233,6 +234,14 @@ function renderOverviewMarkup() {
         <label class="banking-field">
           <span>${esc(localized('weeklyBudgetSyncTwo', 'Second daily sync'))}</span>
           <input class="form-input" type="time" data-weekly-sync-two required>
+        </label>
+        <label class="banking-field banking-field--checkbox">
+          <input type="checkbox" data-weekly-notifications-enabled>
+          <span>${esc(localized('weeklyBudgetNotifications', 'Send Banking notification'))}</span>
+        </label>
+        <label class="banking-field">
+          <span>${esc(localized('weeklyBudgetNotificationRecipient', 'Notification recipient'))}</span>
+          <select class="form-input" data-weekly-notification-recipient></select>
         </label>
         <div class="banking-weekly-settings__actions">
           <button class="btn btn--primary" type="submit" data-action="save-weekly-budget">
@@ -839,7 +848,7 @@ async function runCategorization({ container, host, button, signal }) {
   }
 }
 
-function renderWeeklyBudget(host, form, current, accounts, canWrite) {
+function renderWeeklyBudget(host, form, current, accounts, canWrite, recipients = [], users = []) {
   host.replaceChildren();
   const configured = current?.configured === true;
   const enabled = configured && current?.enabled !== false;
@@ -907,6 +916,16 @@ function renderWeeklyBudget(host, form, current, accounts, canWrite) {
   form.querySelector('[data-weekly-sync-one]').value = settings?.sync_time_1 ?? '06:00';
   form.querySelector('[data-weekly-sync-two]').value = settings?.sync_time_2 ?? '18:00';
   form.querySelector('[data-weekly-beneficiary]').value = settings?.target_beneficiary_name ?? '';
+  const notificationEnabled = form.querySelector('[data-weekly-notifications-enabled]');
+  const notificationRecipient = form.querySelector('[data-weekly-notification-recipient]');
+  notificationEnabled.checked = settings?.notification_enabled === true;
+  fillPushRecipientSelect(
+    notificationRecipient,
+    recipients,
+    users,
+    settings?.notification_user_id,
+    localized('weeklyBudgetChooseNotificationRecipient', 'Choose a reachable recipient')
+  );
   form.dataset.balanceStaleAfterMinutes = String(settings?.balance_stale_after_minutes ?? 840);
   form.dataset.notificationEnabled = String(settings?.notification_enabled ?? false);
   form.dataset.notificationUserId = settings?.notification_user_id == null
@@ -930,6 +949,23 @@ function renderWeeklyBudget(host, form, current, accounts, canWrite) {
   } else {
     feedback.textContent = '';
   }
+}
+
+function fillPushRecipientSelect(select, recipients, users, selectedId, placeholder) {
+  const namesById = new Map((Array.isArray(users) ? users : []).map((user) => [
+    Number(user?.id), typeof user?.display_name === 'string' ? user.display_name : ''
+  ]));
+  select.replaceChildren(createOption('', placeholder));
+  for (const recipient of Array.isArray(recipients) ? recipients : []) {
+    const id = Number(recipient?.yuvomi_user_id);
+    if (!Number.isSafeInteger(id) || id < 1) continue;
+    const displayName = namesById.get(id) || localized('weeklyBudgetUserFallback', 'Yuvomi user #{id}', { id });
+    const count = Number(recipient?.subscription_count);
+    select.append(createOption(String(id), Number.isSafeInteger(count) && count > 1
+      ? `${displayName} (${count})`
+      : displayName));
+  }
+  select.value = selectedId == null ? '' : String(selectedId);
 }
 
 function weeklyGiroCodeMarkup(suggestion) {
@@ -1266,11 +1302,13 @@ async function refreshWeeklyBudget(container, signal, canWrite = container.datas
   const host = container.querySelector('[data-weekly-budget-current]');
   const categoriesHost = container.querySelector('[data-weekly-budget-categories]');
   const historyHost = container.querySelector('[data-weekly-budget-history]');
-  const [currentResult, accountsResult, categoriesResult, periodsResult] = await Promise.allSettled([
+  const [currentResult, accountsResult, categoriesResult, periodsResult, recipientsResult, usersResult] = await Promise.allSettled([
     loadJson('weekly-budget/current', { signal }),
     loadJson('accounts', { signal }),
     loadJson('categories', { signal }),
-    loadJson('weekly-budget/periods', { signal })
+    loadJson('weekly-budget/periods', { signal }),
+    canWrite ? loadJson('push/recipients', { signal }) : Promise.resolve({ data: [] }),
+    api.get('/auth/users')
   ]);
   if (signal.aborted) return;
   if (currentResult.status === 'fulfilled' && accountsResult.status === 'fulfilled') {
@@ -1280,7 +1318,9 @@ async function refreshWeeklyBudget(container, signal, canWrite = container.datas
       container.querySelector('[data-weekly-budget-settings]'),
       currentResult.value?.data,
       accounts,
-      canWrite
+      canWrite,
+      recipientsResult.status === 'fulfilled' ? recipientsResult.value?.data : [],
+      usersResult.status === 'fulfilled' ? usersResult.value?.data : []
     );
   } else {
     renderError(host, currentResult.status === 'rejected' ? currentResult.reason : accountsResult.reason);
@@ -1325,9 +1365,9 @@ async function saveWeeklyBudgetSettings({ container, form, signal }) {
         sync_time_1: form.querySelector('[data-weekly-sync-one]').value,
         sync_time_2: form.querySelector('[data-weekly-sync-two]').value,
         balance_stale_after_minutes: Number(form.dataset.balanceStaleAfterMinutes || 840),
-        notification_enabled: form.dataset.notificationEnabled === 'true',
-        notification_user_id: form.dataset.notificationUserId
-          ? Number(form.dataset.notificationUserId)
+        notification_enabled: form.querySelector('[data-weekly-notifications-enabled]').checked,
+        notification_user_id: form.querySelector('[data-weekly-notification-recipient]').value
+          ? Number(form.querySelector('[data-weekly-notification-recipient]').value)
           : null,
         notification_qr_preview: form.dataset.notificationQrPreview === 'true',
         purpose_prefix: form.dataset.purposePrefix || 'WB'

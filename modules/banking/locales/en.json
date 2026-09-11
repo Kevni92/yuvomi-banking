@@ -149,6 +149,7 @@
   "weeklyBudgetSaveFailed": "Weekly-budget settings could not be saved.",
   "weeklyBudgetNotifications": "Send Banking notification",
   "weeklyBudgetNotificationRecipient": "Notification recipient",
+  "weeklyBudgetNotificationQrPreview": "Show QR preview in notification",
   "weeklyBudgetChooseNotificationRecipient": "Choose a reachable recipient",
   "weeklyBudgetUserFallback": "Yuvomi user #{id}",
   "weeklyBudgetChooseAccounts": "Choose a source and target account.",

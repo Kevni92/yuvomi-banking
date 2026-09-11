@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { createEncryptionService } from '../security/encryption.js';
 import { formatEuroCents } from './weekly-budget.js';
+import { createGiroCodeImageCapability } from './girocode-image-tokens.js';
 
 export type BankingNotificationType = 'proposal' | 'sync_failed' | 'test';
 
@@ -67,11 +68,16 @@ export function enqueueWeeklyBudgetProposalDeliveries(
   }
 ): number {
   const config = database.prepare(`
-    SELECT notification_enabled, notification_user_id
+    SELECT notification_enabled, notification_user_id, notification_qr_preview,
+           cutoff_weekday, cutoff_time, timezone
     FROM weekly_budget_configs WHERE id = ?
   `).get(input.configId) as {
     notification_enabled: number;
     notification_user_id: number | null;
+    notification_qr_preview: number;
+    cutoff_weekday: number;
+    cutoff_time: string;
+    timezone: string;
   } | undefined;
   if (!config || !config.notification_enabled || !config.notification_user_id) return 0;
   const subscriptions = database.prepare(`
@@ -80,6 +86,15 @@ export function enqueueWeeklyBudgetProposalDeliveries(
     ORDER BY id
   `).all(config.notification_user_id) as Array<{ id: number }>;
   const payload = weeklyBudgetPayload(input);
+  if (config.notification_qr_preview && input.transferAmountCents > 0) {
+    payload.image = createGiroCodeImageCapability(database, {
+      suggestionId: input.suggestionId,
+      cutoffWeekday: Number(config.cutoff_weekday),
+      cutoffTime: String(config.cutoff_time),
+      timezone: String(config.timezone),
+      now: input.now
+    }).imagePath;
+  }
   let queued = 0;
   for (const subscription of subscriptions) {
     const result = enqueuePushDelivery(database, {

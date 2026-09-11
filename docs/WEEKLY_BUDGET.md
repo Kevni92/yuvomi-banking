@@ -562,6 +562,13 @@ Yuvomi-Benutzer mit mindestens einer aktiven Banking-Subscription auswählbar.
 Der Sidecar prüft dieselbe Voraussetzung erneut beim Speichern; eine
 Benutzer-ID aus dem Formular genügt nie.
 
+Die QR-Vorschau bleibt standardmäßig ausgeschaltet und wird in den
+Wochenbudget-Einstellungen separat aktiviert. Ist sie aktiv, erzeugt der
+Sidecar pro Vorschlagsrevision ein Capability-Token mit 256 Bit Zufall. In der
+Datenbank liegt nur dessen SHA-256-Hash; die PNG-Antwort ist `no-store` und
+läuft spätestens am nächsten Stichtag, jedenfalls innerhalb von sieben Tagen,
+ab.
+
 ### 11.2 Inhalt
 
 Für einen positiven Vorschlag:

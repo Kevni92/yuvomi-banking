@@ -11,6 +11,8 @@ import {
 } from '../services/push-subscriptions.js';
 import { enqueuePushDelivery } from '../services/push-outbox.js';
 import { configuredVapidDetails } from '../services/push-delivery-worker.js';
+import { findGiroCodeImageToken } from '../services/girocode-image-tokens.js';
+import { loadWeeklyBudgetGiroCode, renderGiroCodePng } from '../services/girocode.js';
 import {
   mutationIsAllowed,
   noStore,
@@ -28,6 +30,38 @@ export function createPushRouter({
   clock?: () => Date;
 }): express.Router {
   const router = express.Router();
+
+  // Deliberately capability-only: a notification image can be fetched by the
+  // OS without a Yuvomi session, but the random token grants only this PNG.
+  router.get('/push/girocode-images/:token', async (request, response) => {
+    try {
+      const token = findGiroCodeImageToken(database, request.params.token, clock());
+      if (!token) {
+        noStore(response);
+        response.status(404).end();
+        return;
+      }
+      const owner = database.prepare(`
+        SELECT weekly_budget_configs.yuvomi_user_id
+        FROM transfer_suggestions
+        JOIN weekly_budget_periods ON weekly_budget_periods.id = transfer_suggestions.period_id
+        JOIN weekly_budget_configs ON weekly_budget_configs.id = weekly_budget_periods.config_id
+        WHERE transfer_suggestions.id = ?
+      `).get(token.suggestionId) as { yuvomi_user_id: number } | undefined;
+      if (!owner) {
+        noStore(response);
+        response.status(404).end();
+        return;
+      }
+      const giroCode = loadWeeklyBudgetGiroCode(database, Number(owner.yuvomi_user_id), token.suggestionId);
+      const png = await renderGiroCodePng(giroCode.payload);
+      noStore(response);
+      response.type('png').send(png);
+    } catch {
+      noStore(response);
+      response.status(404).end();
+    }
+  });
 
   router.get('/push/vapid-public-key', async (request, response) => {
     const user = await resolveAuthorizedUser(request, response, resolveSession, 'read');

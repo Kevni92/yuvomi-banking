@@ -46,6 +46,7 @@ test('banking page exposes weekly-budget settings and both override controls', (
     "api.get('/auth/users')",
     'data-weekly-notifications-enabled',
     'data-weekly-notification-recipient',
+    'data-weekly-notification-qr-preview',
     "navigator.serviceWorker.register('/modules/banking/push-worker.js'",
     "scope: '/modules/banking/'",
     "loadJson('push/test'"
@@ -108,7 +109,8 @@ test('weekly-budget locale keys exist in German and English', () => {
     'pushEnable',
     'pushTestQueued',
     'weeklyBudgetNotifications',
-    'weeklyBudgetNotificationRecipient'
+    'weeklyBudgetNotificationRecipient',
+    'weeklyBudgetNotificationQrPreview'
   ]) {
     assert.ok(german[key], `Missing German locale key ${key}`);
     assert.ok(english[key], `Missing English locale key ${key}`);

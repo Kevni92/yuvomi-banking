@@ -243,6 +243,10 @@ function renderOverviewMarkup() {
           <span>${esc(localized('weeklyBudgetNotificationRecipient', 'Notification recipient'))}</span>
           <select class="form-input" data-weekly-notification-recipient></select>
         </label>
+        <label class="banking-field banking-field--checkbox">
+          <input type="checkbox" data-weekly-notification-qr-preview>
+          <span>${esc(localized('weeklyBudgetNotificationQrPreview', 'Include QR preview in notification'))}</span>
+        </label>
         <div class="banking-weekly-settings__actions">
           <button class="btn btn--primary" type="submit" data-action="save-weekly-budget">
             ${esc(localized('weeklyBudgetSave', 'Save settings'))}
@@ -919,6 +923,7 @@ function renderWeeklyBudget(host, form, current, accounts, canWrite, recipients 
   const notificationEnabled = form.querySelector('[data-weekly-notifications-enabled]');
   const notificationRecipient = form.querySelector('[data-weekly-notification-recipient]');
   notificationEnabled.checked = settings?.notification_enabled === true;
+  form.querySelector('[data-weekly-notification-qr-preview]').checked = settings?.notification_qr_preview === true;
   fillPushRecipientSelect(
     notificationRecipient,
     recipients,
@@ -1369,7 +1374,7 @@ async function saveWeeklyBudgetSettings({ container, form, signal }) {
         notification_user_id: form.querySelector('[data-weekly-notification-recipient]').value
           ? Number(form.querySelector('[data-weekly-notification-recipient]').value)
           : null,
-        notification_qr_preview: form.dataset.notificationQrPreview === 'true',
+        notification_qr_preview: form.querySelector('[data-weekly-notification-qr-preview]').checked,
         purpose_prefix: form.dataset.purposePrefix || 'WB'
       },
       signal

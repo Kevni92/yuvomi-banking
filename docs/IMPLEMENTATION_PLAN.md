@@ -124,8 +124,9 @@ die verschlüsselte Subscription-Verwaltung, die idempotente Zustell-Outbox und
 die atomare Einreihung neuer Vorschläge sind vorhanden. VAPID-Versand,
 Outbox-Leasing, Retry, der isolierte Browser-Worker und die explizite
 Subscription-Verwaltung sowie die Empfängerwahl über die öffentliche
-Yuvomi-Benutzerliste sind umgesetzt. Als Nächstes folgt die optionale,
-kurzlebige QR-Vorschau in Benachrichtigungen.
+Yuvomi-Benutzerliste und die optionale, kurzlebige QR-Vorschau in
+Benachrichtigungen sind umgesetzt. Als Nächstes folgt die übrige
+Produktionshärtung und das Enable-Banking-E2E.
 
 - zwei kontrollierte Bank-Syncs täglich
 - erzwungener frischer Sync beider Konten am Stichtag

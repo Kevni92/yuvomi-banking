@@ -196,7 +196,8 @@ test('queues one encrypted idempotent push delivery for every active recipient d
   const calls = { value: 0 };
   try {
     database.prepare(`
-      UPDATE weekly_budget_configs SET notification_enabled = 1, notification_user_id = 9
+      UPDATE weekly_budget_configs SET
+        notification_enabled = 1, notification_user_id = 9, notification_qr_preview = 1
       WHERE id = 1
     `).run();
     upsertPushSubscription(database, {
@@ -231,8 +232,17 @@ test('queues one encrypted idempotent push delivery for every active recipient d
       title: 'Wochenbudget: 320,00 EUR überweisen',
       body: '450,00 EUR - 30,00 EUR Direkt - 100,00 EUR N26 = 320,00 EUR',
       url: `/m/banking?view=weekly-transfer&id=${result.suggestionId}`,
-      tag: 'banking-weekly-budget-1-weekly-budget:1:2026-09-13T16:30:00.000Z'
+      tag: 'banking-weekly-budget-1-weekly-budget:1:2026-09-13T16:30:00.000Z',
+      image: (payload.image)
     });
+    assert.match(payload.image, /^\/api\/extensions\/banking\/push\/girocode-images\/[A-Za-z0-9_-]{43}$/);
+    const token = payload.image.split('/').at(-1);
+    const persistedToken = database.prepare(`
+      SELECT token_hash, expires_at FROM girocode_image_tokens
+    `).get() as { token_hash: string; expires_at: string };
+    assert.match(persistedToken.token_hash, /^[a-f0-9]{64}$/);
+    assert.doesNotMatch(persistedToken.token_hash, new RegExp(token));
+    assert.ok(Date.parse(persistedToken.expires_at) <= RUN_TIME.getTime() + 7 * 24 * 60 * 60 * 1_000);
 
     const replay = await runWeeklyBudgetCutoff({
       database, client: successfulClient(calls), configId: 1,

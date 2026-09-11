@@ -12,7 +12,7 @@ const TEST_HMAC = 'weekly-budget-transfer-match-hmac';
 const SOURCE_IBAN = 'DE12500105170648489890';
 const TARGET_IBAN = 'DE89370400440532013000';
 const GENERATED_AT = '2026-09-13T16:31:00.000Z';
-const PURPOSE = 'WB 2026-09-13: 450,00 - 30,00 Direkt - 100,00 N26 = 320,00 EUR';
+const PURPOSE = 'WB 2026-09-13: 450,00 - 30,00 Direkt - 100,00 Budget = 320,00 EUR';
 
 function fixture(): DatabaseSync {
   const database = new DatabaseSync(':memory:');
@@ -28,8 +28,8 @@ function fixture(): DatabaseSync {
       connection_id, provider_account_id, display_name, iban_encrypted,
       currency, created_at, updated_at
     ) VALUES
-      (1, 'source', 'Sparkasse', ?, 'EUR', ?, ?),
-      (1, 'target', 'N26', ?, 'EUR', ?, ?)
+      (1, 'source', 'Main Current Account', ?, 'EUR', ?, ?),
+      (1, 'target', 'Weekly Budget Account', ?, 'EUR', ?, ?)
   `).run(
     encryption.encrypt(SOURCE_IBAN), GENERATED_AT, GENERATED_AT,
     encryption.encrypt(TARGET_IBAN), GENERATED_AT, GENERATED_AT
@@ -38,8 +38,8 @@ function fixture(): DatabaseSync {
     INSERT INTO counterparties (
       counterparty_id, display_name, iban_encrypted, created_at, updated_at
     ) VALUES
-      (?, 'Sparkasse', ?, ?, ?),
-      (?, 'N26', ?, ?, ?)
+      (?, 'Main Current Account', ?, ?, ?),
+      (?, 'Weekly Budget Account', ?, ?, ?)
   `).run(
     counterpartyId(SOURCE_IBAN, TEST_HMAC), encryption.encrypt(SOURCE_IBAN), GENERATED_AT, GENERATED_AT,
     counterpartyId(TARGET_IBAN, TEST_HMAC), encryption.encrypt(TARGET_IBAN), GENERATED_AT, GENERATED_AT

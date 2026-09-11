@@ -98,7 +98,7 @@ function renderMainMarkup() {
         <div class="banking-panel__header">
           <div>
             <h2>${esc(localized('weeklyBudgetTitle', 'Weekly budget'))}</h2>
-            <p class="banking-panel__description">${esc(localized('weeklyBudgetDescription', 'Sparkasse expenses and the current N26 balance determine the next refill.'))}</p>
+            <p class="banking-panel__description">${esc(localized('weeklyBudgetDescription', 'Direct expenses paid from the main account and the current budget-account balance determine the next top-up.'))}</p>
           </div>
           <button class="btn btn--secondary" type="button" data-action="reload-weekly-budget">${esc(localized('reload', 'Reload'))}</button>
         </div>
@@ -174,7 +174,7 @@ function renderSettingsMarkup() {
       </section>
 
       <section class="banking-panel" data-banking-weekly-budget>
-        <div class="banking-panel__header"><div><h2>${esc(localized('weeklyBudgetConfigureTitle', 'Configure weekly budget'))}</h2><p class="banking-panel__description">${esc(localized('weeklyBudgetDescription', 'Sparkasse expenses and the current N26 balance determine the next refill.'))}</p></div></div>
+        <div class="banking-panel__header"><div><h2>${esc(localized('weeklyBudgetConfigureTitle', 'Configure weekly budget'))}</h2><p class="banking-panel__description">${esc(localized('weeklyBudgetDescription', 'Direct expenses paid from the main account and the current budget-account balance determine the next top-up.'))}</p></div></div>
         <div data-weekly-budget-current aria-live="polite"><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
         ${weeklyBudgetSettingsMarkup()}
       </section>
@@ -445,9 +445,11 @@ async function loadMainView(container, signal, canWrite) {
       'Create at least one active Banking category before analyzing transactions.'
     );
   }
-  if (accountsResult.status === 'fulfilled') renderAccounts(accountsHost, accounts, canWrite);
+  const weeklyBudget = weeklyBudgetResult.status === 'fulfilled' ? weeklyBudgetResult.value?.data : null;
+  const weeklyBudgetSettings = weeklyBudget?.configured === true ? weeklyBudget.settings : null;
+  if (accountsResult.status === 'fulfilled') renderAccounts(accountsHost, accounts, canWrite, weeklyBudgetSettings);
   else renderError(accountsHost, accountsResult.reason);
-  if (weeklyBudgetResult.status === 'fulfilled') renderWeeklyBudget(weeklyBudgetHost, null, weeklyBudgetResult.value?.data, accounts, canWrite);
+  if (weeklyBudgetResult.status === 'fulfilled') renderWeeklyBudget(weeklyBudgetHost, null, weeklyBudget, accounts, canWrite);
   else renderError(weeklyBudgetHost, weeklyBudgetResult.reason);
   if (categoriesHost && categoriesResult.status === 'fulfilled') renderWeeklyBudgetCategories(categoriesHost, categories, canWrite);
   else if (categoriesHost) renderError(categoriesHost, categoriesResult.reason);
@@ -983,16 +985,22 @@ function renderWeeklyBudget(host, form, current, accounts, canWrite, recipients 
     host.insertAdjacentHTML('beforeend', `
       <div class="banking-weekly-summary">
         ${weeklySummaryCard(
-          localized('weeklyBudgetAvailable', 'Available on N26'),
+          localized('weeklyBudgetAvailable', 'Available in budget account'),
           formatCents(current?.available_to_spend_cents, settings?.currency),
-          balance?.stale ? localized('weeklyBudgetStale', 'Balance is stale') : formatDateTime(balance?.fetched_at)
+          summaryMeta(
+            settings?.target_account?.display_name,
+            balance?.stale ? localized('weeklyBudgetStale', 'Balance is stale') : formatDateTime(balance?.fetched_at)
+          )
         )}
         ${weeklySummaryCard(
-          localized('weeklyBudgetDirect', 'Sparkasse direct expenses'),
+          localized('weeklyBudgetDirect', 'Direct expenses from main account'),
           formatCents(current?.direct_expense_cents, settings?.currency),
-          localized('weeklyBudgetDirectCount', '{count} included transactions', {
-            count: Array.isArray(current?.direct_expenses) ? current.direct_expenses.length : 0
-          })
+          summaryMeta(
+            settings?.source_account?.display_name,
+            localized('weeklyBudgetDirectCount', '{count} included transactions', {
+              count: Array.isArray(current?.direct_expenses) ? current.direct_expenses.length : 0
+            })
+          )
         )}
         ${weeklySummaryCard(
           localized('weeklyBudgetNextTransfer', 'Current refill calculation'),
@@ -1152,6 +1160,12 @@ async function shareGiroCode(button) {
   } finally {
     button.disabled = false;
   }
+}
+
+function summaryMeta(accountName, detail) {
+  return [accountName, detail]
+    .filter((value) => typeof value === 'string' && value.trim())
+    .join(' · ');
 }
 
 function weeklySummaryCard(label, value, detail) {
@@ -1641,7 +1655,7 @@ function renderConnections(host, connections) {
   }
 }
 
-function renderAccounts(host, accounts, canWrite) {
+function renderAccounts(host, accounts, canWrite, settings = null) {
   host.replaceChildren();
   if (!Array.isArray(accounts) || accounts.length === 0) {
     host.insertAdjacentHTML('beforeend', `<p class="banking-muted">${esc(localized('noAccounts', 'No bank accounts available yet.'))}</p>`);
@@ -1652,11 +1666,16 @@ function renderAccounts(host, accounts, canWrite) {
     const detailsId = `banking-account-details-${id}`;
     const accountName = account?.display_name || localized('unknownAccount', 'Bank account');
     const accountMeta = [account?.iban_masked || account?.account_type, account?.currency].filter(Boolean).join(' · ');
+    const accountRole = settings && Number(account?.id) === Number(settings.source_account?.id)
+      ? localized('accountRoleMain', 'Main account')
+      : settings && Number(account?.id) === Number(settings.target_account?.id)
+        ? localized('accountRoleBudget', 'Budget account')
+        : '';
     host.insertAdjacentHTML('beforeend', `
       <article class="banking-account-card" data-banking-account-card data-account-id="${esc(id)}" data-can-write="${canWrite ? 'true' : 'false'}">
         <div class="banking-account-card__header">
           <div class="banking-account-card__identity">
-            <strong class="banking-account-card__name">${esc(accountName)}</strong>
+            <strong class="banking-account-card__name">${esc(accountName)}${accountRole ? ` <span class="banking-account-card__role">${esc(accountRole)}</span>` : ''}</strong>
             <span class="banking-account-card__meta">${esc(accountMeta)}</span>
           </div>
           <div class="banking-account-card__actions">

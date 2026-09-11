@@ -106,7 +106,7 @@ Stichtagsvorschlag verweist auf genau den verwendeten Snapshot.
 ### Weekly Budget Period
 
 Unveränderlicher Abschluss einer Woche. Enthält Konfigurationssnapshot,
-Periodengrenzen, verwendeten N26-Saldo, Direktausgaben, Ergebnis,
+Periodengrenzen, verwendeten Saldo des Budget-Kontos, Direktausgaben, Ergebnis,
 Algorithmusversion und Jobstatus.
 
 ### Weekly Budget Period Transaction

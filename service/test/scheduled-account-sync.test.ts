@@ -78,7 +78,7 @@ test('a scheduled sync links unique source and target transfer bookings', async 
   config.secrets.dataEncryptionKey = TEST_KEY;
   config.secrets.counterpartyHmac = TEST_HMAC;
   const database = syncFixture();
-  const purpose = 'WB 2026-09-06: 450,00 - 30,00 Direkt - 100,00 N26 = 320,00 EUR';
+  const purpose = 'WB 2026-09-06: 450,00 - 30,00 Direkt - 100,00 Budget = 320,00 EUR';
   database.prepare(`
     INSERT INTO weekly_budget_periods (
       config_id, period_key, period_start_date, period_end_date,
@@ -114,7 +114,7 @@ test('a scheduled sync links unique source and target transfer bookings', async 
         credit_debit_indicator: 'DBIT',
         booking_date: '2026-09-09',
         remittance_information: [purpose],
-        creditor: { name: 'N26' },
+        creditor: { name: 'Weekly Budget Account' },
         creditor_account: { iban: 'DE89370400440532013000' }
       }] : [{
         status: 'BOOK',
@@ -123,7 +123,7 @@ test('a scheduled sync links unique source and target transfer bookings', async 
         credit_debit_indicator: 'CRDT',
         booking_date: '2026-09-09',
         remittance_information: [purpose],
-        debtor: { name: 'Sparkasse' },
+        debtor: { name: 'Main Current Account' },
         debtor_account: { iban: 'DE12500105170648489890' }
       }]
     }),
@@ -290,8 +290,8 @@ function syncFixture(): DatabaseSync {
       connection_id, provider_account_id, display_name, iban_encrypted,
       currency, account_type, created_at, updated_at
     ) VALUES
-      (1, 'source', 'Sparkasse', ?, 'EUR', 'CACC', ?, ?),
-      (1, 'target', 'N26', ?, 'EUR', 'CACC', ?, ?)
+      (1, 'source', 'Main Current Account', ?, 'EUR', 'CACC', ?, ?),
+      (1, 'target', 'Weekly Budget Account', ?, 'EUR', 'CACC', ?, ?)
   `).run(
     encryption.encrypt('DE12500105170648489890'),
     '2026-09-01T00:00:00.000Z',

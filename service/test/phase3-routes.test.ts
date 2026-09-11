@@ -656,7 +656,7 @@ test('normalizes and stores balances while keeping the existing balance response
     INSERT INTO bank_accounts (
       connection_id, provider_account_id, display_name, currency,
       created_at, updated_at
-    ) VALUES (1, 'n26-provider-account', 'N26', 'EUR', '2026-09-10', '2026-09-10')
+    ) VALUES (1, 'budget-provider-account', 'Weekly Budget Account', 'EUR', '2026-09-10', '2026-09-10')
   `).run();
   const providerBalances = [{
     balance_amount: { amount: '100.00', currency: 'EUR' },
@@ -669,7 +669,7 @@ test('normalizes and stores balances while keeping the existing balance response
   }];
   const client = {
     getAccountBalances: async (accountId: string) => {
-      assert.equal(accountId, 'n26-provider-account');
+      assert.equal(accountId, 'budget-provider-account');
       return { balances: providerBalances };
     }
   } as unknown as EnableBankingClient;

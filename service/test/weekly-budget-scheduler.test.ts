@@ -27,8 +27,8 @@ function schedulerFixture(effectiveFromDate = '2026-09-06'): DatabaseSync {
       connection_id, provider_account_id, display_name, iban_encrypted,
       currency, account_type, created_at, updated_at
     ) VALUES
-      (1, 'source', 'Sparkasse', ?, 'EUR', 'CACC', ?, ?),
-      (1, 'target', 'N26', ?, 'EUR', 'CACC', ?, ?)
+      (1, 'source', 'Main Current Account', ?, 'EUR', 'CACC', ?, ?),
+      (1, 'target', 'Weekly Budget Account', ?, 'EUR', 'CACC', ?, ?)
   `).run(
     encryption.encrypt('DE12500105170648489890'),
     RUN_TIME.toISOString(),

@@ -273,8 +273,7 @@ export function recalculateWeeklyBudgetPeriod(
       directExpenseCents: calculation.directExpenseCents,
       targetBalanceCents: calculation.targetBalanceCents,
       transferAmountCents: calculation.transferAmountCents,
-      prefix: period.purpose_prefix ?? 'WB',
-      targetAccountLabel: 'N26'
+      prefix: period.purpose_prefix ?? 'WB'
     });
     const payloadSha256 = payloadFingerprint(period, calculation.transferAmountCents, purpose);
     const revision = latest.revision + 1;

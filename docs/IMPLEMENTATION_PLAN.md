@@ -102,15 +102,15 @@ Adapters dürfen das Wochenbudget nicht beeinträchtigen.
 - Stichtag aus Wochentag, Uhrzeit und Zeitzone
 - Kategorie-Standard und Umsatz-Override mit Vorrang des Umsatzes
 - persistente, normalisierte Saldo-Snapshots
-- relevante Sparkassen-Ausgaben erkennen
-- `Zielbetrag - N26-Saldo - Direktausgaben`
+- relevante Direktausgaben über das Hauptkonto erkennen
+- `Zielbetrag - Budget-Konto-Saldo - Direktausgaben`
 - idempotente Perioden, Vorschlagsrevisionen und Historie
 - aktuelle Wochenbudget-API und Dashboard-Widget
 - Erkennung bereits ausgeführter Transfers auf beiden Konten
 
 ## Phase 9 - GiroCode
 
-- EPC069-12-v3.1-Payload mit validierter N26-IBAN
+- EPC069-12-v3.1-Payload mit validierter Budget-Konto-IBAN
 - Drei-Faktoren-Formel und Periodenschlüssel im Verwendungszweck
 - PNG serverseitig erzeugen
 - Klartext-Zahlungsdaten neben dem QR-Code anzeigen

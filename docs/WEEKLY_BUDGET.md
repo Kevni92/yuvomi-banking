@@ -20,11 +20,11 @@ Yuvomi wird nur für folgende Plattformfunktionen verwendet:
 
 Das Ziel ist ein wöchentlicher, nachvollziehbarer Ablauf:
 
-1. Sparkassen- und N26-Daten werden regulär zweimal täglich synchronisiert.
+1. Daten des Hauptkontos und des Budget-Kontos werden regulär zweimal täglich synchronisiert.
 2. Zum eingestellten Stichtag aus Wochentag und Uhrzeit werden beide Konten
    unmittelbar erneut aktualisiert.
 3. Die gerade abgelaufene Budgetperiode wird historisiert.
-4. Der notwendige Auffüllbetrag für N26 wird berechnet.
+4. Der notwendige Auffüllbetrag für das Budget-Konto wird berechnet.
 5. Für einen positiven Betrag wird ein GiroCode erzeugt.
 6. Ein ausgewählter Yuvomi-Benutzer erhält eine Push-Nachricht mit Betrag,
    Kurzformel und Link zum Überweisungsvorschlag. Soweit die Plattform dies
@@ -34,16 +34,16 @@ Das Ziel ist ein wöchentlicher, nachvollziehbarer Ablauf:
 
 Das Banking-Modul stößt in Version 1 keine Zahlung selbstständig an. Es stellt
 eine vorausgefüllte SEPA-Überweisung als GiroCode bereit; die Freigabe bleibt in
-der Sparkassen-App.
+der Banking-App des Hauptkontos beziehungsweise einer allgemeinen Banking-App.
 
 ## 2. Begriffe
 
 | Begriff | Bedeutung |
 |---|---|
-| Quellkonto | Sparkassen-Girokonto, von dem die Auffüllung und gegebenenfalls direkte Wochenausgaben abgehen |
-| Zielkonto | N26-Konto, dessen Bankguthaben das verfügbare Wochenbudget darstellt |
+| Hauptkonto | Technisches `source_account_id`; Konto, von dem die Auffüllung und gegebenenfalls direkte Wochenausgaben abgehen |
+| Budget-Konto | Technisches `target_account_id`; Konto, dessen Bankguthaben das verfügbare Wochenbudget darstellt |
 | Wochenziel | Gewünschter Zielbetrag, zum Beispiel `450,00 EUR` |
-| Direktausgabe | Für das Wochenbudget relevante Ausgabe, die vom Quellkonto statt vom Zielkonto bezahlt wurde |
+| Direktausgabe | Für das Wochenbudget relevante Ausgabe, die vom Hauptkonto statt vom Budget-Konto bezahlt wurde |
 | Stichtag | Konfigurierter Wochentag plus lokale Uhrzeit, zu der die Periode abgeschlossen und der Vorschlag erzeugt wird |
 | Budgetperiode | Zeitraum zwischen zwei aufeinanderfolgenden Stichtagen |
 | Vorschlag | Unveränderlicher Berechnungsstand mit Betrag, Kurzformel und gegebenenfalls GiroCode |
@@ -63,13 +63,13 @@ der Sparkassen-App.
 ### 3.2 Verfügbares aktuelles Wochenbudget
 
 Der große Wert in der aktuellen Wochenbudget-Übersicht ist der zuletzt
-erfolgreich synchronisierte verwendbare Saldo des N26-Zielkontos.
+erfolgreich synchronisierte verwendbare Saldo des Budget-Kontos.
 
 ```text
-Aktuell noch verfügbar = verwendbarer N26-Saldo
+Aktuell noch verfügbar = verwendbarer Saldo des Budget-Kontos
 ```
 
-Direkte Sparkassen-Ausgaben verändern diesen Hauptwert während der laufenden
+Direkte Ausgaben über das Hauptkonto verändern diesen Hauptwert während der laufenden
 Woche nicht. Sie werden separat als "wird am nächsten Stichtag verrechnet"
 angezeigt und reduzieren den nächsten Auffüllbetrag.
 
@@ -78,8 +78,8 @@ Die Anzeige muss immer enthalten:
 - Betrag und Währung
 - Zeitpunkt der Saldo-Ermittlung
 - Zustand `aktuell`, `veraltet` oder `nicht verfügbar`
-- optional Anzahl und Summe ausstehender (`PDNG`) N26-Umsätze
-- Summe der bisher erkannten relevanten Sparkassen-Direktausgaben der laufenden
+- optional Anzahl und Summe ausstehender (`PDNG`) Budget-Konto-Umsätze
+- Summe der bisher erkannten relevanten Direktausgaben über das Hauptkonto der laufenden
   Periode
 - Datum und Uhrzeit des nächsten Stichtags
 
@@ -230,8 +230,8 @@ gebildet. Er enthält Konfigurations-ID und geplanten Stichtag in UTC, damit auc
 ### 6.1 Eingaben
 
 - `target_cents`: konfiguriertes Wochenziel
-- `target_balance_cents`: beim Stichtags-Sync ermittelter N26-Saldo
-- `direct_expenses_cents`: Summe aller wirksam einbezogenen Sparkassen-Ausgaben
+- `target_balance_cents`: beim Stichtags-Sync ermittelter Saldo des Budget-Kontos
+- `direct_expenses_cents`: Summe aller wirksam einbezogenen Ausgaben über das Hauptkonto
   der abgelaufenen Periode, jeweils als positiver Cent-Betrag
 
 ### 6.2 Formel
@@ -250,13 +250,13 @@ Beispiel:
 
 ```text
 Wochenziel                         450,00 EUR
-aktueller N26-Saldo              -100,00 EUR
-relevante Sparkassen-Ausgaben     -30,00 EUR
+aktueller Saldo des Budget-Kontos -100,00 EUR
+relevante Hauptkonto-Ausgaben     -30,00 EUR
 ------------------------------------------------
 Überweisung                       320,00 EUR
 ```
 
-Ein negativer N26-Saldo erhöht den notwendigen Auffüllbetrag automatisch. Ein
+Ein negativer Saldo des Budget-Kontos erhöht den notwendigen Auffüllbetrag automatisch. Ein
 Saldo über dem Ziel oder sehr hohe Direktausgaben können den Rohbetrag negativ
 machen; dann wird keine negative Überweisung erzeugt. `overfunded_cents` wird in
 der Historie angezeigt, aber in Version 1 nicht automatisch in eine spätere
@@ -284,7 +284,7 @@ Der Stichtagsjob ist eine idempotente Zustandsmaschine.
 6. Prüfen, ob beide Aktualisierungen frisch und erfolgreich sind.
 7. Abgelaufene Periodengrenzen bestimmen.
 8. Geeignete Quellkonto-Umsätze bewerten und als Periodenpositionen snapshotten.
-9. Verwendbaren N26-Saldo snapshotten.
+9. Verwendbaren Saldo des Budget-Kontos snapshotten.
 10. Betrag ausschließlich aus den gespeicherten Snapshots berechnen.
 11. Historische Periode und Revision des Überweisungsvorschlags atomar speichern.
 12. Bei `transfer_cents > 0` GiroCode-Daten validieren und QR-Payload vorbereiten.
@@ -324,11 +324,11 @@ als exakter damaliger Kontostand ausgegeben werden.
 
 ### 7.5 Reguläre Kontosynchronisierung
 
-Die beiden konfigurierten lokalen Abrufzeiten synchronisieren Sparkasse und N26
+Die beiden konfigurierten lokalen Abrufzeiten synchronisieren Hauptkonto und Budget-Konto
 jeweils gemeinsam. Umsätze werden mit einem rollierenden 14-Tage-Fenster
 abgerufen, damit vorgemerkte Buchungen zuverlässig abgeglichen werden; Salden
 werden bei jedem Lauf frisch geladen. Providerdaten beider Konten werden erst
-atomar übernommen, wenn beide Abrufe erfolgreich waren und für N26 ein
+atomar übernommen, wenn beide Abrufe erfolgreich waren und für das Budget-Konto ein
 verwendbarer EUR-Saldo vorliegt.
 
 Jeder Slot besitzt einen eindeutigen Schlüssel, eine zehnminütige Lease und die
@@ -346,7 +346,7 @@ Eine finalisierte Periode speichert mindestens:
 - lokale und UTC-Periodengrenzen
 - Stichtag und tatsächlichen Ausführungszeitpunkt
 - Wochenziel zum Berechnungszeitpunkt
-- N26-Saldo, Saldoart und Beobachtungszeit
+- Saldo des Budget-Kontos, Saldoart und Beobachtungszeit
 - Summe der Direktausgaben
 - jede einbezogene Direktausgabe mit Betrag, Kategorie und Entscheidungsquelle
 - Rohbetrag, Überweisungsbetrag und Überfinanzierung
@@ -382,8 +382,8 @@ Die Historie zeigt je Periode:
 
 - Zeitraum
 - Wochenziel
-- Schlusssaldo N26
-- Direktausgaben Sparkasse
+- Schlusssaldo des Budget-Kontos
+- Direktausgaben über das Hauptkonto
 - vorgeschlagene Überweisung
 - tatsächlich erkannte Überweisung
 - Status (`keine Zahlung`, `vorgeschlagen`, `gesendet`, `angekommen`,
@@ -401,21 +401,21 @@ Berechnungsfaktoren und des Ergebnisses.
 Kanonisches Format:
 
 ```text
-WB 2026-09-14: 450,00 - 30,00 Direkt - 100,00 N26 = 320,00 EUR
+WB 2026-09-14: 450,00 - 30,00 Direkt - 100,00 Budget = 320,00 EUR
 ```
 
 Dabei sind:
 
 - `450,00`: Wochenziel
-- `30,00 Direkt`: relevante Sparkassen-Direktausgaben
-- `100,00 N26`: verwendbarer N26-Saldo
+- `30,00 Direkt`: relevante Direktausgaben über das Hauptkonto
+- `100,00 Budget`: verwendbarer Saldo des Budget-Kontos
 - `320,00 EUR`: Überweisungsvorschlag
 - `2026-09-14`: lokales Stichtagsdatum als kurze Periodenkennung
 
 Für negative Salden wird die Formel mathematisch eindeutig geklammert:
 
 ```text
-WB 2026-09-14: 450,00 - 30,00 Direkt - (-20,00 N26) = 440,00 EUR
+WB 2026-09-14: 450,00 - 30,00 Direkt - (-20,00 Budget) = 440,00 EUR
 ```
 
 Der Text wird serverseitig erzeugt und auf höchstens 140 Zeichen sowie auf das
@@ -452,8 +452,8 @@ BCD
 1
 SCT
 <BIC oder leer>
-<Empfängername des N26-Kontos>
-<N26-IBAN>
+<Empfängername des Budget-Kontos>
+<Budget-Konto-IBAN>
 EUR320.00
 
 
@@ -461,7 +461,7 @@ EUR320.00
 ```
 
 Die BIC wird aufgenommen, wenn sie zuverlässig vorhanden ist; für ein deutsches
-N26-Zielkonto darf sie in Version 2 leer bleiben. IBAN, Name, Betrag und
+Budget-Konto darf sie in Version 2 leer bleiben. IBAN, Name, Betrag und
 Verwendungszweck werden vor Erzeugung separat validiert.
 
 Der Server speichert den vollständigen EPC-Payload nicht unverschlüsselt, weil
@@ -482,14 +482,14 @@ Der Sidecar erzeugt PNG serverseitig ohne externes CDN. Die Detailseite zeigt:
   `Teilen`
 
 Der EPC-Standard verlangt, dass die Zahlungsdaten zusätzlich im Klartext
-sichtbar und vor der Freigabe prüfbar sind. Die Sparkasse beschreibt den
-GiroCode als QR-Code, den der QR-Leser der App Sparkasse scannt und anschließend
-zur TAN-Freigabe vorlegt:
-[Sparkasse GiroCode](https://www.sparkasse.de/pk/produkte/konten-und-karten/banking/ueberweisung/girocode.html).
+sichtbar und vor der Freigabe prüfbar sind. Ein GiroCode kann von einer
+kompatiblen Banking-App als QR-Code gescannt und anschließend zur Freigabe
+vorgelegt werden. Die konkrete Bedienung hängt vom verwendeten Banking-Provider
+und dessen App ab.
 
 Es existiert kein allgemein standardisierter GiroCode-Deep-Link, der auf jedem
-Gerät zuverlässig direkt die Sparkassen-App öffnet. Deshalb darf die UI keine
-garantierte Schaltfläche `In Sparkassen-App öffnen` versprechen. Auf demselben
+Gerät zuverlässig direkt eine bestimmte Banking-App öffnet. Deshalb darf die UI keine
+garantierte Schaltfläche `In Banking-App öffnen` versprechen. Auf demselben
 Smartphone stehen Download/Teilen und gegebenenfalls der Bildimport der
 installierten App zur Verfügung; zuverlässig ist das Scannen von einem zweiten
 Bildschirm.
@@ -575,7 +575,7 @@ Für einen positiven Vorschlag:
 
 ```text
 Titel: Wochenbudget: 320,00 EUR überweisen
-Text:  450,00 EUR - 30,00 EUR Direkt - 100,00 EUR N26 = 320,00 EUR
+Text:  450,00 EUR - 30,00 EUR Direkt - 100,00 EUR Budget-Konto = 320,00 EUR
 Ziel:  /m/banking?view=weekly-transfer&id=<interne-id>
 Tag:   banking-weekly-budget-<config-id>-<period-key>
 ```
@@ -588,14 +588,14 @@ Für einen Nullbetrag:
 
 ```text
 Titel: Wochenbudget: keine Überweisung nötig
-Text:  Ziel und vorhandenes Guthaben decken die neue Woche ab.
+Text:  Wochenziel und Guthaben im Budget-Konto decken die neue Woche ab.
 ```
 
 Für einen endgültig fehlgeschlagenen Sync:
 
 ```text
 Titel: Wochenbudget konnte nicht berechnet werden
-Text:  Sparkasse oder N26 konnte nicht aktuell abgerufen werden.
+Text:  Hauptkonto oder Budget-Konto konnten nicht aktuell abgerufen werden.
 ```
 
 ### 11.3 QR-Bild in der Push-Nachricht
@@ -857,7 +857,7 @@ POST   /push/test
 
 ### 15.1 Wochenbudget-Übersicht
 
-Die Seite und das Widget zeigen zuerst den verfügbaren N26-Saldo. Ergänzend:
+Die Seite und das Widget zeigen zuerst den verfügbaren Saldo des Budget-Kontos. Ergänzend:
 
 - Fortschrittsdarstellung relativ zum Wochenziel
 - `Stand: <Datum/Uhrzeit>` und Sync-Status
@@ -871,7 +871,7 @@ Aktion direkt aus.
 
 ### 15.2 Einstellungen
 
-- Quell- und Zielkonto
+- Hauptkonto und Budget-Konto
 - Wochenziel
 - Wochentag
 - Uhrzeit
@@ -915,7 +915,7 @@ die wirksame Entscheidung vom Umsatz oder von der Kategorie stammt.
 - Push-Vorschauen können Finanzdaten auf dem Sperrbildschirm zeigen und sind
   deshalb Opt-in.
 - GiroCode und Überweisung sind Vorschläge. Vor TAN-Freigabe müssen Betrag,
-  Empfänger und IBAN in der Sparkassen-App geprüft werden.
+  Empfänger und IBAN in der verwendeten Banking-App geprüft werden.
 
 ## 17. Fehlerfälle
 
@@ -923,7 +923,7 @@ die wirksame Entscheidung vom Umsatz oder von der Kategorie stammt.
 |---|---|
 | Consent abgelaufen | kein Vorschlag; Fehlerstatus und Aufforderung zum Re-Consent |
 | nur ein Konto synchronisiert | kein Vorschlag und kein GiroCode |
-| kein verwendbarer N26-Saldo | kein Vorschlag; kein Fallback auf Yuvomi oder alten Saldo |
+| kein verwendbarer Saldo des Budget-Kontos | kein Vorschlag; kein Fallback auf Yuvomi oder alten Saldo |
 | keine relevante Direktausgabe | Abzug `0` |
 | negativer Rohbetrag | Überweisung `0`, Überfinanzierung historisieren |
 | fehlende/ungültige Ziel-IBAN | Berechnung speichern, GiroCode-Erzeugung als Fehler markieren |
@@ -959,22 +959,22 @@ die wirksame Entscheidung vom Umsatz oder von der Kategorie stammt.
 - Push-Subscription wird an serverseitig ermittelten Benutzer gebunden
 - Push an den konfigurierten Benutzer, nicht an den Bearbeiter der Einstellungen
 - abgelaufenes QR-Bild-Token liefert `404` oder `410`
-- erkannte Sparkasse- und N26-Transferseiten aktualisieren den Status
+- erkannte Transferbuchungen von Hauptkonto und Budget-Konto aktualisieren den Status
 
 ### 18.3 End-to-End-Abnahme
 
-1. Sparkasse und N26 sind verbunden.
+1. Hauptkonto und Budget-Konto sind verbunden.
 2. Wochenziel ist `450,00 EUR`.
-3. N26 meldet `100,00 EUR` verwendbaren Saldo.
-4. Ein gebuchter LIDL-Umsatz über `30,00 EUR` auf Sparkasse ist über Umsatz oder
+3. Das Budget-Konto meldet `100,00 EUR` verwendbaren Saldo.
+4. Ein gebuchter LIDL-Umsatz über `30,00 EUR` auf dem Hauptkonto ist über Umsatz oder
    Kategorie dem Wochenbudget zugeordnet.
 5. Zum eingestellten Wochentag und zur eingestellten Uhrzeit erfolgt ein frischer
    Abruf beider Konten.
 6. Genau ein Vorschlag über `320,00 EUR` entsteht.
-7. Der Zweck enthält Ziel, Direktausgaben, N26-Saldo, Ergebnis und Perioden-ID.
+7. Der Zweck enthält Ziel, Direktausgaben, Budget-Konto-Saldo, Ergebnis und Perioden-ID.
 8. Der ausgewählte Benutzer erhält genau eine Push-Nachricht.
 9. Ein Klick öffnet die Detailseite; dort sind QR und Klartext identisch.
-10. Die App Sparkasse kann den GiroCode scannen und füllt Empfänger, IBAN,
+10. Eine kompatible Banking-App kann den GiroCode scannen und füllt Empfänger, IBAN,
     Betrag und Zweck vor; der Benutzer gibt die Zahlung selbst frei.
 11. Ein späterer Bankabruf ordnet die Überweisung eindeutig zu.
 12. Die Periode bleibt vollständig in der Historie sichtbar.

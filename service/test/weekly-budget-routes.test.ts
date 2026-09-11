@@ -56,8 +56,8 @@ function createFixture(): DatabaseSync {
       connection_id, provider_account_id, display_name, iban_encrypted,
       currency, account_type, created_at, updated_at
     ) VALUES
-      (1, 'sparkasse', 'Sparkasse Girokonto', ?, 'EUR', 'CACC', ?, ?),
-      (1, 'n26', 'N26', ?, 'EUR', 'CACC', ?, ?)
+      (1, 'main-provider', 'Main Current Account', ?, 'EUR', 'CACC', ?, ?),
+      (1, 'budget-provider', 'Weekly Budget Account', ?, 'EUR', 'CACC', ?, ?)
   `).run(
     encryption.encrypt(SOURCE_IBAN),
     NOW.toISOString(),
@@ -146,7 +146,7 @@ function seedFinalizedPeriod(database: DatabaseSync): void {
       target_beneficiary_name, target_iban_encrypted, created_at, updated_at
     ) VALUES (
       1, ?, '2026-09-06', '2026-09-13', '2026-09-13T16:30:00.000Z',
-      ?, 'scheduled', 'finalized', 1, 'Sparkasse Girokonto', 2, 'N26',
+      ?, 'scheduled', 'finalized', 1, 'Main Current Account', 2, 'Weekly Budget Account',
       45000, 'EUR', 2, 10000, 3000, 32000, 32000, 0, 'weekly-budget-v1',
       ?, ?, 7, '18:30', 'Europe/Berlin', 'WB', 'Weekly Budget User', ?, ?, ?
     )
@@ -176,7 +176,7 @@ function seedFinalizedPeriod(database: DatabaseSync): void {
       generated_at, created_at, updated_at
     ) VALUES (1, 1, 1, 2, 45000, 10000, 32000, 3000, 32000, 0,
               '2026-09-06', '2026-09-13',
-              'WB 2026-09-13: 450,00 - 30,00 Direkt - 100,00 N26 = 320,00 EUR',
+              'WB 2026-09-13: 450,00 - 30,00 Direkt - 100,00 Budget = 320,00 EUR',
               'weekly-budget-v1', 'proposed', ?, ?, ?)
   `).run(NOW.toISOString(), NOW.toISOString(), NOW.toISOString());
   database.prepare(`
@@ -270,7 +270,7 @@ test('protects and stores weekly-budget settings without exposing an IBAN', asyn
     assert.equal(savedBody.data.effective_from_at, NOW.toISOString());
     assert.deepEqual(savedBody.data.source_account, {
       id: 1,
-      display_name: 'Sparkasse Girokonto'
+      display_name: 'Main Current Account'
     });
     assert.doesNotMatch(JSON.stringify(savedBody), /DE125001|DE893704|iban/i);
 
@@ -344,7 +344,7 @@ test('current overview applies transaction override before category and excludes
   database.prepare(`
     INSERT INTO counterparties (
       counterparty_id, display_name, iban_encrypted, created_at, updated_at
-    ) VALUES (?, 'N26', ?, ?, ?)
+    ) VALUES (?, 'Weekly Budget Account', ?, ?, ?)
   `).run(
     counterpartyId(TARGET_IBAN, TEST_HMAC),
     encryption.encrypt(TARGET_IBAN),
@@ -361,7 +361,7 @@ test('current overview applies transaction override before category and excludes
        'include', 'BOOK', ?, ?),
       (1, 'insurance', '2026-09-09', 5000, 'EUR', 'outgoing', 'Insurance', 2,
        'exclude', 'BOOK', ?, ?),
-      (1, 'internal-transfer', '2026-09-09', 10000, 'EUR', 'outgoing', 'N26', 2,
+      (1, 'internal-transfer', '2026-09-09', 10000, 'EUR', 'outgoing', 'Weekly Budget Account', 2,
        'inherit', 'BOOK', ?, ?)
   `).run(
     NOW.toISOString(), NOW.toISOString(),

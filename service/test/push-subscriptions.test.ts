@@ -96,7 +96,7 @@ test('notification outbox encrypts payloads and deduplicates its idempotency key
       notificationType: 'proposal' as const,
       payload: {
         title: 'Wochenbudget: 320,00 EUR überweisen',
-        body: '450,00 EUR - 30,00 EUR Direkt - 100,00 EUR N26 = 320,00 EUR',
+        body: '450,00 EUR - 30,00 EUR Direkt - 100,00 EUR Budget-Konto = 320,00 EUR',
         url: '/m/banking?view=weekly-transfer&id=12',
         tag: 'banking-weekly-budget-1-weekly-budget-1-2026-09-13'
       },

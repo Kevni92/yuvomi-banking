@@ -166,14 +166,14 @@ function weeklyBudgetPayload(input: {
   if (input.transferAmountCents === 0) {
     return {
       title: 'Wochenbudget: keine Überweisung nötig',
-      body: 'Ziel und vorhandenes Guthaben decken die neue Woche ab.',
+      body: 'Wochenziel und Guthaben im Budget-Konto decken die neue Woche ab.',
       url: `/m/banking?view=weekly-transfer&id=${input.suggestionId}`,
       tag: `banking-weekly-budget-${input.configId}-${input.periodKey}`
     };
   }
   return {
     title: `Wochenbudget: ${transferAmount} EUR überweisen`,
-    body: `${formatEuroCents(input.targetAmountCents)} EUR - ${formatEuroCents(input.directExpenseCents)} EUR Direkt - ${formatEuroCents(input.targetBalanceCents)} EUR N26 = ${transferAmount} EUR`,
+    body: `${formatEuroCents(input.targetAmountCents)} EUR - ${formatEuroCents(input.directExpenseCents)} EUR Direkt - ${formatEuroCents(input.targetBalanceCents)} EUR Budget-Konto = ${transferAmount} EUR`,
     url: `/m/banking?view=weekly-transfer&id=${input.suggestionId}`,
     tag: `banking-weekly-budget-${input.configId}-${input.periodKey}`
   };

@@ -130,6 +130,8 @@ test('weekly-budget locale keys exist in German and English', () => {
     'weeklyBudgetAvailable',
     'weeklyBudgetSource',
     'weeklyBudgetTarget',
+    'accountRoleMain',
+    'accountRoleBudget',
     'weeklyBudgetBeneficiary',
     'weeklyBudgetGiroCode',
     'weeklyBudgetWeekday',
@@ -170,4 +172,14 @@ test('weekly-budget locale keys exist in German and English', () => {
     assert.ok(german[key], `Missing German locale key ${key}`);
     assert.ok(english[key], `Missing English locale key ${key}`);
   }
+});
+
+test('weekly-budget user-facing source stays provider-neutral', () => {
+  const source = [
+    moduleFile('index.js'),
+    moduleFile('locales/de.json'),
+    moduleFile('locales/en.json'),
+    moduleFile('widgets/weekly-budget.js')
+  ].join('\n');
+  assert.doesNotMatch(source, /N26|Sparkasse|Sparkassen/i);
 });

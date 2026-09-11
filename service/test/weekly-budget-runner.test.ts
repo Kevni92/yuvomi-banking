@@ -27,8 +27,8 @@ function fixture(): DatabaseSync {
       connection_id, provider_account_id, display_name, iban_encrypted,
       currency, account_type, created_at, updated_at
     ) VALUES
-      (1, 'sparkasse-provider', 'Sparkasse Girokonto', ?, 'EUR', 'CACC', ?, ?),
-      (1, 'n26-provider', 'N26', ?, 'EUR', 'CACC', ?, ?)
+      (1, 'main-provider', 'Main Current Account', ?, 'EUR', 'CACC', ?, ?),
+      (1, 'budget-provider', 'Weekly Budget Account', ?, 'EUR', 'CACC', ?, ?)
   `).run(
     encryption.encrypt('DE12500105170648489890'),
     RUN_TIME.toISOString(),
@@ -71,7 +71,7 @@ function successfulClient(callCounter: { value: number }): EnableBankingClient {
   return {
     getAllAccountTransactions: async (accountId: string) => {
       callCounter.value += 1;
-      if (accountId === 'sparkasse-provider') {
+      if (accountId === 'main-provider') {
         return {
           pages: 1,
           transactions: [{
@@ -94,7 +94,7 @@ function successfulClient(callCounter: { value: number }): EnableBankingClient {
           }]
         };
       }
-      assert.equal(accountId, 'n26-provider');
+      assert.equal(accountId, 'budget-provider');
       return { pages: 1, transactions: [] };
     },
     getAccountBalances: async (accountId: string) => {
@@ -102,7 +102,7 @@ function successfulClient(callCounter: { value: number }): EnableBankingClient {
       return {
         balances: [{
           balance_amount: {
-            amount: accountId === 'n26-provider' ? '100.00' : '2000.00',
+            amount: accountId === 'budget-provider' ? '100.00' : '2000.00',
             currency: 'EUR'
           },
           balance_type: 'ITAV',
@@ -135,7 +135,7 @@ test('fresh cutoff sync atomically finalizes the 450 - 30 - 100 = 320 period', a
     assert.equal(result.directExpenseCents, 3000);
     assert.equal(result.transferAmountCents, 32000);
     assert.equal(result.status, 'proposed');
-    assert.equal(result.purpose, 'WB 2026-09-13: 450,00 - 30,00 Direkt - 100,00 N26 = 320,00 EUR');
+    assert.equal(result.purpose, 'WB 2026-09-13: 450,00 - 30,00 Direkt - 100,00 Budget = 320,00 EUR');
     assert.equal(result.idempotentReplay, false);
     assert.equal(calls.value, 4);
 
@@ -230,7 +230,7 @@ test('queues one encrypted idempotent push delivery for every active recipient d
     ));
     assert.deepEqual(payload, {
       title: 'Wochenbudget: 320,00 EUR überweisen',
-      body: '450,00 EUR - 30,00 EUR Direkt - 100,00 EUR N26 = 320,00 EUR',
+      body: '450,00 EUR - 30,00 EUR Direkt - 100,00 EUR Budget-Konto = 320,00 EUR',
       url: `/m/banking?view=weekly-transfer&id=${result.suggestionId}`,
       tag: 'banking-weekly-budget-1-weekly-budget:1:2026-09-13T16:30:00.000Z',
       image: (payload.image)
@@ -268,7 +268,7 @@ test('a provider failure creates no snapshots, period, or suggestion', async () 
   const client = {
     getAllAccountTransactions: async () => ({ pages: 1, transactions: [] }),
     getAccountBalances: async (accountId: string) => {
-      if (accountId === 'n26-provider') throw new Error('sensitive provider failure');
+      if (accountId === 'budget-provider') throw new Error('sensitive provider failure');
       return { balances: [{
         balance_amount: { amount: '1.00', currency: 'EUR' },
         balance_type: 'ITAV'
@@ -313,7 +313,7 @@ test('an unusable target balance rolls back imported data and snapshots', async 
   const client = {
     getAllAccountTransactions: async (accountId: string) => ({
       pages: 1,
-      transactions: accountId === 'sparkasse-provider' ? [{
+      transactions: accountId === 'main-provider' ? [{
         status: 'BOOK',
         entry_reference: 'must-roll-back',
         transaction_amount: { amount: '1.00', currency: 'EUR' },
@@ -325,7 +325,7 @@ test('an unusable target balance rolls back imported data and snapshots', async 
     getAccountBalances: async (accountId: string) => ({
       balances: [{
         balance_amount: { amount: '100.00', currency: 'EUR' },
-        balance_type: accountId === 'n26-provider' ? 'OTHR' : 'ITAV'
+        balance_type: accountId === 'budget-provider' ? 'OTHR' : 'ITAV'
       }]
     })
   } as unknown as EnableBankingClient;

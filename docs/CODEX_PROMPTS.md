@@ -131,7 +131,7 @@ Wichtig:
   Yuvomi-Benutzer gebunden
 - Push-Outbox, Retry und idempotente Scheduler-Läufe
 - QR-Bild im Push nur als Opt-in und progressive Erweiterung
-- keine automatische Zahlung; Freigabe bleibt in der Sparkassen-App
+- keine automatische Zahlung; Freigabe bleibt in der verwendeten Banking-App
 
 Implementiere in kleinen, testbaren Teilphasen. Führe nach jeder Teilphase die
 betroffenen Tests und vor Abschluss die vollständige Sidecar-Test-Suite aus.

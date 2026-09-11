@@ -194,8 +194,7 @@ export async function runWeeklyBudgetCutoff({
       directExpenseCents: calculation.directExpenseCents,
       targetBalanceCents: calculation.targetBalanceCents,
       transferAmountCents: calculation.transferAmountCents,
-      prefix: configRow.purpose_prefix,
-      targetAccountLabel: 'N26'
+      prefix: configRow.purpose_prefix
     });
     const beneficiaryName = configRow.target_beneficiary_name
       ?? targetAccount.displayName

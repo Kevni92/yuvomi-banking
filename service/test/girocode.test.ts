@@ -15,7 +15,7 @@ import {
 
 const TEST_KEY = 'ef'.repeat(32);
 const TARGET_IBAN = 'DE89370400440532013000';
-const PURPOSE = 'WB 2026-09-13: 450,00 - 30,00 Direkt - 100,00 N26 = 320,00 EUR';
+const PURPOSE = 'WB 2026-09-13: 450,00 - 30,00 Direkt - 100,00 Budget = 320,00 EUR';
 
 test('builds an EPC069-12 v3.1 version-2 UTF-8 payload', () => {
   const payload = buildEpcQrPayload({
@@ -154,8 +154,8 @@ function giroCodeFixture(): DatabaseSync {
       connection_id, provider_account_id, display_name, iban_encrypted,
       currency, account_type, created_at, updated_at
     ) VALUES
-      (1, 'source', 'Sparkasse', ?, 'EUR', 'CACC', ?, ?),
-      (1, 'target', 'N26', ?, 'EUR', 'CACC', ?, ?)
+      (1, 'source', 'Main Current Account', ?, 'EUR', 'CACC', ?, ?),
+      (1, 'target', 'Weekly Budget Account', ?, 'EUR', 'CACC', ?, ?)
   `).run(
     encryption.encrypt('DE12500105170648489890'),
     now,
@@ -186,7 +186,7 @@ function giroCodeFixture(): DatabaseSync {
       calculation_version, created_at, updated_at
     ) VALUES (1, 'weekly-budget:1:2026-09-13T16:30:00.000Z',
               '2026-09-06', '2026-09-13', ?, ?, 'scheduled', 'finalized',
-              1, 'Sparkasse', 2, 'N26', 'Weekly Budget User', ?,
+              1, 'Main Current Account', 2, 'Weekly Budget Account', 'Weekly Budget User', ?,
               45000, 'EUR', 10000, 3000, 32000, 32000,
               'weekly-budget-v1', ?, ?)
   `).run(now, now, encryptedTargetIban, now, now);

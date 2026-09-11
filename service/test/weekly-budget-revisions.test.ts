@@ -17,7 +17,7 @@ const TEST_HMAC = 'weekly-budget-revision-hmac';
 const NOW = new Date('2026-09-15T10:00:00.000Z');
 const SOURCE_IBAN = 'DE12500105170648489890';
 const TARGET_IBAN = 'DE89370400440532013000';
-const PURPOSE = 'WB 2026-09-14: 450,00 - 30,00 Direkt - 100,00 N26 = 320,00 EUR';
+const PURPOSE = 'WB 2026-09-14: 450,00 - 30,00 Direkt - 100,00 Budget = 320,00 EUR';
 
 function fixture(): DatabaseSync {
   const database = new DatabaseSync(':memory:');
@@ -33,8 +33,8 @@ function fixture(): DatabaseSync {
       connection_id, provider_account_id, display_name, iban_encrypted,
       currency, created_at, updated_at
     ) VALUES
-      (1, 'source', 'Sparkasse', ?, 'EUR', ?, ?),
-      (1, 'target', 'N26', ?, 'EUR', ?, ?)
+      (1, 'source', 'Main Current Account', ?, 'EUR', ?, ?),
+      (1, 'target', 'Weekly Budget Account', ?, 'EUR', ?, ?)
   `).run(
     encryption.encrypt(SOURCE_IBAN), NOW.toISOString(), NOW.toISOString(),
     encryption.encrypt(TARGET_IBAN), NOW.toISOString(), NOW.toISOString()
@@ -66,7 +66,7 @@ function fixture(): DatabaseSync {
       1, 'weekly-budget:1:2026-09-14T16:30:00.000Z',
       '2026-09-07', '2026-09-14', '2026-09-14T16:30:00.000Z',
       '2026-09-14T16:31:00.000Z', 'scheduled', 'finalized',
-      1, 'Sparkasse', 2, 'N26', 45000, 'EUR', 10000, 3000, 32000,
+      1, 'Main Current Account', 2, 'Weekly Budget Account', 45000, 'EUR', 10000, 3000, 32000,
       32000, 0, 'weekly-budget-v1', 7, '18:30', 'Europe/Berlin', 'WB',
       'Weekly Budget User', ?, ?, ?
     )

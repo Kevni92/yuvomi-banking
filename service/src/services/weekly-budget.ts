@@ -178,7 +178,7 @@ export function buildWeeklyBudgetTransferPurpose(input: TransferPurposeInput): s
   if (!/^[A-Za-z0-9]{1,10}$/.test(prefix)) {
     throw new Error('Transfer-purpose prefix must contain 1 to 10 ASCII letters or digits.');
   }
-  const targetLabel = (input.targetAccountLabel ?? 'N26').trim();
+  const targetLabel = (input.targetAccountLabel ?? 'Budget').trim();
   if (!/^[A-Za-z0-9 ._-]{1,20}$/.test(targetLabel)) {
     throw new Error('Target-account label contains unsupported characters.');
   }
@@ -194,8 +194,8 @@ export function buildWeeklyBudgetTransferPurpose(input: TransferPurposeInput): s
   if (canonical.length <= 140) return canonical;
 
   const compactBalanceFactor = input.targetBalanceCents < 0
-    ? `-(${balance}N)`
-    : `-${balance}N`;
+    ? `-(${balance}B)`
+    : `-${balance}B`;
   const compact = `${prefix} ${input.cutoffDate}:${target}-${direct}D${compactBalanceFactor}=${transfer}EUR`;
   if (compact.length > 140) {
     throw new Error('Transfer purpose exceeds the 140-character limit.');

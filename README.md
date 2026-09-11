@@ -9,7 +9,7 @@ Das Projekt integriert Bankkonten über Enable Banking in Yuvomi, ohne Yuvomi Co
 Geplante Kernfunktionen:
 
 - Bankkonten und Umsätze über Enable Banking synchronisieren
-- Sparkasse und N26 über dieselbe Provider-Schicht anbinden
+- Hauptkonto und Budget-Konto über dieselbe provider-neutrale Provider-Schicht anbinden
 - Umsätze lokal in einer eigenen SQLite-Datenbank speichern
 - Gegenkonten stabil über eine HMAC-basierte `counterparty_id` erkennen
 - Kategorien über lokale Regeln und OpenAI-Batch-Klassifizierung zuordnen

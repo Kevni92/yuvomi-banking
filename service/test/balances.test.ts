@@ -94,7 +94,7 @@ test('persists balance batches and returns the latest selected snapshot', () => 
   database.prepare(`
     INSERT INTO bank_accounts (
       connection_id, provider_account_id, currency, created_at, updated_at
-    ) VALUES (1, 'n26', 'EUR', '2026-09-10', '2026-09-10')
+    ) VALUES (1, 'budget-provider', 'EUR', '2026-09-10', '2026-09-10')
   `).run();
 
   const first = persistAccountBalanceSnapshots({
@@ -134,4 +134,3 @@ test('rejects fractional cents instead of rounding financial values', () => {
     balance_type: 'ITAV'
   }]), /unsupported precision/);
 });
-

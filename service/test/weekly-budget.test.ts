@@ -182,7 +182,7 @@ const validExpense: DirectExpenseCandidate = {
   periodEndDate: '2026-09-14'
 };
 
-test('eligible Sparkasse expense is included with a positive cent magnitude', () => {
+test('eligible main-account expense is included with a positive cent magnitude', () => {
   assert.deepEqual(evaluateDirectExpense({ ...validExpense, amountCents: -3000 }), {
     included: true,
     amountCents: 3000,
@@ -262,7 +262,7 @@ test('clamps an overfunded account to zero and records the overfunding', () => {
   });
 });
 
-test('negative N26 balance increases the transfer amount', () => {
+test('negative budget-account balance increases the transfer amount', () => {
   const calculation = calculateWeeklyBudgetTransfer({
     targetAmountCents: 45000,
     directExpenseCents: 3000,
@@ -279,14 +279,14 @@ test('builds the canonical auditable transfer purpose', () => {
     directExpenseCents: 3000,
     targetBalanceCents: 10000,
     transferAmountCents: 32000
-  }), 'WB 2026-09-14: 450,00 - 30,00 Direkt - 100,00 N26 = 320,00 EUR');
+  }), 'WB 2026-09-14: 450,00 - 30,00 Direkt - 100,00 Budget = 320,00 EUR');
   assert.equal(buildWeeklyBudgetTransferPurpose({
     cutoffDate: '2026-09-14',
     targetAmountCents: 45000,
     directExpenseCents: 3000,
     targetBalanceCents: -2000,
     transferAmountCents: 44000
-  }), 'WB 2026-09-14: 450,00 - 30,00 Direkt - (-20,00 N26) = 440,00 EUR');
+  }), 'WB 2026-09-14: 450,00 - 30,00 Direkt - (-20,00 Budget) = 440,00 EUR');
   assert.equal(formatEuroCents(-1), '-0,01');
   assert.throws(() => buildWeeklyBudgetTransferPurpose({
     cutoffDate: '2026-09-14',
@@ -295,4 +295,23 @@ test('builds the canonical auditable transfer purpose', () => {
     targetBalanceCents: 10000,
     transferAmountCents: 31999
   }), /does not match/);
+});
+
+test('uses a neutral default label and supports an explicit neutral label within 140 characters', () => {
+  const input = {
+    cutoffDate: '2026-09-14',
+    targetAmountCents: 45000,
+    directExpenseCents: 3000,
+    targetBalanceCents: 10000,
+    transferAmountCents: 32000
+  };
+  const defaultPurpose = buildWeeklyBudgetTransferPurpose(input);
+  const explicitPurpose = buildWeeklyBudgetTransferPurpose({ ...input, targetAccountLabel: 'Reserve' });
+  assert.match(defaultPurpose, /Budget/);
+  assert.doesNotMatch(defaultPurpose, /N26|Sparkasse/i);
+  assert.match(explicitPurpose, /Reserve/);
+  assert.ok(buildWeeklyBudgetTransferPurpose({
+    ...input,
+    targetAccountLabel: 'B'.repeat(20)
+  }).length <= 140);
 });

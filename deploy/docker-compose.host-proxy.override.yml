@@ -1,0 +1,6 @@
+# Optional override for a host-level Nginx/Caddy reverse proxy instead of a
+# proxy container on PROXY_NETWORK.
+services:
+  banking:
+    ports:
+      - "127.0.0.1:3100:3100"

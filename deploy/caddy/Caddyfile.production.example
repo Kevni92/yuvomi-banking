@@ -1,12 +1,11 @@
-# Caddy runs on the host in this example. If Caddy itself runs in a container,
-# replace 127.0.0.1 with a shared Docker-network service name.
+# Caddy and both upstream containers must share the external proxy network.
 
 yuvomi.example.com {
   handle /api/extensions/banking/* {
-    reverse_proxy 127.0.0.1:3100
+    reverse_proxy yuvomi-banking:3100
   }
 
   handle {
-    reverse_proxy 127.0.0.1:3000
+    reverse_proxy yuvomi:3000
   }
 }

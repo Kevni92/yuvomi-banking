@@ -3,9 +3,9 @@
 Ein Produktions-Compose-Deployment bedeutet hier: Der Banking-Sidecar läuft als
 eigener, aktualisierbarer Container neben dem bestehenden Yuvomi-Container. Die
 Banking-Datenbank liegt in einem eigenen persistenten Volume, sensible Werte
-werden als read-only Docker-Secrets eingebunden und der Sidecar-Port wird nur
-auf `127.0.0.1` des Hosts veröffentlicht. Der Browser erreicht ihn ausschließlich
-über den Reverse Proxy unter derselben Origin wie Yuvomi.
+werden als read-only Docker-Secrets eingebunden und der Sidecar-Port wird nicht
+auf dem Host veröffentlicht. Der Browser erreicht ihn ausschließlich über den
+Reverse Proxy unter derselben Origin wie Yuvomi.
 
 Das Banking-Compose verändert Yuvomi Core nicht und startet absichtlich keinen
 zweiten Yuvomi-Container. Es wird als Erweiterung zum bereits laufenden Yuvomi-
@@ -35,6 +35,8 @@ Voraussetzungen:
 - ein laufender Yuvomi-Compose-Stack
 - ein gemeinsames Docker-Netzwerk mit dem Yuvomi-Container, normalerweise
   `yuvomi_default`
+- ein gemeinsames Docker-Netzwerk mit Caddy, bei deinem Setup
+  `document_automation_proxy`
 - ein Reverse Proxy, der HTTPS für die Yuvomi-Domain terminiert
 
 Im Ordner `deploy`:
@@ -42,17 +44,20 @@ Im Ordner `deploy`:
 ```sh
 cp .env.example .env
 mkdir -p secrets
+mkdir -p secrets/enablebanking
 chmod 700 secrets
+chmod 700 secrets/enablebanking
 openssl rand -hex 32 > secrets/counterparty_hmac_secret
 openssl rand -hex 32 > secrets/data_encryption_key
 chmod 600 secrets/counterparty_hmac_secret secrets/data_encryption_key
 ```
 
-Lege den Enable-Banking-Private-Key als
-`secrets/enablebanking-private.pem` ab und setze ebenfalls restriktive Rechte:
+Der Enable-Banking-Private-Key ist optional. Wenn die Provider-Credentials
+vorliegen, lege ihn als `secrets/enablebanking/enablebanking-private.pem` ab und setze
+restriktive Rechte:
 
 ```sh
-chmod 600 secrets/enablebanking-private.pem
+chmod 600 secrets/enablebanking/enablebanking-private.pem
 ```
 
 Passe danach mindestens `PUBLIC_ORIGIN` in `.env` an. Der Wert muss exakt der
@@ -71,8 +76,12 @@ docker compose -f docker-compose.production.yml ps
 Der lokale Healthcheck ist danach erreichbar unter:
 
 ```sh
-curl http://127.0.0.1:3100/api/extensions/banking/health
+docker inspect --format '{{json .State.Health}}' yuvomi-banking
 ```
+
+Zusätzlich kann der Healthcheck über die öffentliche Origin geprüft werden:
+
+`https://<deine-domain>/api/extensions/banking/health`
 
 Der Sidecar startet auch ohne Enable-Banking-Credentials. In diesem Zustand
 bleiben Bankauswahl und Consent absichtlich deaktiviert beziehungsweise liefern
@@ -96,14 +105,31 @@ werden.
 
 ## Reverse Proxy
 
-Der Proxy muss `/api/extensions/banking/*` an `127.0.0.1:3100` weiterleiten und
-alle anderen Pfade wie bisher an Yuvomi auf `127.0.0.1:3000`.
+Beim vorgesehenen Container-Caddy müssen Caddy, Yuvomi und Banking im selben
+externen Proxy-Netzwerk sein. Caddy leitet `/api/extensions/banking/*` an
+`yuvomi-banking:3100` und alle übrigen Pfade an `yuvomi:3000` weiter.
+
+Falls dein Yuvomi-Container noch nicht im Proxy-Netzwerk hängt, muss der
+Yuvomi-Compose-Stack ebenfalls `document_automation_proxy` beitreten. Der
+Netzwerkname kann in `.env` über `PROXY_NETWORK` angepasst werden.
 
 - Caddy-Vorlage: `caddy/Caddyfile.production.example`
 - Nginx-Vorlage: `nginx-banking-location.example.conf`
 
 Die Enable-Banking-Callback-URL muss exakt dieselbe HTTPS-Origin verwenden wie
 `PUBLIC_ORIGIN`. Den Banking-Port nicht direkt ins Internet veröffentlichen.
+
+Für einen Reverse Proxy auf dem Host statt im Container kann zusätzlich die
+Override-Datei verwendet werden:
+
+```sh
+docker compose \
+  -f docker-compose.production.yml \
+  -f docker-compose.host-proxy.override.yml \
+  up -d --build
+```
+
+Dann gilt die Nginx-Vorlage mit `127.0.0.1:3100`.
 
 ## OpenAI und Push
 

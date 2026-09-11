@@ -18,19 +18,24 @@ services:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN in deploy/.env}
       BANKING_DB_PATH: /var/lib/yuvomi-banking/banking.db
       MERCHANT_LOGO_CACHE_DIR: /var/lib/yuvomi-banking/merchant-logos
-      ENABLE_BANKING_PRIVATE_KEY_PATH: /run/secrets/enablebanking_private_key
+      ENABLE_BANKING_PRIVATE_KEY_PATH: /run/optional-secrets/enablebanking-private.pem
       COUNTERPARTY_HMAC_SECRET_FILE: /run/secrets/counterparty_hmac_secret
       BANKING_DATA_ENCRYPTION_KEY_FILE: /run/secrets/data_encryption_key
-    ports:
-      - "127.0.0.1:${BANKING_HOST_PORT:-3100}:3100"
+    expose:
+      - "3100"
     volumes:
       - banking_data:/var/lib/yuvomi-banking
+      # The Enable Banking key is optional: the container starts without this
+      # file and provider calls remain unavailable until it is supplied.
+      - ./secrets/enablebanking:/run/optional-secrets:ro
     secrets:
-      - enablebanking_private_key
       - counterparty_hmac_secret
       - data_encryption_key
     networks:
-      - yuvomi
+      yuvomi: {}
+      proxy:
+        aliases:
+          - yuvomi-banking
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3100/api/extensions/banking/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
@@ -42,14 +47,15 @@ networks:
   yuvomi:
     external: true
     name: ${YUVOMI_NETWORK:-yuvomi_default}
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-document_automation_proxy}
 
 volumes:
   banking_data:
     name: ${BANKING_DATA_VOLUME:-yuvomi-banking-data}
 
 secrets:
-  enablebanking_private_key:
-    file: ./secrets/enablebanking-private.pem
   counterparty_hmac_secret:
     file: ./secrets/counterparty_hmac_secret
   data_encryption_key:

@@ -9,7 +9,7 @@
 | 3 | Teilweise erledigt | JWT, ASPSP-, Consent-, Callback-, Konto-, Saldo- und lifecycle-sicherer Import-Adapter inklusive Mock- und Migrations-Tests; echte Sandbox-Anmeldedaten und End-to-End-Test offen |
 | 4 | In Arbeit | Bankauswahl, Consent-Start, Verbindungsübersicht, Konten-, Saldo- und Umsatzdarstellung begonnen; vollständige UI offen |
 | 5 | Erledigt | Benutzerbezogene Gegenkonto-Regeln, expliziter pseudonymisierter OpenAI-Batch mit Kategorien-Allowlist, Confidence-Schwelle und Review-Liste; neue Kategorien entstehen erst nach explizitem Annehmen, Vorschläge können verworfen werden |
-| 6 | Offen | Händlernormalisierung und Logos |
+| 6 | Erledigt | Lokale Registry-Normalisierung, serverseitig allowlist-geschützter HTTPS-Fetch ohne Redirects, signatur- und größenbegrenzter lokaler Logo-Cache sowie Initialen-Fallback umgesetzt |
 | 7 | Nicht im Kernumfang | Optionale Yuvomi-Budget-Exportbrücke; keine Abhängigkeit des Wochenbudgets |
 | 8 | In Arbeit | Datenmodell, Berechnungslogik, Saldo-Snapshots, Stichtagsdienst, Settings-/Current-/Historien-API und UI umgesetzt; eindeutige Transfer-Erkennung sowie `late_candidate`-Erkennung laufen nach regulären, manuellen und Stichtags-Syncs. Schreibberechtigte Benutzer können ungematchte Vorschläge verwerfen oder aus Kandidaten eine unveränderlich dokumentierte Revision erzeugen. |
 | 9 | Erledigt | EPC069-12-v3.1-Payload, Empfängersnapshot, SHA-256-Fingerprint, geschützte Metadaten-/PNG-API sowie Anzeige und Download in der Wochenbudget-UI |

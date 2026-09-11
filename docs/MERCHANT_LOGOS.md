@@ -1,49 +1,46 @@
-# Händlerlogos
+# Händlernormalisierung und Logos
 
-## Ziel
+## Lokale Normalisierung
 
-Bei bekannten Unternehmen soll in der Umsatzliste ein Logo erscheinen.
+Das Banking-Sidecar normalisiert nur Händler aus einer fest hinterlegten
+Registry. Unbekannte Gegenparteien, Namen und Verwendungszwecke werden nicht
+als Händler übernommen. Damit werden private Empfänger nicht versehentlich zu
+einer wiedererkennbaren Händleridentität zusammengefasst.
 
-## Architektur
-
-Der Browser darf kein beliebiges externes Logo-CDN direkt ansprechen.
-
-Stattdessen:
-
-1. Händlername normalisieren
-2. lokalen Merchant Registry Eintrag suchen
-3. falls Logo fehlt: serverseitig beschaffen
-4. Datei lokal cachen
-5. Browser lädt nur:
-   `/api/extensions/banking/logos/<logo-key>`
-
-## Merchant Registry
+Die Registry enthält einen stabilen `merchant_key`, einen Anzeigenamen und
+bekannte Schreibweisen. Der Import aktualisiert `transactions.merchant_key` und
+`transactions.merchant_name` ausschließlich bei einem Registry-Treffer.
 
 Beispiele:
 
 ```text
-REWE Markt GmbH -> merchant_key "rewe"
-Netflix.com     -> merchant_key "netflix"
-Shell Deutschland -> merchant_key "shell"
+REWE Markt GmbH         -> merchant_key "rewe"
+Netflix.com             -> merchant_key "netflix"
+LIDL Filiale 123        -> merchant_key "lidl"
+Unbekannte Privatperson -> kein merchant_key
 ```
 
-## Sicherheit
+## Logo-Registry und Cache
 
-Der spätere Fetcher braucht:
+Der Browser lädt niemals ein externes Logo. Fehlt ein lokales Logo, zeigt die
+Umsatzliste Initialen. Ein schreibberechtigter Benutzer kann fehlende Logos
+pro Konto ausdrücklich laden.
 
-- Domain-Allowlist oder streng validierte öffentliche HTTP(S)-Ziele
-- DNS/IP-Prüfung gegen private Netze
-- Redirect-Prüfung
-- Größenlimit
-- Timeout
-- Content-Type-Allowlist
-- SVG zunächst vermeiden
+Der Browser ruft dabei ausschließlich die geschützte lokale Route
+`/api/extensions/banking/merchant-logos/<merchant-key>` auf. Der Ablauf lautet:
 
-## Fallback
+1. Händlername lokal normalisieren
+2. Registry-Eintrag suchen
+3. fehlendes Logo serverseitig laden
+4. Datei lokal cachen
+5. lokales Logo oder Initialen anzeigen
 
-Wenn kein Logo existiert:
+Der Sidecar akzeptiert dabei nur die fest verdrahtete HTTPS-Quelle eines
+Registry-Eintrags. Er akzeptiert keine URL aus Browser, Datenbank oder
+Provider-Payload, folgt keinen Redirects, erlaubt nur PNG/JPEG/WebP/ICO,
+begrenzt die Größe auf 512 KiB und prüft die Dateisignatur. Die Bytes werden
+unter `MERCHANT_LOGO_CACHE_DIR` (standardmäßig `data/merchant-logos`) abgelegt
+und anschließend ausschließlich über die geschützte Sidecar-Route ausgeliefert.
 
-- neutraler Kreis
-- erste 1-2 Buchstaben des normalisierten Händlernamens
-
-Die Umsatzliste darf nicht davon abhängen, dass ein Logo erfolgreich geladen wird.
+Nicht erreichbare oder ungültige Quellen bleiben beim Initialen-Fallback; ein
+Fehler verhindert weder den Import noch die Umsatzanzeige.

@@ -625,11 +625,13 @@ test('returns imported transactions without exposing raw banking payloads', asyn
       counterparty_name: 'Safe Merchant',
       purpose: 'Order 123',
       merchant_name: null,
+      merchant_key: null,
       status: 'UNKNOWN',
       category_id: null,
       category_source: null,
       category_confidence: null,
       category_name: null,
+      merchant_logo_available: 0,
       weekly_budget_override: 'inherit',
       category_weekly_budget_default: null
     });

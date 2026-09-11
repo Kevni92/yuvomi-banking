@@ -25,6 +25,9 @@ test('banking page exposes weekly-budget settings and both override controls', (
     'data-weekly-budget-override',
     'data-transaction-category-id',
     'transactions/${encodeURIComponent(transactionId)}/category',
+    'data-action="load-merchant-logos"',
+    'merchant-logos/refresh',
+    'merchant_logo_available',
     'data-banking-categorization',
     'data-action="run-categorization"',
     'data-categorization-suggestion-id',
@@ -80,7 +83,9 @@ test('weekly-budget locale keys exist in German and English', () => {
     'categorizationRun',
     'categorizationDone',
     'categorizationSuggestionsTitle',
-    'categorizationAcceptSuggestion'
+    'categorizationAcceptSuggestion',
+    'loadMerchantLogos',
+    'merchantLogosLoaded'
   ]) {
     assert.ok(german[key], `Missing German locale key ${key}`);
     assert.ok(english[key], `Missing English locale key ${key}`);

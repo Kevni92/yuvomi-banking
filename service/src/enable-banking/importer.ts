@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { counterpartyId, normalizeIban } from '../services/counterparty.js';
 import { applyCategoryRulesForAccount } from '../services/category-rules.js';
+import { normalizeMerchantsForAccount } from '../services/merchants.js';
 import type { EncryptionService } from '../security/encryption.js';
 
 export type TransactionStatus = 'PDNG' | 'BOOK' | 'UNKNOWN';
@@ -212,6 +213,7 @@ export function importTransactions({
     // Rule application is part of the local import transaction so a newly
     // learned counterparty rule prevents a later OpenAI request immediately.
     applyCategoryRulesForAccount(database, accountId, new Date());
+    normalizeMerchantsForAccount(database, accountId, new Date());
     if (manageTransaction) database.exec('COMMIT;');
   } catch (error) {
     if (manageTransaction) {

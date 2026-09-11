@@ -17,6 +17,7 @@ export const config = {
   yuvomiInternalUrl: optional('YUVOMI_INTERNAL_URL', 'http://127.0.0.1:3000'),
   publicOrigin: optional('PUBLIC_ORIGIN', 'http://localhost:8080'),
   dbPath: path.resolve(optional('BANKING_DB_PATH', '../data/banking.db')),
+  merchantLogoCacheDir: path.resolve(optional('MERCHANT_LOGO_CACHE_DIR', '../data/merchant-logos')),
 
   enableBanking: {
     environment: optional('ENABLE_BANKING_ENV', 'sandbox'),

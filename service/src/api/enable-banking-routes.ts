@@ -19,6 +19,11 @@ import { createEncryptionService } from '../security/encryption.js';
 import { maskIban, normalizeIban } from '../services/counterparty.js';
 import { reconcileWeeklyBudgetLifecycle } from '../services/weekly-budget-revisions.js';
 import {
+  cacheMerchantLogosForAccount,
+  MerchantLogoNotFoundError,
+  readMerchantLogo
+} from '../services/merchant-logos.js';
+import {
   mutationIsAllowed,
   noStore,
   resolveAuthorizedUser,
@@ -298,6 +303,41 @@ export function createEnableBankingRouter({
     response.json({ data: { transactions: listPublicTransactions(database, account.id) } });
   });
 
+  router.get('/merchant-logos/:merchantKey', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'read');
+    if (!user) return;
+    try {
+      const logo = await readMerchantLogo(database, request.params.merchantKey);
+      response.setHeader('Cache-Control', 'private, no-store');
+      response.setHeader('Content-Type', logo.contentType);
+      response.setHeader('X-Content-Type-Options', 'nosniff');
+      response.send(logo.content);
+    } catch (error) {
+      noStore(response);
+      response.status(error instanceof MerchantLogoNotFoundError ? 404 : 500).json({
+        error: 'Merchant logo is unavailable.'
+      });
+    }
+  });
+
+  router.post('/accounts/:accountId/merchant-logos/refresh', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'write');
+    if (!user || !mutationIsAllowed(request, response)) return;
+    const account = ownedAccount(database, request.params.accountId, user.id);
+    if (!account) {
+      response.status(404).json({ error: 'Bank account not found.' });
+      return;
+    }
+    try {
+      const result = await cacheMerchantLogosForAccount(database, account.id);
+      noStore(response);
+      response.json({ data: result });
+    } catch {
+      noStore(response);
+      response.status(500).json({ error: 'Merchant logos could not be loaded.' });
+    }
+  });
+
   router.post('/accounts/:accountId/sync', async (request, response) => {
     const user = await resolveAuthorizedUser(request, response, resolveSession, 'write');
     if (!user || !mutationIsAllowed(request, response)) return;
@@ -366,14 +406,16 @@ function listPublicTransactions(database: DatabaseSync, accountId: number): Arra
            transactions.transaction_date, transactions.amount_cents,
            transactions.currency, transactions.direction,
            transactions.counterparty_name, transactions.purpose,
-           transactions.merchant_name, transactions.status,
+           transactions.merchant_name, transactions.merchant_key, transactions.status,
            transactions.category_id, transactions.category_source,
            transactions.category_confidence,
            categories.name AS category_name,
+           CASE WHEN merchant_logos.logo_key IS NULL THEN 0 ELSE 1 END AS merchant_logo_available,
            transactions.weekly_budget_override,
            categories.weekly_budget_default AS category_weekly_budget_default
     FROM transactions
     LEFT JOIN categories ON categories.id = transactions.category_id
+    LEFT JOIN merchant_logos ON merchant_logos.logo_key = transactions.merchant_key
     WHERE transactions.account_id = ?
     ORDER BY COALESCE(transactions.booking_date, transactions.value_date) DESC,
              transactions.id DESC

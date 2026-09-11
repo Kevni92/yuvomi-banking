@@ -26,13 +26,13 @@ test('opens only the Banking database and applies migrations idempotently', () =
 
   try {
     const inMemory = new DatabaseSync(':memory:');
-    assert.deepEqual(migrateDatabase(inMemory), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    assert.deepEqual(migrateDatabase(inMemory), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
     assert.deepEqual(migrateDatabase(inMemory), []);
     assert.equal(inMemory.prepare('PRAGMA foreign_keys').get()?.foreign_keys, 1);
     const appliedVersions = inMemory
       .prepare('SELECT version FROM schema_migrations ORDER BY version')
       .all() as Array<{ version: number }>;
-    assert.deepEqual(appliedVersions.map((row) => Number(row.version)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    assert.deepEqual(appliedVersions.map((row) => Number(row.version)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
     assert.equal(
       inMemory.prepare(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transactions'"
@@ -172,7 +172,7 @@ test('applies all later migrations to an existing phase-5 database', () => {
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(accountId, 'phase5-transaction', 100, 'EUR', 'outgoing', '2026-01-01', '2026-01-01');
 
-  assert.deepEqual(migrateDatabase(database), [6, 7, 8, 9, 10, 11, 12]);
+  assert.deepEqual(migrateDatabase(database), [6, 7, 8, 9, 10, 11, 12, 13]);
   const transaction = database.prepare(
     'SELECT status, transaction_date FROM transactions'
   ).get() as { status: string; transaction_date: string | null };

@@ -218,6 +218,29 @@
   overflow-wrap: anywhere;
 }
 
+.banking-merchant {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+}
+
+.banking-merchant-mark {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-sm, 10px);
+  object-fit: contain;
+}
+
+.banking-merchant-mark--fallback {
+  display: grid;
+  place-items: center;
+  background: var(--color-surface-3, rgba(0, 0, 0, 0.04));
+  color: var(--color-text-secondary, #6b7280);
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
 .banking-transaction-row__amount {
   white-space: nowrap;
 }

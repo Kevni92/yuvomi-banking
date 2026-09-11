@@ -328,6 +328,8 @@ function configureConnectionForm(container, permission, signal) {
       void loadAccountDetails({ card, button, signal });
     } else if (button.dataset.action === 'sync-account') {
       void syncAccount({ card, button, signal });
+    } else if (button.dataset.action === 'load-merchant-logos') {
+      void loadMerchantLogos({ card, button, signal });
     }
   }, { signal });
 
@@ -1308,6 +1310,9 @@ function renderAccounts(host, accounts, canWrite) {
             </button>
             ${canWrite ? `<button class="btn btn--primary" type="button" data-action="sync-account" data-account-id="${esc(id)}">
               ${esc(localized('syncAccount', 'Synchronize'))}
+            </button>
+            <button class="btn btn--secondary" type="button" data-action="load-merchant-logos" data-account-id="${esc(id)}">
+              ${esc(localized('loadMerchantLogos', 'Load merchant logos'))}
             </button>` : ''}
           </div>
         </div>
@@ -1439,6 +1444,46 @@ async function syncAccount({ card, button, signal }) {
   }
 }
 
+async function loadMerchantLogos({ card, button, signal }) {
+  if (!card) return;
+  const accountId = card.dataset.accountId;
+  if (!/^\d+$/.test(accountId)) return;
+  const feedback = card.querySelector('[data-account-feedback]');
+  const transactionsHost = card.querySelector('[data-account-transactions]');
+  button.disabled = true;
+  feedback.textContent = localized('loadingMerchantLogos', 'Loading merchant logos ...');
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    const result = await loadJson(`accounts/${encodeURIComponent(accountId)}/merchant-logos/refresh`, {
+      method: 'POST',
+      headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body: {},
+      signal
+    });
+    const transactions = await loadJson(`accounts/${encodeURIComponent(accountId)}/transactions`, { signal });
+    if (signal.aborted) return;
+    if (transactionsHost) {
+      renderTransactions(
+        transactionsHost,
+        transactions?.data?.transactions,
+        card.dataset.canWrite === 'true',
+        card.bankingCategories ?? []
+      );
+    }
+    const data = result?.data ?? {};
+    feedback.textContent = localized('merchantLogosLoaded', '{cached} loaded, {unavailable} unavailable.', {
+      cached: data.cached ?? 0,
+      unavailable: data.unavailable ?? 0
+    });
+  } catch (error) {
+    if (!signal.aborted) feedback.textContent = error instanceof Error
+      ? error.message
+      : localized('merchantLogosFailed', 'Merchant logos could not be loaded.');
+  } finally {
+    if (!signal.aborted) button.disabled = false;
+  }
+}
+
 function renderBalances(host, balances) {
   host.replaceChildren();
   if (!Array.isArray(balances) || balances.length === 0) {
@@ -1466,6 +1511,13 @@ function renderTransactions(host, transactions, canWrite = false, categories = [
     const signedAmount = Number.isFinite(amount) ? (direction === 'outgoing' ? -Math.abs(amount) : Math.abs(amount)) : null;
     const currency = transaction?.currency;
     const title = transaction?.merchant_name || transaction?.counterparty_name || transaction?.purpose || localized('unknownTransaction', 'Transaction');
+    const merchantKey = typeof transaction?.merchant_key === 'string' && /^[a-z0-9-]{1,40}$/.test(transaction.merchant_key)
+      ? transaction.merchant_key
+      : '';
+    const hasMerchantLogo = transaction?.merchant_logo_available === true || Number(transaction?.merchant_logo_available) === 1;
+    const merchantMark = merchantKey && hasMerchantLogo
+      ? `<img class="banking-merchant-mark" src="${API_PREFIX}/merchant-logos/${encodeURIComponent(merchantKey)}" alt="">`
+      : `<span class="banking-merchant-mark banking-merchant-mark--fallback" aria-hidden="true">${esc(merchantInitials(String(title)))}</span>`;
     const subtitle = transaction?.purpose && transaction.purpose !== title ? transaction.purpose : '';
     const statusText = {
       PDNG: localized('transactionPending', 'Pending'),
@@ -1484,7 +1536,7 @@ function renderTransactions(host, transactions, canWrite = false, categories = [
     return `
       <li class="banking-transaction-row">
         <div>
-          <strong>${esc(String(title))}</strong>
+          <strong class="banking-merchant">${merchantMark}<span>${esc(String(title))}</span></strong>
           <span>${esc(formatDate(transactionDate) || '')}${subtitle ? ` · ${esc(String(subtitle))}` : ''} · ${esc(statusText)}</span>
           ${/^\d+$/.test(transactionId) ? `<label class="banking-transaction-budget">
             <span>${esc(localized('transactionCategory', 'Category'))}</span>
@@ -1507,6 +1559,12 @@ function renderTransactions(host, transactions, canWrite = false, categories = [
     `;
   }).join('');
   host.insertAdjacentHTML('beforeend', `<ul class="banking-transaction-list">${rows}</ul>`);
+}
+
+function merchantInitials(value) {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  const initials = words.slice(0, 2).map((word) => [...word][0]).join('');
+  return initials.toUpperCase().slice(0, 2) || '?';
 }
 
 async function updateTransactionCategory({ container, select, signal }) {

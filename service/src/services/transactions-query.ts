@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { EncryptionService } from '../security/encryption.js';
 
 export type TransactionSort = 'date' | 'amount' | 'merchant' | 'account' | 'category' | 'status';
 export type TransactionOrder = 'asc' | 'desc';
@@ -50,6 +51,15 @@ export interface TransactionQueryResult {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface TransactionDetail {
+  transaction: Record<string, unknown>;
+  account: Record<string, unknown>;
+  bank: Record<string, unknown>;
+  counterparty: Record<string, unknown> | null;
+  provider_raw_available: boolean;
+  provider_raw: unknown | null;
 }
 
 export class TransactionQueryValidationError extends Error {}
@@ -129,6 +139,129 @@ export function listPublicTransactions(
     limit: 100,
     offset: 0
   }).transactions.map(({ account_display_name: _accountDisplayName, account_id: _accountId, ...transaction }) => transaction);
+}
+
+/**
+ * Returns the complete local representation of one transaction. This is
+ * deliberately separate from the list query: the list never receives IBANs,
+ * encrypted payloads, or provider raw data.
+ */
+export function getTransactionDetail(
+  database: DatabaseSync,
+  userId: number,
+  transactionId: number,
+  encryption: EncryptionService
+): TransactionDetail | null {
+  const row = database.prepare(`
+    SELECT
+      transactions.id, transactions.account_id, transactions.provider_transaction_id,
+      transactions.entry_reference, transactions.transaction_id,
+      transactions.booking_date, transactions.value_date, transactions.transaction_date,
+      transactions.amount_cents, transactions.currency, transactions.direction,
+      transactions.counterparty_name, transactions.purpose, transactions.merchant_name,
+      transactions.merchant_key, transactions.mcc, transactions.status,
+      transactions.category_id, transactions.category_source, transactions.category_confidence,
+      transactions.weekly_budget_override, transactions.yuvomi_budget_entry_id,
+      transactions.created_at, transactions.updated_at, transactions.raw_payload_encrypted,
+      categories.name AS category_name,
+      categories.weekly_budget_default AS category_weekly_budget_default,
+      bank_accounts.display_name AS account_display_name,
+      bank_accounts.currency AS account_currency,
+      bank_accounts.account_type AS account_type,
+      bank_accounts.provider_account_id,
+      bank_accounts.iban_encrypted AS account_iban_encrypted,
+      enable_banking_connections.aspsp_name,
+      enable_banking_connections.aspsp_country,
+      counterparties.counterparty_id,
+      counterparties.display_name AS counterparty_display_name,
+      counterparties.iban_encrypted AS counterparty_iban_encrypted,
+      counterparties.normalized_merchant_name,
+      counterparties.logo_key AS counterparty_logo_key
+    FROM transactions
+    JOIN bank_accounts ON bank_accounts.id = transactions.account_id
+    JOIN enable_banking_connections
+      ON enable_banking_connections.id = bank_accounts.connection_id
+    LEFT JOIN categories ON categories.id = transactions.category_id
+    LEFT JOIN counterparties ON counterparties.id = transactions.counterparty_ref
+    WHERE transactions.id = ? AND enable_banking_connections.yuvomi_user_id = ?
+    LIMIT 1
+  `).get(transactionId, userId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+
+  const amountCents = row.amount_cents;
+  const transaction = {
+    id: row.id,
+    account_id: row.account_id,
+    provider_transaction_id: row.provider_transaction_id,
+    entry_reference: row.entry_reference,
+    transaction_id: row.transaction_id,
+    booking_date: row.booking_date,
+    value_date: row.value_date,
+    transaction_date: row.transaction_date,
+    amount_cents: amountCents,
+    amount: formatMinorUnits(amountCents, row.currency),
+    currency: row.currency,
+    direction: row.direction,
+    counterparty_name: row.counterparty_name,
+    purpose: row.purpose,
+    merchant_name: row.merchant_name,
+    merchant_key: row.merchant_key,
+    mcc: row.mcc,
+    status: row.status,
+    category_id: row.category_id,
+    category_name: row.category_name,
+    category_source: row.category_source,
+    category_confidence: row.category_confidence,
+    weekly_budget_override: row.weekly_budget_override,
+    category_weekly_budget_default: row.category_weekly_budget_default === null
+      ? null : Boolean(row.category_weekly_budget_default),
+    yuvomi_budget_entry_id: row.yuvomi_budget_entry_id,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+  const account = {
+    id: row.account_id,
+    display_name: row.account_display_name,
+    currency: row.account_currency,
+    account_type: row.account_type,
+    provider_account_id: row.provider_account_id,
+    iban: decryptOrNull(row.account_iban_encrypted, encryption)
+  };
+  const counterparty = row.counterparty_id === null ? null : {
+    counterparty_id: row.counterparty_id,
+    display_name: row.counterparty_display_name,
+    iban: decryptOrNull(row.counterparty_iban_encrypted, encryption),
+    normalized_merchant_name: row.normalized_merchant_name,
+    logo_key: row.counterparty_logo_key
+  };
+  const providerRaw = parseProviderRaw(row.raw_payload_encrypted, encryption);
+
+  return {
+    transaction,
+    account,
+    bank: { aspsp_name: row.aspsp_name, aspsp_country: row.aspsp_country },
+    counterparty,
+    provider_raw_available: providerRaw !== null,
+    provider_raw: providerRaw
+  };
+}
+
+function decryptOrNull(value: unknown, encryption: EncryptionService): string | null {
+  if (typeof value !== 'string' || !value) return null;
+  try {
+    return encryption.decrypt(value);
+  } catch {
+    return null;
+  }
+}
+
+function parseProviderRaw(value: unknown, encryption: EncryptionService): unknown | null {
+  if (typeof value !== 'string' || !value) return null;
+  try {
+    return JSON.parse(encryption.decrypt(value));
+  } catch {
+    return null;
+  }
 }
 
 function buildWhere(query: TransactionQuery): { where: string; params: Array<string | number> } {

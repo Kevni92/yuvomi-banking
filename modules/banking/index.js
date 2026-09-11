@@ -231,9 +231,24 @@ function renderTransactionsPanelMarkup() {
     <details class="banking-panel banking-transactions-panel" data-banking-transactions-panel open>
       <summary>${esc(localized('transactions', 'Transactions'))}</summary>
       <div class="banking-transactions-panel__body" data-banking-transactions>
+        <div class="banking-transactions-toolbar">
+          <span class="banking-transactions-count" data-transactions-count>0</span>
+          <div class="banking-transactions-toolbar__actions">
+            <details class="banking-transaction-columns" data-transaction-columns-menu>
+              <summary class="btn btn--secondary">${esc(localized('transactionColumns', 'Columns'))}</summary>
+              <div class="banking-transaction-columns__menu" data-transaction-columns-options></div>
+            </details>
+            <button class="btn btn--secondary banking-transaction-filter-toggle" type="button" data-action="toggle-transaction-filters">${esc(localized('transactionFilters', 'Filters'))}<span data-transaction-filter-count></span></button>
+          </div>
+        </div>
         <div data-transaction-filters></div>
+        <p class="banking-feedback" data-transactions-feedback role="status"></p>
         <div class="banking-transactions-table-wrap" data-banking-transactions-table><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
         <div data-banking-transactions-pagination></div>
+        <dialog class="banking-transaction-dialog" data-banking-transaction-dialog aria-labelledby="banking-transaction-dialog-title">
+          <div class="banking-transaction-dialog__header"><h2 id="banking-transaction-dialog-title">${esc(localized('transactionDetails', 'Transaction details'))}</h2><button class="btn btn--secondary" type="button" data-action="close-transaction-details">${esc(localized('transactionDetailsClose', 'Close'))}</button></div>
+          <div class="banking-transaction-dialog__body" data-banking-transaction-dialog-content></div>
+        </dialog>
       </div>
     </details>
   `;
@@ -292,6 +307,27 @@ function configureMainInteractions(container, permission, signal) {
     if (button.dataset.action === 'load-merchant-logos') void loadMerchantLogos({ container, card, button, signal });
   }, { signal });
   transactionsHost.addEventListener('change', (event) => {
+    const column = event.target.closest('[data-transaction-column-toggle]');
+    if (column) {
+      const key = column.dataset.transactionColumnToggle;
+      if (key in container.bankingTransactionState.columns) {
+        container.bankingTransactionState.columns[key] = column.checked;
+        persistTransactionColumns(container.bankingTransactionState.columns);
+        renderTransactionFilters(transactionsHost, container.bankingTransactionAccounts ?? [], container.bankingTransactionCategories ?? [], container.bankingTransactionState);
+        void loadTransactionTable({ container, signal });
+      }
+      return;
+    }
+    const pageSize = event.target.closest('[data-transaction-page-size]');
+    if (pageSize) {
+      const limit = Number(pageSize.value);
+      if ([10, 25, 50, 100].includes(limit)) {
+        container.bankingTransactionState.limit = limit;
+        container.bankingTransactionState.offset = 0;
+        void loadTransactionTable({ container, signal });
+      }
+      return;
+    }
     const filter = event.target.closest('[data-transaction-filter]');
     if (filter) {
       updateTransactionFilterState(container, filter);
@@ -323,6 +359,22 @@ function configureMainInteractions(container, permission, signal) {
     }, 250);
   }, { signal });
   transactionsHost.addEventListener('click', (event) => {
+    if (event.target.closest('[data-action="toggle-transaction-filters"]')) {
+      const state = container.bankingTransactionState;
+      state.filtersOpen = !state.filtersOpen;
+      persistTransactionFilterPanel(state.filtersOpen);
+      renderTransactionFilters(transactionsHost, container.bankingTransactionAccounts ?? [], container.bankingTransactionCategories ?? [], state);
+      return;
+    }
+    if (event.target.closest('[data-action="close-transaction-details"]')) {
+      container.querySelector('[data-banking-transaction-dialog]')?.close();
+      return;
+    }
+    const detailButton = event.target.closest('[data-action="transaction-details"]');
+    if (detailButton) {
+      void openTransactionDetail({ container, transactionId: detailButton.dataset.transactionId, signal });
+      return;
+    }
     const sortButton = event.target.closest('[data-transaction-sort]');
     if (sortButton) {
       updateTransactionSort(container, sortButton.dataset.transactionSort);
@@ -332,13 +384,27 @@ function configureMainInteractions(container, permission, signal) {
     const pageButton = event.target.closest('[data-transaction-page]');
     if (pageButton && !pageButton.disabled) {
       const state = container.bankingTransactionState;
-      state.offset = Math.max(0, state.offset + Number(pageButton.dataset.transactionPage) * state.limit);
+      const page = Number(pageButton.dataset.transactionPage);
+      state.offset = page < 1
+        ? Math.max(0, state.offset + page * state.limit)
+        : Math.max(0, (page - 1) * state.limit);
       void loadTransactionTable({ container, signal });
       return;
     }
     if (event.target.closest('[data-action="reset-transaction-filters"]')) {
       resetTransactionFilters(container);
       void loadTransactionTable({ container, signal });
+    }
+    const row = event.target.closest('[data-transaction-row]');
+    if (row && !event.target.closest('select,input,button,a,label')) {
+      void openTransactionDetail({ container, transactionId: row.dataset.transactionId, signal });
+    }
+  }, { signal });
+  transactionsHost.addEventListener('keydown', (event) => {
+    const row = event.target.closest('[data-transaction-row]');
+    if (row && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      void openTransactionDetail({ container, transactionId: row.dataset.transactionId, signal });
     }
   }, { signal });
   transactionsPanel.addEventListener('toggle', () => {
@@ -735,7 +801,11 @@ async function saveOpenAiSettings({ container, form, signal }) {
 }
 
 function createTransactionState() {
-  return { q: '', accountId: '', categoryId: '', uncategorized: false, direction: '', status: '', dateFrom: '', dateTo: '', sort: 'date', order: 'desc', limit: 50, offset: 0, requestId: 0, controller: null };
+  return {
+    q: '', accountId: '', categoryId: '', uncategorized: false, direction: '', status: '', dateFrom: '', dateTo: '',
+    sort: 'date', order: 'desc', limit: 25, offset: 0, requestId: 0, controller: null,
+    filtersOpen: readTransactionFilterPanel(), columns: readTransactionColumns()
+  };
 }
 
 async function loadBankingPushPanel(container, signal, canWrite) {
@@ -1962,20 +2032,63 @@ function renderTransactionFilters(host, accounts, categories, state) {
   const filterHost = host.querySelector('[data-transaction-filters]');
   const accountOptions = (Array.isArray(accounts) ? accounts : []).map((account) => `<option value="${esc(String(account?.id ?? ''))}" ${String(account?.id ?? '') === state.accountId ? 'selected' : ''}>${esc(account?.display_name || localized('unknownAccount', 'Bank account'))}</option>`).join('');
   const categoryOptions = (Array.isArray(categories) ? categories : []).filter((category) => category?.active !== false && /^\d+$/.test(String(category?.id ?? ''))).map((category) => `<option value="${esc(String(category.id))}" ${String(category.id) === state.categoryId ? 'selected' : ''}>${esc(category.name || localized('unknownTransaction', 'Category'))}</option>`).join('');
+  const activeCount = countActiveTransactionFilters(state);
+  const filterButtonCount = host.querySelector('[data-transaction-filter-count]');
+  if (filterButtonCount) {
+    filterButtonCount.textContent = activeCount ? String(activeCount) : '';
+    filterButtonCount.hidden = activeCount === 0;
+  }
+  const columnsHost = host.querySelector('[data-transaction-columns-options]');
+  if (columnsHost) {
+    columnsHost.replaceChildren();
+    columnsHost.insertAdjacentHTML('beforeend', ['account', 'category', 'weeklyBudget', 'status'].map((key) => `
+      <label><input type="checkbox" data-transaction-column-toggle="${key}" ${state.columns[key] ? 'checked' : ''}>${esc(localized(`transactionColumns${key[0].toUpperCase()}${key.slice(1)}`, key))}</label>
+    `).join(''));
+  }
   filterHost.replaceChildren();
   filterHost.insertAdjacentHTML('beforeend', `
-    <form class="banking-transaction-filters" data-transaction-filters>
-      <label class="banking-field"><span>${esc(localized('transactionSearch', 'Search'))}</span><input class="form-input" type="search" data-transaction-filter="q" value="${esc(state.q)}" maxlength="200" placeholder="${esc(localized('transactionSearchPlaceholder', 'Merchant, recipient or purpose'))}"></label>
-      <label class="banking-field"><span>${esc(localized('transactionAccount', 'Account'))}</span><select class="form-input" data-transaction-filter="accountId"><option value="">${esc(localized('allAccounts', 'All accounts'))}</option>${accountOptions}</select></label>
-      <label class="banking-field"><span>${esc(localized('transactionCategoryFilter', 'Category'))}</span><select class="form-input" data-transaction-filter="categoryId"><option value="">${esc(localized('allCategories', 'All categories'))}</option>${categoryOptions}</select></label>
-      <label class="banking-field"><span>${esc(localized('transactionDirection', 'Direction'))}</span><select class="form-input" data-transaction-filter="direction"><option value="">${esc(localized('allDirections', 'All'))}</option><option value="incoming" ${state.direction === 'incoming' ? 'selected' : ''}>${esc(localized('incoming', 'Income'))}</option><option value="outgoing" ${state.direction === 'outgoing' ? 'selected' : ''}>${esc(localized('outgoing', 'Expenses'))}</option></select></label>
-      <label class="banking-field"><span>${esc(localized('transactionStatus', 'Status'))}</span><select class="form-input" data-transaction-filter="status"><option value="">${esc(localized('allStatuses', 'All statuses'))}</option><option value="BOOK" ${state.status === 'BOOK' ? 'selected' : ''}>${esc(localized('transactionBooked', 'Booked'))}</option><option value="PDNG" ${state.status === 'PDNG' ? 'selected' : ''}>${esc(localized('transactionPending', 'Pending'))}</option><option value="UNKNOWN" ${state.status === 'UNKNOWN' ? 'selected' : ''}>${esc(localized('transactionStatusUnknown', 'Status unknown'))}</option></select></label>
-      <label class="banking-field"><span>${esc(localized('dateFrom', 'Date from'))}</span><input class="form-input" type="date" data-transaction-filter="dateFrom" value="${esc(state.dateFrom)}"></label>
-      <label class="banking-field"><span>${esc(localized('dateTo', 'Date to'))}</span><input class="form-input" type="date" data-transaction-filter="dateTo" value="${esc(state.dateTo)}"></label>
-      <label class="banking-field banking-field--checkbox"><input type="checkbox" data-transaction-filter="uncategorized" ${state.uncategorized ? 'checked' : ''}><span>${esc(localized('uncategorized', 'Without category'))}</span></label>
-      <div class="banking-transaction-filters__actions"><button class="btn btn--secondary" type="submit">${esc(localized('applyFilters', 'Apply filters'))}</button><button class="btn btn--secondary" type="button" data-action="reset-transaction-filters">${esc(localized('resetFilters', 'Reset filters'))}</button></div>
+    <form class="banking-transaction-filter-panel" data-transaction-filters data-transaction-filter-panel ${state.filtersOpen ? '' : 'hidden'}>
+      <div class="banking-transaction-filter-row">
+        <label><span class="banking-sr-only">${esc(localized('transactionSearch', 'Search'))}</span><input class="form-input" type="search" data-transaction-filter="q" value="${esc(state.q)}" maxlength="200" placeholder="${esc(localized('transactionSearchPlaceholder', 'Merchant, recipient or purpose'))}"></label>
+        <label><span class="banking-sr-only">${esc(localized('transactionAccount', 'Account'))}</span><select class="form-input" data-transaction-filter="accountId"><option value="">${esc(localized('allAccounts', 'All accounts'))}</option>${accountOptions}</select></label>
+        <label><span class="banking-sr-only">${esc(localized('transactionCategoryFilter', 'Category'))}</span><select class="form-input" data-transaction-filter="categoryId"><option value="">${esc(localized('allCategories', 'All categories'))}</option>${categoryOptions}</select></label>
+        <span class="banking-transaction-date-range"><label><span class="banking-sr-only">${esc(localized('dateFrom', 'Date from'))}</span><input class="form-input" type="date" data-transaction-filter="dateFrom" value="${esc(state.dateFrom)}"></label><span aria-hidden="true">–</span><label><span class="banking-sr-only">${esc(localized('dateTo', 'Date to'))}</span><input class="form-input" type="date" data-transaction-filter="dateTo" value="${esc(state.dateTo)}"></label></span>
+        <label><span class="banking-sr-only">${esc(localized('transactionDirection', 'Direction'))}</span><select class="form-input" data-transaction-filter="direction"><option value="">${esc(localized('allDirections', 'All'))}</option><option value="incoming" ${state.direction === 'incoming' ? 'selected' : ''}>${esc(localized('incoming', 'Income'))}</option><option value="outgoing" ${state.direction === 'outgoing' ? 'selected' : ''}>${esc(localized('outgoing', 'Expenses'))}</option></select></label>
+      </div>
+      <div class="banking-transaction-filter-row banking-transaction-filter-row--secondary">
+        <label class="banking-field--checkbox"><input type="checkbox" data-transaction-filter="uncategorized" ${state.uncategorized ? 'checked' : ''}><span>${esc(localized('uncategorized', 'Without category'))}</span></label>
+        <details><summary>${esc(localized('transactionMoreFilters', 'More filters'))}</summary><label><span class="banking-sr-only">${esc(localized('transactionStatus', 'Status'))}</span><select class="form-input" data-transaction-filter="status"><option value="">${esc(localized('allStatuses', 'All statuses'))}</option><option value="BOOK" ${state.status === 'BOOK' ? 'selected' : ''}>${esc(localized('transactionBooked', 'Booked'))}</option><option value="PDNG" ${state.status === 'PDNG' ? 'selected' : ''}>${esc(localized('transactionPending', 'Pending'))}</option><option value="UNKNOWN" ${state.status === 'UNKNOWN' ? 'selected' : ''}>${esc(localized('transactionStatusUnknown', 'Status unknown'))}</option></select></label></details>
+        <button class="btn btn--secondary" type="button" data-action="reset-transaction-filters">${esc(localized('resetFilters', 'Reset filters'))}</button>
+      </div>
     </form>
   `);
+}
+
+function countActiveTransactionFilters(state) {
+  return Number(Boolean(state.q)) + Number(Boolean(state.accountId))
+    + Number(Boolean(state.categoryId) || Boolean(state.uncategorized))
+    + Number(Boolean(state.direction)) + Number(Boolean(state.status))
+    + Number(Boolean(state.dateFrom) || Boolean(state.dateTo));
+}
+
+function readTransactionFilterPanel() {
+  try { return sessionStorage.getItem('yuvomi:banking:transaction-filters-open') !== 'false'; } catch { return true; }
+}
+
+function persistTransactionFilterPanel(open) {
+  try { sessionStorage.setItem('yuvomi:banking:transaction-filters-open', String(open)); } catch { /* storage is optional */ }
+}
+
+function readTransactionColumns() {
+  const defaults = { account: true, category: true, weeklyBudget: true, status: true };
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem('yuvomi:banking:transaction-columns') || '');
+    return Object.fromEntries(Object.keys(defaults).map((key) => [key, typeof parsed?.[key] === 'boolean' ? parsed[key] : defaults[key]]));
+  } catch { return defaults; }
+}
+
+function persistTransactionColumns(columns) {
+  try { sessionStorage.setItem('yuvomi:banking:transaction-columns', JSON.stringify(columns)); } catch { /* storage is optional */ }
 }
 
 function updateTransactionFilterState(container, source) {
@@ -2027,8 +2140,10 @@ async function loadTransactionTable({ container, signal, categories = container.
   try {
     const payload = await loadJson(`transactions?${params.toString()}`, { signal: controller.signal });
     if (signal.aborted || requestId !== state.requestId) return;
-    renderTransactionTable(tableHost, payload?.data, state, container.dataset.bankingPermission === 'write', categories);
+    renderTransactionTable(tableHost, payload?.data, state, container.dataset.bankingPermission === 'write', categories, container.bankingTransactionAccounts ?? []);
     renderTransactionPagination(paginationHost, payload?.data?.pagination, state);
+    const count = container.querySelector('[data-transactions-count]');
+    if (count) count.textContent = String(Number(payload?.data?.pagination?.total) || 0);
   } catch (error) {
     if (controller.signal.aborted || signal.aborted || requestId !== state.requestId) return;
     renderError(tableHost, error);
@@ -2036,13 +2151,16 @@ async function loadTransactionTable({ container, signal, categories = container.
   }
 }
 
-function renderTransactionTable(host, payload, state, canWrite, categories) {
+function renderTransactionTable(host, payload, state, canWrite, categories, accounts) {
   const transactions = Array.isArray(payload?.transactions) ? payload.transactions : [];
   const sortHeader = (key, label) => {
     const active = state.sort === key;
     const ariaSort = active ? (state.order === 'asc' ? 'ascending' : 'descending') : 'none';
     return `<th scope="col" aria-sort="${ariaSort}"><button class="banking-transactions-table__sort" type="button" data-transaction-sort="${esc(key)}">${esc(label)}${active ? ` <span aria-hidden="true">${state.order === 'asc' ? '↑' : '↓'}</span>` : ''}</button></th>`;
   };
+  const optionalColumn = (key) => state.columns[key] ? '' : ' hidden';
+  const optionalSortHeader = (key, label, column) => sortHeader(key, label)
+    .replace('<th ', `<th data-transaction-column="${column}"${optionalColumn(column)} `);
   const rows = transactions.map((transaction) => {
     const direction = transaction?.direction === 'outgoing' ? 'outgoing' : 'incoming';
     const amount = Number(transaction?.amount);
@@ -2057,19 +2175,23 @@ function renderTransactionTable(host, payload, state, canWrite, categories) {
     const override = ['inherit', 'include', 'exclude'].includes(transaction?.weekly_budget_override) ? transaction.weekly_budget_override : 'inherit';
     const statusText = { PDNG: localized('transactionPending', 'Pending'), BOOK: localized('transactionBooked', 'Booked'), UNKNOWN: localized('transactionStatusUnknown', 'Status unknown') }[transaction?.status] || localized('transactionStatusUnknown', 'Status unknown');
     const purpose = transaction?.purpose && transaction.purpose !== title ? transaction.purpose : '';
-    const accountName = String(transaction?.account_display_name || localized('unknownAccount', 'Bank account'));
-    return `<tr>
+    const account = (Array.isArray(accounts) ? accounts : []).find((item) => String(item?.id) === String(transaction?.account_id));
+    const accountName = String(account?.display_name || transaction?.account_display_name || localized('unknownAccount', 'Bank account'));
+    const accountIban = typeof account?.iban_masked === 'string' ? account.iban_masked : '';
+    const statusClass = transaction?.status === 'BOOK' ? 'booked' : transaction?.status === 'PDNG' ? 'pending' : 'unknown';
+    return `<tr class="banking-transactions-table__row" data-transaction-row data-transaction-id="${esc(transactionId)}" tabindex="0">
       <td class="banking-transactions-table__date">${esc(formatDate(transaction?.booking_date || transaction?.value_date || transaction?.transaction_date) || '–')}</td>
       <td><div class="banking-transactions-table__merchant"><strong class="banking-merchant">${mark}<span>${esc(String(title))}</span></strong>${purpose ? `<small>${esc(String(purpose))}</small>` : ''}</div></td>
-      <td class="banking-transactions-table__account" title="${esc(accountName)}"><span class="banking-transactions-table__account-name">${esc(accountName)}</span></td>
-      <td class="banking-transactions-table__category"><select class="form-input" data-transaction-category-id="${esc(transactionId)}" data-current-category-id="${esc(categoryId)}" ${canWrite && categoryOptions ? '' : 'disabled'}><option value="" ${categoryId ? '' : 'selected'}>${esc(localized('chooseCategory', 'Choose category'))}</option>${categoryOptions}</select></td>
-      <td class="banking-transactions-table__weekly-budget"><select class="form-input" data-weekly-budget-override data-transaction-id="${esc(transactionId)}" data-current-value="${esc(override)}" ${canWrite ? '' : 'disabled'}><option value="inherit" ${override === 'inherit' ? 'selected' : ''}>${esc(localized('weeklyBudgetInherit', 'Use category'))}</option><option value="include" ${override === 'include' ? 'selected' : ''}>${esc(localized('weeklyBudgetInclude', 'Include'))}</option><option value="exclude" ${override === 'exclude' ? 'selected' : ''}>${esc(localized('weeklyBudgetExclude', 'Exclude'))}</option></select></td>
-      <td class="banking-transactions-table__status">${esc(statusText)}</td>
-      <td class="banking-transactions-table__amount banking-transactions-table__amount-column" data-direction="${esc(direction)}">${esc(formatMoney(signedAmount, transaction?.currency))}</td>
+      <td class="banking-transactions-table__account" data-transaction-column="account"${optionalColumn('account')} title="${esc(accountName)}"><span class="banking-transactions-table__account-name">${esc(accountName)}</span>${accountIban ? `<small>${esc(accountIban)}</small>` : ''}</td>
+      <td class="banking-transactions-table__category" data-transaction-column="category"${optionalColumn('category')}><select class="banking-table-select" data-transaction-category-id="${esc(transactionId)}" data-current-category-id="${esc(categoryId)}" ${canWrite && categoryOptions ? '' : 'disabled'}><option value="" ${categoryId ? '' : 'selected'}>${esc(localized('chooseCategory', 'Choose category'))}</option>${categoryOptions}</select></td>
+      <td class="banking-transactions-table__weekly-budget" data-transaction-column="weeklyBudget"${optionalColumn('weeklyBudget')}><select class="banking-table-select" data-weekly-budget-override data-transaction-id="${esc(transactionId)}" data-current-value="${esc(override)}" ${canWrite ? '' : 'disabled'}><option value="inherit" ${override === 'inherit' ? 'selected' : ''}>${esc(localized('weeklyBudgetInherit', 'Use category'))}</option><option value="include" ${override === 'include' ? 'selected' : ''}>${esc(localized('weeklyBudgetInclude', 'Include'))}</option><option value="exclude" ${override === 'exclude' ? 'selected' : ''}>${esc(localized('weeklyBudgetExclude', 'Exclude'))}</option></select></td>
+      <td class="banking-transactions-table__status" data-transaction-column="status"${optionalColumn('status')}><span class="banking-transaction-status banking-transaction-status--${statusClass}">${esc(statusText)}</span></td>
+      <td class="banking-transactions-table__amount banking-transactions-table__amount-column" data-direction="${esc(direction)}">${esc(formatTransactionAmount(transaction))}</td>
+      <td class="banking-transactions-table__action"><button class="btn btn--secondary" type="button" data-action="transaction-details" data-transaction-id="${esc(transactionId)}" aria-label="${esc(localized('transactionDetailsOpen', 'Show transaction details'))}">⋮</button></td>
     </tr>`;
   }).join('');
   host.replaceChildren();
-  host.insertAdjacentHTML('beforeend', `<table class="banking-transactions-table"><colgroup><col class="banking-transactions-table__date"><col class="banking-transactions-table__merchant-column"><col class="banking-transactions-table__account"><col class="banking-transactions-table__category"><col class="banking-transactions-table__weekly-budget"><col class="banking-transactions-table__status"><col class="banking-transactions-table__amount-column"></colgroup><thead><tr>${sortHeader('date', localized('transactionDate', 'Date'))}${sortHeader('merchant', localized('transactionMerchant', 'Recipient / merchant'))}${sortHeader('account', localized('transactionAccount', 'Account'))}${sortHeader('category', localized('transactionCategory', 'Category'))}<th scope="col">${esc(localized('weeklyBudgetTransaction', 'Weekly budget'))}</th>${sortHeader('status', localized('transactionStatus', 'Status'))}${sortHeader('amount', localized('transactionAmount', 'Amount'))}</tr></thead><tbody>${rows || `<tr><td class="banking-transactions-table__empty" colspan="7">${esc(localized('noTransactionMatches', 'No transactions found.'))}</td></tr>`}</tbody></table>`);
+  host.insertAdjacentHTML('beforeend', `<table class="banking-transactions-table"><colgroup><col class="banking-transactions-table__date"><col class="banking-transactions-table__merchant-column"><col class="banking-transactions-table__account" data-transaction-column="account"${optionalColumn('account')}><col class="banking-transactions-table__category" data-transaction-column="category"${optionalColumn('category')}><col class="banking-transactions-table__weekly-budget" data-transaction-column="weeklyBudget"${optionalColumn('weeklyBudget')}><col class="banking-transactions-table__status" data-transaction-column="status"${optionalColumn('status')}><col class="banking-transactions-table__amount-column"><col class="banking-transactions-table__action"></colgroup><thead><tr>${sortHeader('date', localized('transactionDate', 'Date'))}${sortHeader('merchant', localized('transactionMerchant', 'Recipient / merchant'))}${optionalSortHeader('account', localized('transactionAccount', 'Account'), 'account')}${optionalSortHeader('category', localized('transactionCategory', 'Category'), 'category')}<th data-transaction-column="weeklyBudget"${optionalColumn('weeklyBudget')}>${esc(localized('weeklyBudgetTransaction', 'Weekly budget'))}</th>${optionalSortHeader('status', localized('transactionStatus', 'Status'), 'status')}${sortHeader('amount', localized('transactionAmount', 'Amount'))}<th aria-label="${esc(localized('transactionDetails', 'Transaction details'))}"></th></tr></thead><tbody>${rows || `<tr><td class="banking-transactions-table__empty" colspan="8">${esc(localized('noTransactionMatches', 'No transactions found.'))}</td></tr>`}</tbody></table>`);
 }
 
 function renderTransactionPagination(host, pagination, state) {
@@ -2078,7 +2200,16 @@ function renderTransactionPagination(host, pagination, state) {
   const to = total === 0 ? 0 : Math.min(state.offset + state.limit, total);
   const hasPrevious = state.offset > 0;
   const hasNext = to < total;
+  const pageCount = Math.max(1, Math.ceil(total / state.limit));
+  const currentPage = Math.floor(state.offset / state.limit) + 1;
+  const pages = new Set([1, pageCount]);
+  for (let page = Math.max(1, currentPage - 2); page <= Math.min(pageCount, currentPage + 2); page += 1) pages.add(page);
+  const pageButtons = [...pages].sort((left, right) => left - right).flatMap((page, index, list) => {
+    const gap = index > 0 && page - list[index - 1] > 1 ? ['<span aria-hidden="true">…</span>'] : [];
+    return [...gap, `<button class="btn btn--secondary" type="button" data-transaction-page="${page}" ${page === currentPage ? 'aria-current="page" disabled' : ''}>${page}</button>`];
+  }).join('');
   host.replaceChildren();
+  host.insertAdjacentHTML('beforeend', `<div class="banking-transactions-pagination__pages">${pageButtons}</div><label class="banking-transactions-pagination__page-size"><span class="banking-sr-only">${esc(localized('transactionsPerPage', 'Transactions per page'))}</span><select class="banking-table-select" data-transaction-page-size>${[10, 25, 50, 100].map((limit) => `<option value="${limit}" ${limit === state.limit ? 'selected' : ''}>${limit}</option>`).join('')}</select></label>`);
   host.insertAdjacentHTML('beforeend', `<div class="banking-transactions-pagination"><span>${esc(localized('paginationSummary', '{from}–{to} of {total}', { from, to, total }))}</span><div><button class="btn btn--secondary" type="button" data-transaction-page="-1" ${hasPrevious ? '' : 'disabled'}>${esc(localized('previousPage', 'Previous'))}</button><button class="btn btn--secondary" type="button" data-transaction-page="1" ${hasNext ? '' : 'disabled'}>${esc(localized('nextPage', 'Next'))}</button></div></div>`);
 }
 
@@ -2087,6 +2218,13 @@ async function reloadTransactionsAndBudget(container, signal) {
     loadTransactionTable({ container, signal }),
     refreshWeeklyBudget(container, signal, container.dataset.bankingPermission === 'write')
   ]);
+}
+
+function formatTransactionAmount(transaction) {
+  const amount = Number(transaction?.amount);
+  if (!Number.isFinite(amount)) return localized('unknownAmount', 'Amount unavailable');
+  const signed = transaction?.direction === 'outgoing' ? -Math.abs(amount) : Math.abs(amount);
+  return `${signed >= 0 ? '+' : ''}${formatMoney(signed, transaction?.currency)}`;
 }
 
 function renderLegacyTransactions(host, transactions, canWrite = false, categories = []) {
@@ -2191,6 +2329,88 @@ async function updateTransactionCategory({ container, select, signal }) {
   } finally {
     if (!signal.aborted) select.disabled = false;
   }
+}
+
+async function openTransactionDetail({ container, transactionId, signal }) {
+  if (!/^\d+$/.test(transactionId || '')) return;
+  const dialog = container.querySelector('[data-banking-transaction-dialog]');
+  const content = container.querySelector('[data-banking-transaction-dialog-content]');
+  if (!dialog || !content) return;
+  content.replaceChildren();
+  content.insertAdjacentHTML('beforeend', `<p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p>`);
+  if (!dialog.open && typeof dialog.showModal === 'function') dialog.showModal();
+  try {
+    const payload = await loadJson(`transactions/${encodeURIComponent(transactionId)}`, { signal });
+    if (signal.aborted) return;
+    renderTransactionDetail(content, payload?.data);
+  } catch (error) {
+    if (!signal.aborted) {
+      content.replaceChildren();
+      content.insertAdjacentHTML('beforeend', `<p class="banking-error">${esc(error instanceof Error ? error.message : localized('transactionDetailLoadFailed', 'Transaction details could not be loaded.'))}</p>`);
+    }
+  }
+}
+
+function renderTransactionDetail(host, detail) {
+  const transaction = detail?.transaction ?? {};
+  const counterparty = detail?.counterparty ?? null;
+  const account = detail?.account ?? {};
+  const bank = detail?.bank ?? {};
+  const title = transaction.merchant_name || transaction.counterparty_name || transaction.purpose || localized('unknownTransaction', 'Transaction');
+  const date = formatDate(transaction.booking_date || transaction.value_date || transaction.transaction_date) || '–';
+  const status = { BOOK: localized('transactionBooked', 'Booked'), PDNG: localized('transactionPending', 'Pending'), UNKNOWN: localized('transactionStatusUnknown', 'Status unknown') }[transaction.status] || localized('transactionStatusUnknown', 'Status unknown');
+  const value = (item) => item === null || item === undefined || item === '' ? '–' : String(item);
+  const section = (heading, fields) => `<section class="banking-transaction-detail-section"><h3>${esc(heading)}</h3><dl class="banking-transaction-detail-grid">${fields.map(([label, item]) => `<div><dt>${esc(label)}</dt><dd>${esc(value(item))}</dd></div>`).join('')}</dl></section>`;
+  host.replaceChildren();
+  host.insertAdjacentHTML('beforeend', `
+    <div class="banking-transaction-dialog__header"><div><strong>${esc(String(title))}</strong><small>${esc(`${date} · ${status}`)}</small></div><strong class="banking-transactions-table__amount" data-direction="${esc(transaction.direction === 'outgoing' ? 'outgoing' : 'incoming')}">${esc(formatTransactionAmount(transaction))}</strong></div>
+    ${section(localized('transactionDetailsBooking', 'Booking'), [
+      [localized('transactionAmount', 'Amount'), formatTransactionAmount(transaction)], ['Währung', transaction.currency], [localized('transactionDirection', 'Direction'), transaction.direction], [localized('transactionStatus', 'Status'), status], [localized('transactionDate', 'Booking date'), transaction.booking_date], ['Valutadatum', transaction.value_date], ['Transaktionsdatum', transaction.transaction_date], ['Verwendungszweck', transaction.purpose]
+    ])}
+    ${section(localized('transactionDetailsCounterparty', 'Recipient / counterparty'), [
+      ['Name', transaction.counterparty_name], ['IBAN', counterparty?.iban], ['Merchant-Name', transaction.merchant_name], ['Merchant-Key', transaction.merchant_key], ['MCC', transaction.mcc], ['Counterparty-ID', counterparty?.counterparty_id], ['Normalisierter Händler', counterparty?.normalized_merchant_name]
+    ])}
+    ${section(localized('transactionDetailsAccount', 'Own account / bank'), [
+      [localized('transactionAccount', 'Account'), account.display_name], ['IBAN', account.iban], ['Kontotyp', account.account_type], ['Währung', account.currency], ['Provider-Konto-ID', account.provider_account_id], ['Bank / ASPSP', bank.aspsp_name], ['Land', bank.aspsp_country]
+    ])}
+    ${section(localized('transactionDetailsCategorization', 'Categorization / weekly budget'), [
+      [localized('transactionCategory', 'Category'), transaction.category_name], ['Kategorie-ID', transaction.category_id], ['Quelle', transaction.category_source], ['Confidence', transaction.category_confidence], [localized('weeklyBudgetTransaction', 'Weekly budget'), transaction.weekly_budget_override], ['Kategorie-Standard', transaction.category_weekly_budget_default], ['Yuvomi-Budget-Entry-ID', transaction.yuvomi_budget_entry_id]
+    ])}
+    ${section(localized('transactionDetailsProviderRefs', 'Bank / provider references'), [
+      ['Provider transaction key', transaction.provider_transaction_id], ['entry_reference', transaction.entry_reference], ['transaction_id', transaction.transaction_id]
+    ])}
+    ${section(localized('transactionDetailsTechnical', 'Technical local data'), [
+      ['Lokale Umsatz-ID', transaction.id], ['Erstellt', transaction.created_at], ['Aktualisiert', transaction.updated_at]
+    ])}
+  `);
+  const raw = document.createElement('details');
+  raw.className = 'banking-transaction-detail-raw';
+  const summary = document.createElement('summary');
+  summary.textContent = localized('transactionDetailsRaw', 'All provider raw data');
+  raw.append(summary);
+  if (detail?.provider_raw_available && detail.provider_raw !== null) {
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'btn btn--secondary';
+    copy.textContent = localized('transactionDetailsCopyJson', 'Copy JSON');
+    const feedback = document.createElement('p');
+    feedback.className = 'banking-feedback';
+    const pre = document.createElement('pre');
+    // Provider data is untrusted. textContent is intentional here.
+    pre.textContent = JSON.stringify(detail.provider_raw, null, 2);
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(pre.textContent || '');
+        feedback.textContent = localized('transactionDetailsJsonCopied', 'JSON copied.');
+      } catch { feedback.textContent = localized('transactionDetailLoadFailed', 'Transaction details could not be loaded.'); }
+    });
+    raw.append(copy, feedback, pre);
+  } else {
+    const unavailable = document.createElement('p');
+    unavailable.textContent = localized('transactionDetailsRawUnavailable', 'Provider raw data was not stored for this older import. A future sync can add it if the bank returns the transaction again.');
+    raw.append(unavailable);
+  }
+  host.append(raw);
 }
 
 function renderError(host, error) {

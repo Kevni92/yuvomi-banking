@@ -104,8 +104,9 @@ export function importTransactions({
     INSERT INTO transactions (
       account_id, provider_transaction_id, entry_reference, transaction_id,
       booking_date, value_date, transaction_date, amount_cents, currency, direction,
-      counterparty_ref, counterparty_name, purpose, mcc, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      counterparty_ref, counterparty_name, purpose, mcc, status, raw_payload_encrypted,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateTransaction = database.prepare(`
     UPDATE transactions SET
@@ -122,6 +123,7 @@ export function importTransactions({
       counterparty_name = COALESCE(?, counterparty_name),
       purpose = COALESCE(?, purpose),
       mcc = COALESCE(?, mcc),
+      raw_payload_encrypted = ?,
       status = CASE
         WHEN ? = 'UNKNOWN' AND status IN ('PDNG', 'BOOK') THEN status
         ELSE ?
@@ -180,6 +182,7 @@ export function importTransactions({
           normalized.counterparty?.name ?? null,
           normalized.purpose,
           normalized.mcc,
+          normalized.rawPayloadEncrypted,
           normalized.status,
           normalized.status,
           timestamp,
@@ -202,6 +205,7 @@ export function importTransactions({
           normalized.purpose,
           normalized.mcc,
           normalized.status,
+          normalized.rawPayloadEncrypted,
           timestamp,
           timestamp
         );
@@ -252,6 +256,7 @@ interface NormalizedTransaction {
   referenceNumberSchema: string | null;
   counterpartyAdditionalIdentification: string | null;
   bankTransactionCode: string | null;
+  rawPayloadEncrypted: string;
 }
 
 interface ExistingTransaction {
@@ -334,7 +339,8 @@ function normalizeTransaction(
     referenceNumber,
     referenceNumberSchema,
     counterpartyAdditionalIdentification,
-    bankTransactionCode
+    bankTransactionCode,
+    rawPayloadEncrypted: encryption.encrypt(JSON.stringify(transaction))
   };
 
   normalized.stableFingerprint = fallbackTransactionKey(normalized);

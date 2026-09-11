@@ -14,6 +14,7 @@ import { createOpenAiSettingsRouter } from './api/openai-settings-routes.js';
 import { OpenAiCategorizer, type CategorizationClient } from './openai/categorizer.js';
 import { createPushRouter } from './api/push-routes.js';
 import { createTransactionRouter } from './api/transaction-routes.js';
+import type { EncryptionService } from './security/encryption.js';
 
 const API_PREFIX = '/api/extensions/banking';
 
@@ -22,6 +23,7 @@ export interface AppDependencies {
   database?: DatabaseSync;
   enableBankingClient?: EnableBankingClient;
   categorizationClient?: CategorizationClient;
+  encryption?: EncryptionService;
   clock?: () => Date;
 }
 
@@ -34,6 +36,7 @@ export function createApp({
   database,
   enableBankingClient,
   categorizationClient,
+  encryption,
   clock = () => new Date()
 }: AppDependencies = {}): Express {
   const app = express();
@@ -104,7 +107,7 @@ export function createApp({
       clock
     }));
     app.use(`${API_PREFIX}`, createOpenAiSettingsRouter({ database, resolveSession, clock }));
-    app.use(`${API_PREFIX}`, createTransactionRouter({ database, resolveSession }));
+    app.use(`${API_PREFIX}`, createTransactionRouter({ database, resolveSession, encryption }));
     app.use(`${API_PREFIX}`, createPushRouter({ database, resolveSession, clock }));
   }
 

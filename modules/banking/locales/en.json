@@ -54,6 +54,7 @@
   "noAccounts": "No bank accounts available yet.",
   "unknownAccount": "Bank account",
   "showAccount": "Show details",
+  "hideAccountDetails": "Hide details",
   "loadingDetails": "Loading account details ...",
   "detailsLoaded": "Account details loaded.",
   "detailsFailed": "Account details could not be loaded.",

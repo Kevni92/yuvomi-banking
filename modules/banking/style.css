@@ -53,6 +53,10 @@
   color: var(--color-text-secondary, #6b7280);
 }
 
+.banking-feedback:empty {
+  display: none;
+}
+
 .banking-error {
   color: var(--color-danger, #b42318);
 }
@@ -106,6 +110,8 @@
 
 .banking-account-card {
   border-top-color: var(--color-border, rgba(0, 0, 0, 0.12));
+  gap: 0;
+  padding: var(--space-2, 0.5rem) 0;
 }
 
 .banking-account-card:first-child {
@@ -113,25 +119,47 @@
   padding-top: 0;
 }
 
-.banking-account-card__header h3 {
-  overflow-wrap: anywhere;
+.banking-account-card__header {
+  align-items: center;
 }
 
-.banking-account-card__header p {
-  margin: 0;
+.banking-account-card__identity {
+  display: grid;
+  gap: var(--space-1, 0.25rem);
+  min-width: 0;
+}
+
+.banking-account-card__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.banking-account-card__meta {
+  overflow: hidden;
+  color: var(--color-text-secondary, #6b7280);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .banking-account-card__actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-2, 0.5rem);
   justify-content: flex-end;
 }
 
 .banking-account-card__details {
-  display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4, 1rem);
+}
+
+.banking-account-card__details[hidden] {
+  display: none;
+}
+
+.banking-account-card__details:not([hidden]) {
+  display: grid;
+  gap: var(--space-3, 0.75rem);
   padding-top: var(--space-3, 0.75rem);
 }
 
@@ -202,6 +230,7 @@
 }
 
 .banking-transactions-panel > summary,
+.banking-accounts-panel > summary,
 .banking-weekly-history-panel > summary,
 .banking-settings-connections > summary {
   cursor: pointer;
@@ -211,6 +240,14 @@
 }
 
 .banking-transactions-panel__body {
+  padding: 0 var(--space-4, 1rem) var(--space-4, 1rem);
+}
+
+.banking-accounts-panel {
+  padding: 0;
+}
+
+.banking-accounts-panel__body {
   padding: 0 var(--space-4, 1rem) var(--space-4, 1rem);
 }
 
@@ -236,7 +273,44 @@
 .banking-transactions-table {
   width: 100%;
   min-width: 58rem;
+  table-layout: fixed;
   border-collapse: collapse;
+}
+
+.banking-transactions-table__date {
+  width: 7rem;
+}
+
+.banking-transactions-table__merchant-column {
+  width: auto;
+}
+
+.banking-transactions-table__account {
+  width: 13rem;
+  max-width: 13rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.banking-transactions-table__account-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.banking-transactions-table__category,
+.banking-transactions-table__weekly-budget {
+  width: 11rem;
+}
+
+.banking-transactions-table__status {
+  width: 8rem;
+}
+
+.banking-transactions-table__amount-column {
+  width: 9rem;
 }
 
 .banking-transactions-table th,
@@ -244,6 +318,11 @@
   padding: var(--space-3, 0.75rem) var(--space-2, 0.5rem);
   text-align: left;
   vertical-align: middle;
+}
+
+.banking-transactions-table select {
+  width: 100%;
+  min-width: 8rem;
 }
 
 .banking-transactions-table th {
@@ -613,6 +692,7 @@
 
   .banking-account-card__actions {
     justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .banking-connection-row__status {

@@ -100,15 +100,13 @@ function renderMainMarkup() {
         <div data-weekly-budget-current aria-live="polite"><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
       </section>
 
-      <section class="banking-panel">
-        <div class="banking-panel__header">
-          <div>
-            <h2>${esc(localized('accountsTitle', 'Accounts'))}</h2>
-            <p class="banking-panel__description">${esc(localized('accountsDescription', 'Balances are loaded through the Banking sidecar.'))}</p>
-          </div>
+      <details class="banking-panel banking-accounts-panel" data-banking-accounts-panel open>
+        <summary>${esc(localized('accountsTitle', 'Accounts'))}</summary>
+        <div class="banking-accounts-panel__body">
+          <p class="banking-panel__description">${esc(localized('accountsDescription', 'Balances are loaded through the Banking sidecar.'))}</p>
+          <div data-banking-accounts aria-live="polite"><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
         </div>
-        <div data-banking-accounts aria-live="polite"><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
-      </section>
+      </details>
 
       ${renderTransactionsPanelMarkup()}
 
@@ -217,6 +215,7 @@ function configureMainInteractions(container, permission, signal) {
   const runCategorizationButton = container.querySelector('[data-action="run-categorization"]');
   const weeklyHistory = container.querySelector('[data-weekly-budget-history]');
   const accountsHost = container.querySelector('[data-banking-accounts]');
+  const accountsPanel = container.querySelector('[data-banking-accounts-panel]');
   const transactionsHost = container.querySelector('[data-banking-transactions]');
   const transactionsPanel = container.querySelector('[data-banking-transactions-panel]');
 
@@ -256,9 +255,9 @@ function configureMainInteractions(container, permission, signal) {
     const button = event.target.closest('button[data-action]');
     if (!button) return;
     const card = button.closest('[data-banking-account-card]');
-    if (button.dataset.action === 'show-account') void loadAccountDetails({ card, button, signal });
-    if (button.dataset.action === 'sync-account') void syncAccount({ card, button, signal });
-    if (button.dataset.action === 'load-merchant-logos') void loadMerchantLogos({ card, button, signal });
+    if (button.dataset.action === 'show-account') void toggleAccountDetails({ card, button, signal });
+    if (button.dataset.action === 'sync-account') void syncAccount({ container, card, button, signal });
+    if (button.dataset.action === 'load-merchant-logos') void loadMerchantLogos({ container, card, button, signal });
   }, { signal });
   transactionsHost.addEventListener('change', (event) => {
     const filter = event.target.closest('[data-transaction-filter]');
@@ -319,6 +318,18 @@ function configureMainInteractions(container, permission, signal) {
   }, { signal });
   try {
     if (sessionStorage.getItem('yuvomi:banking:transactions-open') === 'false') transactionsPanel.open = false;
+  } catch {
+    // Ignore storage restrictions.
+  }
+  accountsPanel.addEventListener('toggle', () => {
+    try {
+      sessionStorage.setItem('yuvomi:banking:accounts-open', accountsPanel.open ? '1' : '0');
+    } catch {
+      // A blocked sessionStorage must not affect the banking view.
+    }
+  }, { signal });
+  try {
+    if (sessionStorage.getItem('yuvomi:banking:accounts-open') === '0') accountsPanel.open = false;
   } catch {
     // Ignore storage restrictions.
   }
@@ -1251,7 +1262,7 @@ async function refreshWeeklyBudget(container, signal, canWrite = container.datas
     api.get('/auth/users')
   ]);
   if (signal.aborted) return;
-  if (currentResult.status === 'fulfilled' && accountsResult.status === 'fulfilled') {
+  if (host && currentResult.status === 'fulfilled' && accountsResult.status === 'fulfilled') {
     const accounts = Array.isArray(accountsResult.value?.data) ? accountsResult.value.data : [];
     renderWeeklyBudget(
       host,
@@ -1262,18 +1273,22 @@ async function refreshWeeklyBudget(container, signal, canWrite = container.datas
       recipientsResult.status === 'fulfilled' ? recipientsResult.value?.data : [],
       usersResult.status === 'fulfilled' ? usersResult.value?.data : []
     );
-  } else {
+  } else if (host) {
     renderError(host, currentResult.status === 'rejected' ? currentResult.reason : accountsResult.reason);
   }
-  if (categoriesResult.status === 'fulfilled') {
-    renderWeeklyBudgetCategories(categoriesHost, categoriesResult.value?.data, canWrite);
-  } else {
-    renderError(categoriesHost, categoriesResult.reason);
+  if (categoriesHost) {
+    if (categoriesResult.status === 'fulfilled') {
+      renderWeeklyBudgetCategories(categoriesHost, categoriesResult.value?.data, canWrite);
+    } else {
+      renderError(categoriesHost, categoriesResult.reason);
+    }
   }
-  if (periodsResult.status === 'fulfilled') {
-    renderWeeklyBudgetHistory(historyHost, periodsResult.value?.data, canWrite);
-  } else {
-    renderError(historyHost, periodsResult.reason);
+  if (historyHost) {
+    if (periodsResult.status === 'fulfilled') {
+      renderWeeklyBudgetHistory(historyHost, periodsResult.value?.data, canWrite);
+    } else {
+      renderError(historyHost, periodsResult.reason);
+    }
   }
 }
 
@@ -1467,15 +1482,18 @@ function renderAccounts(host, accounts, canWrite) {
   }
   for (const account of accounts) {
     const id = String(account?.id ?? '');
+    const detailsId = `banking-account-details-${id}`;
+    const accountName = account?.display_name || localized('unknownAccount', 'Bank account');
+    const accountMeta = [account?.iban_masked || account?.account_type, account?.currency].filter(Boolean).join(' · ');
     host.insertAdjacentHTML('beforeend', `
       <article class="banking-account-card" data-banking-account-card data-account-id="${esc(id)}" data-can-write="${canWrite ? 'true' : 'false'}">
         <div class="banking-account-card__header">
-          <div>
-            <h3>${esc(account?.display_name || localized('unknownAccount', 'Bank account'))}</h3>
-            <p>${esc(account?.iban_masked || account?.account_type || '')} ${esc(account?.currency || '')}</p>
+          <div class="banking-account-card__identity">
+            <strong class="banking-account-card__name">${esc(accountName)}</strong>
+            <span class="banking-account-card__meta">${esc(accountMeta)}</span>
           </div>
           <div class="banking-account-card__actions">
-            <button class="btn btn--secondary" type="button" data-action="show-account" data-account-id="${esc(id)}">
+            <button class="btn btn--secondary" type="button" data-action="show-account" data-account-id="${esc(id)}" aria-expanded="false" aria-controls="${esc(detailsId)}">
               ${esc(localized('showAccount', 'Show details'))}
             </button>
             ${canWrite ? `<button class="btn btn--primary" type="button" data-action="sync-account" data-account-id="${esc(id)}">
@@ -1484,7 +1502,7 @@ function renderAccounts(host, accounts, canWrite) {
           </div>
         </div>
         <p class="banking-feedback" data-account-feedback role="status"></p>
-        <div class="banking-account-card__details" data-account-details hidden>
+        <div id="${esc(detailsId)}" class="banking-account-card__details" data-account-details data-loaded="false" hidden>
           <div>
             <h4>${esc(localized('balances', 'Balances'))}</h4>
             <div data-account-balances><p class="banking-muted">${esc(localized('notLoaded', 'Not loaded yet.'))}</p></div>
@@ -1496,34 +1514,46 @@ function renderAccounts(host, accounts, canWrite) {
   }
 }
 
-async function loadAccountDetails({ card, button, signal }) {
+async function toggleAccountDetails({ card, button, signal }) {
   if (!card) return;
   const accountId = card.dataset.accountId;
   if (!/^\d+$/.test(accountId)) return;
   const feedback = card.querySelector('[data-account-feedback]');
   const balancesHost = card.querySelector('[data-account-balances]');
   const details = card.querySelector('[data-account-details]');
+
+  if (!details.hidden) {
+    details.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    button.textContent = localized('showAccount', 'Show details');
+    feedback.textContent = '';
+    return;
+  }
+
+  details.hidden = false;
+  button.setAttribute('aria-expanded', 'true');
+  button.textContent = localized('hideAccountDetails', 'Hide details');
+  if (details.dataset.loaded === 'true') return;
+
   button.disabled = true;
   card.setAttribute('aria-busy', 'true');
   feedback.textContent = localized('loadingDetails', 'Loading account details ...');
+  balancesHost.replaceChildren();
+  balancesHost.insertAdjacentHTML('beforeend', `<p class="banking-muted">${esc(localized('loadingDetails', 'Loading account details ...'))}</p>`);
   try {
-    const balancesResult = await Promise.allSettled([
-      loadJson(`accounts/${encodeURIComponent(accountId)}/balances`, { signal })
-    ]);
+    const payload = await loadJson(`accounts/${encodeURIComponent(accountId)}/balances`, { signal });
     if (signal.aborted) return;
 
-    details.hidden = false;
-    if (balancesResult.status === 'fulfilled') renderBalances(balancesHost, balancesResult.value?.data);
-    else renderError(balancesHost, balancesResult.reason);
-    feedback.textContent = balancesResult[0].status === 'fulfilled'
-      ? localized('detailsLoaded', 'Account details loaded.')
-      : balancesResult[0].reason instanceof Error
-        ? balancesResult[0].reason.message
-        : localized('detailsFailed', 'Account details could not be loaded.');
+    renderBalances(balancesHost, payload?.data);
+    details.dataset.loaded = 'true';
+    feedback.textContent = localized('detailsLoaded', 'Account details loaded.');
   } catch (error) {
-    if (!signal.aborted) feedback.textContent = error instanceof Error
-      ? error.message
-      : localized('detailsFailed', 'Account details could not be loaded.');
+    if (!signal.aborted) {
+      feedback.textContent = error instanceof Error
+        ? error.message
+        : localized('detailsFailed', 'Account details could not be loaded.');
+      renderError(balancesHost, error);
+    }
   } finally {
     if (!signal.aborted) {
       button.disabled = false;
@@ -1532,47 +1562,47 @@ async function loadAccountDetails({ card, button, signal }) {
   }
 }
 
-async function syncAccount({ card, button, signal }) {
-  if (!card) return;
+async function syncAccount({ container, card, button, signal }) {
+  if (!container || !card) return;
   const accountId = card.dataset.accountId;
   if (!/^\d+$/.test(accountId)) return;
   const feedback = card.querySelector('[data-account-feedback]');
   const balancesHost = card.querySelector('[data-account-balances]');
   const details = card.querySelector('[data-account-details]');
+  const wasOpen = !details.hidden;
   button.disabled = true;
   card.setAttribute('aria-busy', 'true');
   feedback.textContent = localized('syncing', 'Synchronizing ...');
   try {
     const csrf = await loadJson('csrf', { signal });
     const csrfToken = typeof csrf?.csrf_token === 'string' ? csrf.csrf_token : '';
-    const [balancesResult, syncResult] = await Promise.allSettled([
-      loadJson(`accounts/${encodeURIComponent(accountId)}/balances`, { signal }),
-      loadJson(`accounts/${encodeURIComponent(accountId)}/sync`, {
-        method: 'POST',
-        headers: { 'x-banking-csrf': csrfToken },
-        signal
-      })
-    ]);
+    const syncResult = await loadJson(`accounts/${encodeURIComponent(accountId)}/sync`, {
+      method: 'POST',
+      headers: { 'x-banking-csrf': csrfToken },
+      signal
+    });
     if (signal.aborted) return;
 
-    details.hidden = false;
-    if (balancesResult.status === 'fulfilled') renderBalances(balancesHost, balancesResult.value?.data);
-    else renderError(balancesHost, balancesResult.reason);
-    if (syncResult.status === 'fulfilled') {
-      const data = syncResult.value?.data;
-      const imported = data?.imported;
-      feedback.textContent = imported
-        ? localized('syncComplete', 'Sync complete: {inserted} new, {updated} updated.', {
-            inserted: imported.inserted ?? 0,
-            updated: imported.updated ?? 0
-          })
-        : localized('syncCompleteShort', 'Sync complete.');
-      await reloadTransactionsAndBudget(card.closest('[data-composition]') || document, signal);
-    } else {
-      feedback.textContent = syncResult.reason instanceof Error
-        ? syncResult.reason.message
-        : localized('syncFailed', 'Synchronization failed.');
+    if (wasOpen) {
+      try {
+        const balancesPayload = await loadJson(`accounts/${encodeURIComponent(accountId)}/balances`, { signal });
+        if (signal.aborted) return;
+        renderBalances(balancesHost, balancesPayload?.data);
+        details.dataset.loaded = 'true';
+      } catch (error) {
+        if (signal.aborted) return;
+        renderError(balancesHost, error);
+      }
     }
+    const data = syncResult?.data;
+    const imported = data?.imported;
+    feedback.textContent = imported
+      ? localized('syncComplete', 'Sync complete: {inserted} new, {updated} updated.', {
+          inserted: imported.inserted ?? 0,
+          updated: imported.updated ?? 0
+        })
+      : localized('syncCompleteShort', 'Sync complete.');
+    await reloadTransactionsAndBudget(container, signal);
   } catch (error) {
     if (!signal.aborted) feedback.textContent = error instanceof Error
       ? error.message
@@ -1585,8 +1615,8 @@ async function syncAccount({ card, button, signal }) {
   }
 }
 
-async function loadMerchantLogos({ card, button, signal }) {
-  if (!card) return;
+async function loadMerchantLogos({ container, card, button, signal }) {
+  if (!container || !card) return;
   const accountId = card.dataset.accountId;
   if (!/^\d+$/.test(accountId)) return;
   const feedback = card.querySelector('[data-account-feedback]');
@@ -1601,8 +1631,7 @@ async function loadMerchantLogos({ card, button, signal }) {
       signal
     });
     if (signal.aborted) return;
-    const pageContainer = card.closest('[data-composition]') || document;
-    if (pageContainer.bankingTransactionState) await loadTransactionTable({ container: pageContainer, signal });
+    if (container.bankingTransactionState) await loadTransactionTable({ container, signal });
     const data = result?.data ?? {};
     feedback.textContent = localized('merchantLogosLoaded', '{cached} loaded, {unavailable} unavailable.', {
       cached: data.cached ?? 0,
@@ -1731,18 +1760,19 @@ function renderTransactionTable(host, payload, state, canWrite, categories) {
     const override = ['inherit', 'include', 'exclude'].includes(transaction?.weekly_budget_override) ? transaction.weekly_budget_override : 'inherit';
     const statusText = { PDNG: localized('transactionPending', 'Pending'), BOOK: localized('transactionBooked', 'Booked'), UNKNOWN: localized('transactionStatusUnknown', 'Status unknown') }[transaction?.status] || localized('transactionStatusUnknown', 'Status unknown');
     const purpose = transaction?.purpose && transaction.purpose !== title ? transaction.purpose : '';
+    const accountName = String(transaction?.account_display_name || localized('unknownAccount', 'Bank account'));
     return `<tr>
-      <td>${esc(formatDate(transaction?.booking_date || transaction?.value_date || transaction?.transaction_date) || '–')}</td>
+      <td class="banking-transactions-table__date">${esc(formatDate(transaction?.booking_date || transaction?.value_date || transaction?.transaction_date) || '–')}</td>
       <td><div class="banking-transactions-table__merchant"><strong class="banking-merchant">${mark}<span>${esc(String(title))}</span></strong>${purpose ? `<small>${esc(String(purpose))}</small>` : ''}</div></td>
-      <td>${esc(transaction?.account_display_name || localized('unknownAccount', 'Bank account'))}</td>
-      <td><select class="form-input" data-transaction-category-id="${esc(transactionId)}" data-current-category-id="${esc(categoryId)}" ${canWrite && categoryOptions ? '' : 'disabled'}><option value="" ${categoryId ? '' : 'selected'}>${esc(localized('chooseCategory', 'Choose category'))}</option>${categoryOptions}</select></td>
-      <td><select class="form-input" data-weekly-budget-override data-transaction-id="${esc(transactionId)}" data-current-value="${esc(override)}" ${canWrite ? '' : 'disabled'}><option value="inherit" ${override === 'inherit' ? 'selected' : ''}>${esc(localized('weeklyBudgetInherit', 'Use category'))}</option><option value="include" ${override === 'include' ? 'selected' : ''}>${esc(localized('weeklyBudgetInclude', 'Include'))}</option><option value="exclude" ${override === 'exclude' ? 'selected' : ''}>${esc(localized('weeklyBudgetExclude', 'Exclude'))}</option></select></td>
-      <td>${esc(statusText)}</td>
-      <td class="banking-transactions-table__amount" data-direction="${esc(direction)}">${esc(formatMoney(signedAmount, transaction?.currency))}</td>
+      <td class="banking-transactions-table__account" title="${esc(accountName)}"><span class="banking-transactions-table__account-name">${esc(accountName)}</span></td>
+      <td class="banking-transactions-table__category"><select class="form-input" data-transaction-category-id="${esc(transactionId)}" data-current-category-id="${esc(categoryId)}" ${canWrite && categoryOptions ? '' : 'disabled'}><option value="" ${categoryId ? '' : 'selected'}>${esc(localized('chooseCategory', 'Choose category'))}</option>${categoryOptions}</select></td>
+      <td class="banking-transactions-table__weekly-budget"><select class="form-input" data-weekly-budget-override data-transaction-id="${esc(transactionId)}" data-current-value="${esc(override)}" ${canWrite ? '' : 'disabled'}><option value="inherit" ${override === 'inherit' ? 'selected' : ''}>${esc(localized('weeklyBudgetInherit', 'Use category'))}</option><option value="include" ${override === 'include' ? 'selected' : ''}>${esc(localized('weeklyBudgetInclude', 'Include'))}</option><option value="exclude" ${override === 'exclude' ? 'selected' : ''}>${esc(localized('weeklyBudgetExclude', 'Exclude'))}</option></select></td>
+      <td class="banking-transactions-table__status">${esc(statusText)}</td>
+      <td class="banking-transactions-table__amount banking-transactions-table__amount-column" data-direction="${esc(direction)}">${esc(formatMoney(signedAmount, transaction?.currency))}</td>
     </tr>`;
   }).join('');
   host.replaceChildren();
-  host.insertAdjacentHTML('beforeend', `<table class="banking-transactions-table"><thead><tr>${sortHeader('date', localized('transactionDate', 'Date'))}${sortHeader('merchant', localized('transactionMerchant', 'Recipient / merchant'))}${sortHeader('account', localized('transactionAccount', 'Account'))}${sortHeader('category', localized('transactionCategory', 'Category'))}<th scope="col">${esc(localized('weeklyBudgetTransaction', 'Weekly budget'))}</th>${sortHeader('status', localized('transactionStatus', 'Status'))}${sortHeader('amount', localized('transactionAmount', 'Amount'))}</tr></thead><tbody>${rows || `<tr><td class="banking-transactions-table__empty" colspan="7">${esc(localized('noTransactionMatches', 'No transactions found.'))}</td></tr>`}</tbody></table>`);
+  host.insertAdjacentHTML('beforeend', `<table class="banking-transactions-table"><colgroup><col class="banking-transactions-table__date"><col class="banking-transactions-table__merchant-column"><col class="banking-transactions-table__account"><col class="banking-transactions-table__category"><col class="banking-transactions-table__weekly-budget"><col class="banking-transactions-table__status"><col class="banking-transactions-table__amount-column"></colgroup><thead><tr>${sortHeader('date', localized('transactionDate', 'Date'))}${sortHeader('merchant', localized('transactionMerchant', 'Recipient / merchant'))}${sortHeader('account', localized('transactionAccount', 'Account'))}${sortHeader('category', localized('transactionCategory', 'Category'))}<th scope="col">${esc(localized('weeklyBudgetTransaction', 'Weekly budget'))}</th>${sortHeader('status', localized('transactionStatus', 'Status'))}${sortHeader('amount', localized('transactionAmount', 'Amount'))}</tr></thead><tbody>${rows || `<tr><td class="banking-transactions-table__empty" colspan="7">${esc(localized('noTransactionMatches', 'No transactions found.'))}</td></tr>`}</tbody></table>`);
 }
 
 function renderTransactionPagination(host, pagination, state) {
@@ -1879,8 +1909,19 @@ function createOption(value, label) {
 }
 
 function formatDate(value) {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(value)) return '';
-  return value.slice(0, 10);
+  if (typeof value !== 'string') return '';
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return '';
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year
+    || date.getMonth() !== month - 1
+    || date.getDate() !== day
+  ) return '';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'short' }).format(date);
 }
 
 function formatMoney(value, currency) {

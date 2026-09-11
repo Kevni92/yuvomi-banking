@@ -7,6 +7,10 @@ function moduleFile(relativePath: string): string {
   return readFileSync(resolve(process.cwd(), '../modules/banking', relativePath), 'utf8');
 }
 
+function bankingStyle(): string {
+  return readFileSync(resolve(process.cwd(), '../modules/banking/style.css'), 'utf8');
+}
+
 test('banking page exposes weekly-budget settings and both override controls', () => {
   const source = moduleFile('index.js');
   for (const marker of [
@@ -69,11 +73,28 @@ test('banking redesign keeps configuration out of the main view and exposes a gl
     'data-transaction-sort',
     'data-transaction-page',
     'yuvomi:banking:transactions-open',
+    'data-banking-accounts-panel',
+    'yuvomi:banking:accounts-open',
+    'aria-expanded',
+    'aria-controls',
+    'hideAccountDetails',
     'settingsTitle',
     'backToBanking'
   ]) assert.ok(source.includes(marker), `Missing redesign contract marker: ${marker}`);
   assert.match(JSON.parse(moduleFile('module.json')).page.width, /^wide$/);
   assert.doesNotMatch(source, /data-account-transactions/);
+  assert.match(source, /function formatDate\(value\)[\s\S]*new Intl\.DateTimeFormat\(undefined, \{ dateStyle: 'short' \}\)/);
+  assert.doesNotMatch(source, /return value\.slice\(0, 10\)/);
+  assert.match(bankingStyle(), /\.banking-account-card__details\[hidden\]\s*\{\s*display:\s*none;/);
+  assert.doesNotMatch(source, /balancesResult\.(status|value|reason)/);
+
+  const syncSource = source.slice(source.indexOf('async function syncAccount'), source.indexOf('async function loadMerchantLogos'));
+  assert.match(syncSource, /const wasOpen = !details\.hidden/);
+  assert.doesNotMatch(syncSource, /details\.hidden\s*=\s*false/);
+  assert.match(source, /syncAccount\(\{ container, card, button, signal \}\)/);
+  assert.doesNotMatch(syncSource, /card\.closest\('\[data-composition\]'\)/);
+  assert.match(source, /if \(categoriesHost\)/);
+  assert.match(source, /if \(historyHost\)/);
 });
 
 test('banking push worker is scoped to the module and never imports app-shell code', () => {
@@ -108,6 +129,7 @@ test('weekly-budget locale keys exist in German and English', () => {
     'weeklyBudgetCategories',
     'weeklyBudgetHistory',
     'weeklyBudgetShowDetails',
+    'hideAccountDetails',
     'weeklyBudgetRecalculate',
     'weeklyBudgetDismissSuggestion',
     'weeklyBudgetLateCandidates',

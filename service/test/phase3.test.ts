@@ -235,13 +235,13 @@ test('imports transactions idempotently and stores counterparty IBAN encrypted',
   assert.equal(encryption.decrypt(stored.iban_encrypted), 'DE89370400440532013000');
   const raw = database.prepare('SELECT raw_payload_encrypted FROM transactions').get() as { raw_payload_encrypted: string };
   assert.ok(!raw.raw_payload_encrypted.includes('Invoice 123'));
-  assert.deepEqual(JSON.parse(encryption.decrypt(raw.raw_payload_encrypted)), transaction);
+  assert.deepEqual(JSON.parse(encryption.decrypt(raw.raw_payload_encrypted)).list, transaction);
   const updated = { ...transaction, remittance_information: ['Invoice 456'] };
   assert.deepEqual(importTransactions({
     database, accountId, transactions: [updated], hmacSecret: 'phase3-test-secret', encryption
   }), { inserted: 0, updated: 1 });
   const updatedRaw = database.prepare('SELECT raw_payload_encrypted FROM transactions').get() as { raw_payload_encrypted: string };
-  assert.deepEqual(JSON.parse(encryption.decrypt(updatedRaw.raw_payload_encrypted)), updated);
+  assert.deepEqual(JSON.parse(encryption.decrypt(updatedRaw.raw_payload_encrypted)).list, updated);
   database.close();
 });
 

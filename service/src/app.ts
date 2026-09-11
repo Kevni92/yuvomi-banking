@@ -107,7 +107,9 @@ export function createApp({
       clock
     }));
     app.use(`${API_PREFIX}`, createOpenAiSettingsRouter({ database, resolveSession, clock }));
-    app.use(`${API_PREFIX}`, createTransactionRouter({ database, resolveSession, encryption }));
+    app.use(`${API_PREFIX}`, createTransactionRouter({
+      database, resolveSession, encryption, client: resolvedEnableBankingClient
+    }));
     app.use(`${API_PREFIX}`, createPushRouter({ database, resolveSession, clock }));
   }
 

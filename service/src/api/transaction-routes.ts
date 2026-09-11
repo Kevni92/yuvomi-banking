@@ -8,8 +8,11 @@ import {
 } from '../services/transactions-query.js';
 import type { EncryptionService } from '../security/encryption.js';
 import { createEncryptionService } from '../security/encryption.js';
+import type { EnableBankingClient } from '../enable-banking/client.js';
+import { enrichTransactionById } from '../services/transaction-enrichment.js';
 import {
   noStore,
+  mutationIsAllowed,
   resolveAuthorizedUser,
   type SessionResolver
 } from './route-security.js';
@@ -17,11 +20,13 @@ import {
 export function createTransactionRouter({
   database,
   resolveSession,
-  encryption
+  encryption,
+  client
 }: {
   database: DatabaseSync;
   resolveSession: SessionResolver;
   encryption?: EncryptionService;
+  client: EnableBankingClient;
 }): express.Router {
   const router = express.Router();
 
@@ -75,6 +80,41 @@ export function createTransactionRouter({
     } catch {
       noStore(response);
       response.status(500).json({ error: 'Transaction details could not be loaded.' });
+    }
+  });
+
+  router.post('/transactions/:transactionId/enrich', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'write');
+    if (!user || !mutationIsAllowed(request, response)) return;
+    const transactionId = positivePathId(request.params.transactionId);
+    if (!transactionId) {
+      noStore(response);
+      response.status(404).json({ error: 'Transaction not found.' });
+      return;
+    }
+    const resolvedEncryption = encryption ?? createEncryptionService();
+    // The detail query is also the ownership guard. Provider IDs never come from the browser.
+    if (!getTransactionDetail(database, user.id, transactionId, resolvedEncryption)) {
+      noStore(response);
+      response.status(404).json({ error: 'Transaction not found.' });
+      return;
+    }
+    try {
+      const result = await enrichTransactionById({
+        database, client, transactionId, encryption: resolvedEncryption
+      });
+      const detail = getTransactionDetail(database, user.id, transactionId, resolvedEncryption);
+      noStore(response);
+      response.json({ data: {
+        detail_available: result.detailAvailable,
+        detail_fetched: result.detailFetched,
+        merchant_resolved: result.merchantResolved,
+        merchant_name: detail?.transaction.merchant_name ?? null,
+        provider_detail_state: result.state
+      } });
+    } catch {
+      noStore(response);
+      response.status(502).json({ error: 'Provider transaction details could not be loaded.' });
     }
   });
 

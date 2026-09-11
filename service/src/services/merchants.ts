@@ -1,4 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { EncryptionService } from '../security/encryption.js';
+import { readStoredProviderPayload } from './provider-transaction-payload.js';
+import { collectTransactionEvidence, type TransactionEvidence } from './transaction-evidence.js';
 
 export interface MerchantDefinition {
   key: string;
@@ -26,6 +29,28 @@ export interface NormalizedMerchant {
   name: string;
 }
 
+export interface ResolvedMerchant {
+  merchant: NormalizedMerchant;
+  source: string;
+  method: 'provider_explicit' | 'registry_alias';
+}
+
+export function resolveMerchantFromEvidence(evidence: TransactionEvidence[]): ResolvedMerchant | null {
+  for (const strength of ['strong', 'medium', 'weak'] as const) {
+    for (const item of evidence.filter((candidate) => candidate.strength === strength)) {
+      const merchant = normalizeMerchant(item.value);
+      if (!merchant) continue;
+      return {
+        merchant,
+        source: item.source,
+        method: strength === 'strong' && /merchant(_name|\.name)?$|card_acceptor_name$/.test(item.source)
+          ? 'provider_explicit' : 'registry_alias'
+      };
+    }
+  }
+  return null;
+}
+
 /** Returns a known, local registry identity without making a network request. */
 export function normalizeMerchant(...values: Array<string | null | undefined>): NormalizedMerchant | null {
   const haystack = values
@@ -50,29 +75,44 @@ export function merchantByKey(key: string): MerchantDefinition | null {
 export function normalizeMerchantsForAccount(
   database: DatabaseSync,
   accountId: number,
-  now = new Date()
+  now = new Date(),
+  encryption?: EncryptionService
 ): number {
   if (!Number.isSafeInteger(accountId) || accountId < 1 || Number.isNaN(now.getTime())) {
     throw new Error('Merchant normalization input is invalid.');
   }
   const rows = database.prepare(`
-    SELECT id, merchant_name, counterparty_name, purpose
+    SELECT id, merchant_name, counterparty_name, purpose, raw_payload_encrypted,
+           merchant_resolution_method
     FROM transactions WHERE account_id = ?
   `).all(accountId) as Array<{
     id: number;
     merchant_name: string | null;
     counterparty_name: string | null;
     purpose: string | null;
+    raw_payload_encrypted: string | null;
+    merchant_resolution_method: string | null;
   }>;
   const update = database.prepare(`
-    UPDATE transactions SET merchant_key = ?, merchant_name = ?, updated_at = ? WHERE id = ?
+    UPDATE transactions SET merchant_key = ?, merchant_name = ?, merchant_evidence_source = ?,
+      merchant_resolution_method = ?, updated_at = ? WHERE id = ?
   `);
   let normalized = 0;
   const timestamp = now.toISOString();
   for (const row of rows) {
-    const merchant = normalizeMerchant(row.merchant_name, row.counterparty_name, row.purpose);
-    if (!merchant) continue;
-    const result = update.run(merchant.key, merchant.name, timestamp, row.id);
+    if (row.merchant_resolution_method === 'manual') continue;
+    const payload = encryption ? readStoredProviderPayload(row.raw_payload_encrypted, encryption) : null;
+    const evidence: TransactionEvidence[] = [
+      ...(row.merchant_name ? [{ source: 'normalized.merchant_name', value: row.merchant_name, strength: 'strong' as const }] : []),
+      ...(row.counterparty_name ? [{ source: 'normalized.counterparty_name', value: row.counterparty_name, strength: 'strong' as const }] : []),
+      ...(row.purpose ? [{ source: 'normalized.purpose', value: row.purpose, strength: 'medium' as const }] : []),
+      ...(payload ? collectTransactionEvidence(payload.list, payload.detail) : [])
+    ];
+    const resolved = resolveMerchantFromEvidence(evidence);
+    if (!resolved) continue;
+    const result = update.run(
+      resolved.merchant.key, resolved.merchant.name, resolved.source, resolved.method, timestamp, row.id
+    );
     normalized += Number(result.changes);
   }
   return normalized;

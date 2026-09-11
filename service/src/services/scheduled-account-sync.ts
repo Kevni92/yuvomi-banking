@@ -15,6 +15,7 @@ import {
   localDateForInstant
 } from './weekly-budget-schedule.js';
 import { reconcileWeeklyBudgetLifecycle } from './weekly-budget-revisions.js';
+import { enrichAccountTransactions } from './transaction-enrichment.js';
 
 const RETRY_DELAYS_MS = [5, 15, 30].map((minutes) => minutes * 60_000);
 
@@ -307,6 +308,16 @@ export async function runScheduledAccountSync({
     );
     database.exec('COMMIT;');
     transactionOpen = false;
+    // Detail requests deliberately happen after the short import transaction.
+    // A transient enrichment failure must not invalidate a successfully persisted sync.
+    try {
+      await Promise.all([
+        enrichAccountTransactions({ database, client, accountId: source.id, providerAccountId: source.providerAccountId, encryption, now: syncedAt }),
+        enrichAccountTransactions({ database, client, accountId: target.id, providerAccountId: target.providerAccountId, encryption, now: syncedAt })
+      ]);
+    } catch {
+      // Candidate state records retry eligibility; the next scheduled sync resumes it.
+    }
     return {
       runId: claimed.runId,
       configId,

@@ -235,6 +235,12 @@ export class EnableBankingClient {
     return this.request(`/accounts/${encodePathId(accountId)}/transactions${suffix}`);
   }
 
+  getTransactionDetails(accountId: string, transactionId: string): Promise<Record<string, unknown>> {
+    return this.request(
+      `/accounts/${encodePathId(accountId)}/transactions/${encodePathId(transactionId)}`
+    );
+  }
+
   async getAllAccountTransactions(
     accountId: string,
     query: Omit<TransactionQuery, 'continuationKey'> = {}

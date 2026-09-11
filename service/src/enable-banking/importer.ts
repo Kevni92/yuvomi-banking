@@ -3,6 +3,11 @@ import type { DatabaseSync } from 'node:sqlite';
 import { counterpartyId, normalizeIban } from '../services/counterparty.js';
 import { applyCategoryRulesForAccount } from '../services/category-rules.js';
 import { normalizeMerchantsForAccount } from '../services/merchants.js';
+import {
+  mergeListPayload,
+  readStoredProviderPayload,
+  writeStoredProviderPayload
+} from '../services/provider-transaction-payload.js';
 import type { EncryptionService } from '../security/encryption.js';
 
 export type TransactionStatus = 'PDNG' | 'BOOK' | 'UNKNOWN';
@@ -91,6 +96,10 @@ export function importTransactions({
   const findCounterparty = database.prepare(
     'SELECT id FROM counterparties WHERE counterparty_id = ?'
   );
+  const existingPayload = database.prepare(`
+    SELECT raw_payload_encrypted, provider_detail_state, transaction_id, status
+    FROM transactions WHERE id = ?
+  `);
   const upsertCounterparty = database.prepare(`
     INSERT INTO counterparties (
       counterparty_id, display_name, iban_encrypted, created_at, updated_at
@@ -105,8 +114,10 @@ export function importTransactions({
       account_id, provider_transaction_id, entry_reference, transaction_id,
       booking_date, value_date, transaction_date, amount_cents, currency, direction,
       counterparty_ref, counterparty_name, purpose, mcc, status, raw_payload_encrypted,
+      provider_detail_state, provider_note, reference_number, reference_number_schema,
+      bank_transaction_code, counterparty_additional_identification,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateTransaction = database.prepare(`
     UPDATE transactions SET
@@ -124,6 +135,12 @@ export function importTransactions({
       purpose = COALESCE(?, purpose),
       mcc = COALESCE(?, mcc),
       raw_payload_encrypted = ?,
+      provider_note = COALESCE(?, provider_note),
+      reference_number = COALESCE(?, reference_number),
+      reference_number_schema = COALESCE(?, reference_number_schema),
+      bank_transaction_code = COALESCE(?, bank_transaction_code),
+      counterparty_additional_identification = COALESCE(?, counterparty_additional_identification),
+      provider_detail_state = ?,
       status = CASE
         WHEN ? = 'UNKNOWN' AND status IN ('PDNG', 'BOOK') THEN status
         ELSE ?
@@ -168,6 +185,17 @@ export function importTransactions({
 
       const timestamp = new Date().toISOString();
       if (existing) {
+        const previous = existingPayload.get(existing.id) as {
+          raw_payload_encrypted: string | null;
+          provider_detail_state: string;
+          transaction_id: string | null;
+          status: TransactionStatus;
+        } | undefined;
+        const rawPayloadEncrypted = writeStoredProviderPayload(
+          mergeListPayload(readStoredProviderPayload(previous?.raw_payload_encrypted, encryption), transaction, timestamp),
+          encryption
+        );
+        const detailState = importedDetailState(previous, normalized);
         updateTransaction.run(
           normalized.deduplicationKey,
           normalized.entryReference,
@@ -182,7 +210,13 @@ export function importTransactions({
           normalized.counterparty?.name ?? null,
           normalized.purpose,
           normalized.mcc,
-          normalized.rawPayloadEncrypted,
+          rawPayloadEncrypted,
+          normalized.note,
+          normalized.referenceNumber,
+          normalized.referenceNumberSchema,
+          normalized.bankTransactionCode,
+          normalized.counterpartyAdditionalIdentification,
+          detailState,
           normalized.status,
           normalized.status,
           timestamp,
@@ -206,6 +240,12 @@ export function importTransactions({
           normalized.mcc,
           normalized.status,
           normalized.rawPayloadEncrypted,
+          normalized.detailState,
+          normalized.note,
+          normalized.referenceNumber,
+          normalized.referenceNumberSchema,
+          normalized.bankTransactionCode,
+          normalized.counterpartyAdditionalIdentification,
           timestamp,
           timestamp
         );
@@ -214,10 +254,12 @@ export function importTransactions({
       if (existing) result.updated += 1;
       else result.inserted += 1;
     }
+    // Resolve deterministic provider evidence before category rules, so rules
+    // can use a merchant discovered from a list payload immediately.
+    normalizeMerchantsForAccount(database, accountId, new Date(), encryption);
     // Rule application is part of the local import transaction so a newly
     // learned counterparty rule prevents a later OpenAI request immediately.
     applyCategoryRulesForAccount(database, accountId, new Date());
-    normalizeMerchantsForAccount(database, accountId, new Date());
     if (manageTransaction) database.exec('COMMIT;');
   } catch (error) {
     if (manageTransaction) {
@@ -256,6 +298,8 @@ interface NormalizedTransaction {
   referenceNumberSchema: string | null;
   counterpartyAdditionalIdentification: string | null;
   bankTransactionCode: string | null;
+  note: string | null;
+  detailState: 'available' | 'unavailable';
   rawPayloadEncrypted: string;
 }
 
@@ -321,6 +365,7 @@ function normalizeTransaction(
       : transaction.creditor_account_additional_identification
   );
   const bankTransactionCode = stableValue(transaction.bank_transaction_code);
+  const note = stringValue(transaction.note)?.slice(0, 2_000) ?? null;
   const normalized: NormalizedTransaction = {
     deduplicationKey: '',
     stableFingerprint: '',
@@ -340,12 +385,26 @@ function normalizeTransaction(
     referenceNumberSchema,
     counterpartyAdditionalIdentification,
     bankTransactionCode,
-    rawPayloadEncrypted: encryption.encrypt(JSON.stringify(transaction))
+    note,
+    detailState: transactionId ? 'available' : 'unavailable',
+    rawPayloadEncrypted: writeStoredProviderPayload(
+      mergeListPayload(null, transaction, new Date().toISOString()), encryption
+    )
   };
 
   normalized.stableFingerprint = fallbackTransactionKey(normalized);
   normalized.deduplicationKey = entryReference ?? normalized.stableFingerprint;
   return normalized;
+}
+
+function importedDetailState(
+  previous: { provider_detail_state: string; transaction_id: string | null; status: TransactionStatus } | undefined,
+  incoming: NormalizedTransaction
+): string {
+  if (!incoming.transactionId) return 'unavailable';
+  if (!previous || previous.transaction_id !== incoming.transactionId) return 'available';
+  if (previous.status === 'PDNG' && incoming.status === 'BOOK') return 'available';
+  return previous.provider_detail_state === 'unavailable' ? 'available' : previous.provider_detail_state;
 }
 
 /** Parse provider decimal strings exactly into integer minor units. */

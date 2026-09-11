@@ -13,11 +13,12 @@ import {
   calculateConsentValidUntil,
   parseMaximumConsentValidity
 } from '../enable-banking/consent.js';
-import { importTransactions } from '../enable-banking/importer.js';
 import { persistAccountBalanceSnapshots } from '../enable-banking/balances.js';
 import { createEncryptionService } from '../security/encryption.js';
 import { maskIban, normalizeIban } from '../services/counterparty.js';
 import { reconcileWeeklyBudgetLifecycle } from '../services/weekly-budget-revisions.js';
+import { syncBankAccount } from '../services/account-sync.js';
+import { transactionDataQuality } from '../services/transaction-data-quality.js';
 import { listPublicTransactions } from '../services/transactions-query.js';
 import {
   cacheMerchantLogosForAccount,
@@ -304,6 +305,19 @@ export function createEnableBankingRouter({
     response.json({ data: { transactions: listPublicTransactions(database, user.id, account.id) } });
   });
 
+  router.get('/accounts/:accountId/data-quality', async (request, response) => {
+    const user = await resolveAuthorizedUser(request, response, resolveSession, 'read');
+    if (!user) return;
+    const account = ownedAccount(database, request.params.accountId, user.id);
+    if (!account) {
+      noStore(response);
+      response.status(404).json({ error: 'Bank account not found.' });
+      return;
+    }
+    noStore(response);
+    response.json({ data: transactionDataQuality(database, account.id) });
+  });
+
   router.get('/merchant-logos/:merchantKey', async (request, response) => {
     const user = await resolveAuthorizedUser(request, response, resolveSession, 'read');
     if (!user) return;
@@ -348,28 +362,28 @@ export function createEnableBankingRouter({
       return;
     }
     try {
-      const result = await client.getAllAccountTransactions(account.provider_account_id, {
+      const result = await syncBankAccount({
+        database,
+        client,
+        accountId: account.id,
+        providerAccountId: account.provider_account_id,
+        hmacSecret: config.secrets.counterpartyHmac,
+        encryption: createEncryptionService(),
+        now: new Date(),
+        query: {
         dateFrom: queryString(request.query.date_from),
         dateTo: queryString(request.query.date_to),
         transactionStatus: queryString(request.query.transaction_status),
         strategy: queryString(request.query.strategy)
+        }
       });
-      const importResult = importTransactions({
-        database,
-        accountId: account.id,
-        transactions: result.transactions,
-        hmacSecret: config.secrets.counterpartyHmac,
-        encryption: createEncryptionService()
-      });
-      database.prepare(
-        'UPDATE bank_accounts SET last_synced_at = ?, updated_at = ? WHERE id = ?'
-      ).run(new Date().toISOString(), new Date().toISOString(), account.id);
       reconcileWeeklyBudgetsForAccount(database, account.id, new Date());
       noStore(response);
       response.json({
         data: {
           pages: result.pages,
-          imported: importResult,
+          imported: result.imported,
+          enrichment: result.enrichment,
           transactions: listPublicTransactions(database, user.id, account.id)
         }
       });

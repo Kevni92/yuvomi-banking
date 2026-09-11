@@ -60,6 +60,7 @@ export interface TransactionDetail {
   counterparty: Record<string, unknown> | null;
   provider_raw_available: boolean;
   provider_raw: unknown | null;
+  enrichment: Record<string, unknown>;
 }
 
 export class TransactionQueryValidationError extends Error {}
@@ -160,6 +161,12 @@ export function getTransactionDetail(
       transactions.amount_cents, transactions.currency, transactions.direction,
       transactions.counterparty_name, transactions.purpose, transactions.merchant_name,
       transactions.merchant_key, transactions.mcc, transactions.status,
+      transactions.provider_note, transactions.reference_number,
+      transactions.reference_number_schema, transactions.bank_transaction_code,
+      transactions.counterparty_additional_identification,
+      transactions.provider_detail_state, transactions.provider_detail_fetched_at,
+      transactions.provider_detail_attempt_count, transactions.merchant_evidence_source,
+      transactions.merchant_resolution_method,
       transactions.category_id, transactions.category_source, transactions.category_confidence,
       transactions.weekly_budget_override, transactions.yuvomi_budget_entry_id,
       transactions.created_at, transactions.updated_at, transactions.raw_payload_encrypted,
@@ -207,6 +214,11 @@ export function getTransactionDetail(
     merchant_name: row.merchant_name,
     merchant_key: row.merchant_key,
     mcc: row.mcc,
+    provider_note: row.provider_note,
+    reference_number: row.reference_number,
+    reference_number_schema: row.reference_number_schema,
+    bank_transaction_code: row.bank_transaction_code,
+    counterparty_additional_identification: row.counterparty_additional_identification,
     status: row.status,
     category_id: row.category_id,
     category_name: row.category_name,
@@ -242,7 +254,15 @@ export function getTransactionDetail(
     bank: { aspsp_name: row.aspsp_name, aspsp_country: row.aspsp_country },
     counterparty,
     provider_raw_available: providerRaw !== null,
-    provider_raw: providerRaw
+    provider_raw: providerRaw,
+    enrichment: {
+      transaction_id_available: typeof row.transaction_id === 'string' && Boolean(row.transaction_id),
+      provider_detail_state: row.provider_detail_state,
+      provider_detail_fetched_at: row.provider_detail_fetched_at,
+      provider_detail_attempt_count: row.provider_detail_attempt_count,
+      merchant_resolution_method: row.merchant_resolution_method,
+      merchant_evidence_source: row.merchant_evidence_source
+    }
   };
 }
 
@@ -274,8 +294,10 @@ function buildWhere(query: TransactionQuery): { where: string; params: Array<str
       LOWER(COALESCE(transactions.merchant_name, '')) LIKE LOWER(?)
       OR LOWER(COALESCE(transactions.counterparty_name, '')) LIKE LOWER(?)
       OR LOWER(COALESCE(transactions.purpose, '')) LIKE LOWER(?)
+      OR LOWER(COALESCE(transactions.provider_note, '')) LIKE LOWER(?)
+      OR LOWER(COALESCE(transactions.reference_number, '')) LIKE LOWER(?)
     )`);
-    params.push(search, search, search);
+    params.push(search, search, search, search, search);
   }
   if (query.accountId !== undefined) {
     clauses.push('transactions.account_id = ?');

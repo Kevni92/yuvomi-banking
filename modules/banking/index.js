@@ -375,6 +375,11 @@ function configureMainInteractions(container, permission, signal) {
       void openTransactionDetail({ container, transactionId: detailButton.dataset.transactionId, signal });
       return;
     }
+    const enrichButton = event.target.closest('[data-action="enrich-transaction"]');
+    if (enrichButton) {
+      void enrichTransactionDetail({ container, transactionId: enrichButton.dataset.transactionId, signal });
+      return;
+    }
     const sortButton = event.target.closest('[data-transaction-sort]');
     if (sortButton) {
       updateTransactionSort(container, sortButton.dataset.transactionSort);
@@ -430,6 +435,24 @@ function configureMainInteractions(container, permission, signal) {
     if (sessionStorage.getItem('yuvomi:banking:accounts-open') === '0') accountsPanel.open = false;
   } catch {
     // Ignore storage restrictions.
+  }
+}
+
+async function enrichTransactionDetail({ container, transactionId, signal }) {
+  if (!/^\d+$/.test(transactionId || '')) return;
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson(`transactions/${encodeURIComponent(transactionId)}/enrich`, {
+      method: 'POST', body: {}, signal, headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' }
+    });
+    if (!signal.aborted) {
+      await openTransactionDetail({ container, transactionId, signal });
+      await loadTransactionTable({ container, signal });
+    }
+  } catch (error) {
+    if (!signal.aborted) renderError(
+      container.querySelector('[data-banking-transaction-dialog-content]'), error
+    );
   }
 }
 
@@ -2377,12 +2400,29 @@ function renderTransactionDetail(host, detail) {
       [localized('transactionCategory', 'Category'), transaction.category_name], ['Kategorie-ID', transaction.category_id], ['Quelle', transaction.category_source], ['Confidence', transaction.category_confidence], [localized('weeklyBudgetTransaction', 'Weekly budget'), transaction.weekly_budget_override], ['Kategorie-Standard', transaction.category_weekly_budget_default], ['Yuvomi-Budget-Entry-ID', transaction.yuvomi_budget_entry_id]
     ])}
     ${section(localized('transactionDetailsProviderRefs', 'Bank / provider references'), [
-      ['Provider transaction key', transaction.provider_transaction_id], ['entry_reference', transaction.entry_reference], ['transaction_id', transaction.transaction_id]
+      ['Provider transaction key', transaction.provider_transaction_id], ['entry_reference', transaction.entry_reference], ['transaction_id', transaction.transaction_id], ['Note', transaction.provider_note], ['Referenznummer', transaction.reference_number]
+    ])}
+    ${section(localized('transactionEnrichment', 'Provider enrichment'), [
+      [localized('transactionDetailState', 'Detail status'), detail?.enrichment?.provider_detail_state],
+      [localized('transactionEvidenceSource', 'Merchant evidence'), detail?.enrichment?.merchant_evidence_source],
+      [localized('transactionResolutionMethod', 'Recognition'), detail?.enrichment?.merchant_resolution_method],
+      [localized('transactionDetailFetchedAt', 'Details fetched'), detail?.enrichment?.provider_detail_fetched_at]
     ])}
     ${section(localized('transactionDetailsTechnical', 'Technical local data'), [
       ['Lokale Umsatz-ID', transaction.id], ['Erstellt', transaction.created_at], ['Aktualisiert', transaction.updated_at]
     ])}
   `);
+  const enrich = document.createElement('button');
+  enrich.type = 'button';
+  enrich.className = 'btn btn--secondary';
+  enrich.dataset.action = 'enrich-transaction';
+  enrich.dataset.transactionId = String(transaction.id ?? '');
+  enrich.disabled = !detail?.enrichment?.transaction_id_available;
+  enrich.textContent = localized('transactionEnrich', 'Refresh provider details');
+  const hint = document.createElement('p');
+  hint.className = 'banking-muted';
+  hint.textContent = localized('transactionEnrichHint', 'Enable Banking can provide extra details only when the bank supplies a transaction ID.');
+  host.append(enrich, hint);
   const raw = document.createElement('details');
   raw.className = 'banking-transaction-detail-raw';
   const summary = document.createElement('summary');

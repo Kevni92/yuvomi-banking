@@ -6,6 +6,7 @@ import { migrateDatabase } from '../src/db/database.js';
 import type { EnableBankingClient } from '../src/enable-banking/client.js';
 import { createEncryptionService } from '../src/security/encryption.js';
 import { runWeeklyBudgetCutoff } from '../src/services/weekly-budget-runner.js';
+import { upsertPushSubscription } from '../src/services/push-subscriptions.js';
 
 const TEST_KEY = 'de'.repeat(32);
 const TEST_HMAC = 'weekly-budget-runner-hmac-secret';
@@ -179,6 +180,68 @@ test('fresh cutoff sync atomically finalizes the 450 - 30 - 100 = 320 period', a
     assert.equal(replay.suggestionId, result.suggestionId);
     assert.equal(calls.value, 4);
     assert.equal(database.prepare('SELECT count(*) AS count FROM weekly_budget_job_runs').get()?.count, 1);
+  } finally {
+    database.close();
+    config.secrets.dataEncryptionKey = previousKey;
+    config.secrets.counterpartyHmac = previousHmac;
+  }
+});
+
+test('queues one encrypted idempotent push delivery for every active recipient device', async () => {
+  const previousKey = config.secrets.dataEncryptionKey;
+  const previousHmac = config.secrets.counterpartyHmac;
+  config.secrets.dataEncryptionKey = TEST_KEY;
+  config.secrets.counterpartyHmac = TEST_HMAC;
+  const database = fixture();
+  const calls = { value: 0 };
+  try {
+    database.prepare(`
+      UPDATE weekly_budget_configs SET notification_enabled = 1, notification_user_id = 9
+      WHERE id = 1
+    `).run();
+    upsertPushSubscription(database, {
+      yuvomiUserId: 9,
+      subscription: {
+        endpoint: 'https://fcm.googleapis.com/fcm/send/recipient-device',
+        keys: { p256dh: 'recipient_p256dh', auth: 'recipient_auth' }
+      },
+      now: RUN_TIME
+    });
+    const result = await runWeeklyBudgetCutoff({
+      database, client: successfulClient(calls), configId: 1,
+      scheduledCutoffAt: CUTOFF, trigger: 'scheduled', clock: () => RUN_TIME
+    });
+    const delivery = database.prepare(`
+      SELECT suggestion_id, subscription_id, recipient_yuvomi_user_id,
+             idempotency_key, payload_encrypted, status
+      FROM weekly_budget_notification_deliveries
+    `).get() as Record<string, unknown>;
+    assert.equal(delivery.suggestion_id, result.suggestionId);
+    assert.equal(delivery.subscription_id, 1);
+    assert.equal(delivery.recipient_yuvomi_user_id, 9);
+    assert.equal(delivery.status, 'pending');
+    assert.equal(
+      delivery.idempotency_key,
+      'weekly-budget:1:weekly-budget:1:2026-09-13T16:30:00.000Z:revision:1:subscription:1'
+    );
+    const payload = JSON.parse(createEncryptionService(TEST_KEY).decrypt(
+      String(delivery.payload_encrypted)
+    ));
+    assert.deepEqual(payload, {
+      title: 'Wochenbudget: 320,00 EUR überweisen',
+      body: '450,00 EUR - 30,00 EUR Direkt - 100,00 EUR N26 = 320,00 EUR',
+      url: `/m/banking?view=weekly-transfer&id=${result.suggestionId}`,
+      tag: 'banking-weekly-budget-1-weekly-budget:1:2026-09-13T16:30:00.000Z'
+    });
+
+    const replay = await runWeeklyBudgetCutoff({
+      database, client: successfulClient(calls), configId: 1,
+      scheduledCutoffAt: CUTOFF, trigger: 'catch_up', clock: () => RUN_TIME
+    });
+    assert.equal(replay.idempotentReplay, true);
+    assert.equal(database.prepare(
+      'SELECT count(*) AS count FROM weekly_budget_notification_deliveries'
+    ).get()?.count, 1);
   } finally {
     database.close();
     config.secrets.dataEncryptionKey = previousKey;

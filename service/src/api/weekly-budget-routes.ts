@@ -33,6 +33,7 @@ import {
   CategoryAssignmentValidationError,
   assignManualTransactionCategory
 } from '../services/category-rules.js';
+import { activePushSubscriptionCount } from '../services/push-subscriptions.js';
 import {
   mutationIsAllowed,
   noStore,
@@ -65,6 +66,13 @@ export function createWeeklyBudgetRouter({
 
     try {
       const input = parseSettingsInput(request.body);
+      if (input.notificationEnabled && input.notificationUserId !== null
+        && activePushSubscriptionCount(database, input.notificationUserId) === 0) {
+        response.status(400).json({
+          error: 'The selected notification recipient has no active Banking push subscription.'
+        });
+        return;
+      }
       const accounts = ownedAccounts(database, user.id, [
         input.sourceAccountId,
         input.targetAccountId

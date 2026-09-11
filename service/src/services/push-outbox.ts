@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { createEncryptionService } from '../security/encryption.js';
+import { formatEuroCents } from './weekly-budget.js';
 
 export type BankingNotificationType = 'proposal' | 'sync_failed' | 'test';
 
@@ -51,6 +52,76 @@ export function enqueuePushDelivery(
   return { id: Number(row.id), created: false };
 }
 
+export function enqueueWeeklyBudgetProposalDeliveries(
+  database: DatabaseSync,
+  input: {
+    configId: number;
+    periodKey: string;
+    suggestionId: number;
+    revision: number;
+    targetAmountCents: number;
+    directExpenseCents: number;
+    targetBalanceCents: number;
+    transferAmountCents: number;
+    now: Date;
+  }
+): number {
+  const config = database.prepare(`
+    SELECT notification_enabled, notification_user_id
+    FROM weekly_budget_configs WHERE id = ?
+  `).get(input.configId) as {
+    notification_enabled: number;
+    notification_user_id: number | null;
+  } | undefined;
+  if (!config || !config.notification_enabled || !config.notification_user_id) return 0;
+  const subscriptions = database.prepare(`
+    SELECT id FROM banking_push_subscriptions
+    WHERE yuvomi_user_id = ? AND status = 'active'
+    ORDER BY id
+  `).all(config.notification_user_id) as Array<{ id: number }>;
+  const payload = weeklyBudgetPayload(input);
+  let queued = 0;
+  for (const subscription of subscriptions) {
+    const result = enqueuePushDelivery(database, {
+      suggestionId: input.suggestionId,
+      subscriptionId: Number(subscription.id),
+      recipientYuvomiUserId: Number(config.notification_user_id),
+      idempotencyKey: `weekly-budget:${input.configId}:${input.periodKey}:revision:${input.revision}:subscription:${subscription.id}`,
+      notificationType: 'proposal',
+      payload,
+      now: input.now
+    });
+    if (result.created) queued += 1;
+  }
+  return queued;
+}
+
+function weeklyBudgetPayload(input: {
+  configId: number;
+  periodKey: string;
+  suggestionId: number;
+  targetAmountCents: number;
+  directExpenseCents: number;
+  targetBalanceCents: number;
+  transferAmountCents: number;
+}): BankingPushPayload {
+  const transferAmount = formatEuroCents(input.transferAmountCents);
+  if (input.transferAmountCents === 0) {
+    return {
+      title: 'Wochenbudget: keine Überweisung nötig',
+      body: 'Ziel und vorhandenes Guthaben decken die neue Woche ab.',
+      url: `/m/banking?view=weekly-transfer&id=${input.suggestionId}`,
+      tag: `banking-weekly-budget-${input.configId}-${input.periodKey}`
+    };
+  }
+  return {
+    title: `Wochenbudget: ${transferAmount} EUR überweisen`,
+    body: `${formatEuroCents(input.targetAmountCents)} EUR - ${formatEuroCents(input.directExpenseCents)} EUR Direkt - ${formatEuroCents(input.targetBalanceCents)} EUR N26 = ${transferAmount} EUR`,
+    url: `/m/banking?view=weekly-transfer&id=${input.suggestionId}`,
+    tag: `banking-weekly-budget-${input.configId}-${input.periodKey}`
+  };
+}
+
 function validateOutboxInput(input: {
   recipientYuvomiUserId: number;
   idempotencyKey: string;
@@ -61,7 +132,7 @@ function validateOutboxInput(input: {
   if (!Number.isSafeInteger(input.recipientYuvomiUserId) || input.recipientYuvomiUserId < 1) {
     throw new Error('Notification recipient is invalid.');
   }
-  if (!/^[A-Za-z0-9:_-]{1,200}$/.test(input.idempotencyKey)) {
+  if (!/^[A-Za-z0-9:._-]{1,200}$/.test(input.idempotencyKey)) {
     throw new Error('Notification idempotency key is invalid.');
   }
   if (!['proposal', 'sync_failed', 'test'].includes(input.notificationType)) {

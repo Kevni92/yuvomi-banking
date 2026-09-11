@@ -10,6 +10,7 @@ import {
 } from './weekly-budget.js';
 import { buildEpcQrPayload, giroCodePayloadSha256 } from './girocode.js';
 import { matchWeeklyBudgetTransfers } from './weekly-budget-transfer-matcher.js';
+import { enqueueWeeklyBudgetProposalDeliveries } from './push-outbox.js';
 
 interface PeriodRow {
   id: number;
@@ -320,6 +321,17 @@ export function recalculateWeeklyBudgetPeriod(
       timestamp
     );
     const suggestionId = Number(suggestionInsert.lastInsertRowid);
+    enqueueWeeklyBudgetProposalDeliveries(database, {
+      configId: period.config_id,
+      periodKey: period.period_key,
+      suggestionId,
+      revision,
+      targetAmountCents: calculation.targetAmountCents,
+      directExpenseCents: calculation.directExpenseCents,
+      targetBalanceCents: calculation.targetBalanceCents,
+      transferAmountCents: calculation.transferAmountCents,
+      now
+    });
     const insertSnapshot = database.prepare(`
       INSERT INTO weekly_budget_period_transactions (
         period_id, transaction_id, transaction_key, revision, state,

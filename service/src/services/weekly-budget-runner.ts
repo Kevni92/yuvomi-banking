@@ -17,6 +17,7 @@ import {
 import { weeklyBudgetPeriodEndingAt } from './weekly-budget-schedule.js';
 import { buildEpcQrPayload, giroCodePayloadSha256 } from './girocode.js';
 import { reconcileWeeklyBudgetLifecycle } from './weekly-budget-revisions.js';
+import { enqueueWeeklyBudgetProposalDeliveries } from './push-outbox.js';
 
 export type WeeklyBudgetRunTrigger = 'scheduled' | 'catch_up' | 'manual';
 
@@ -313,6 +314,17 @@ export async function runWeeklyBudgetCutoff({
       finalizedAt
     );
     const suggestionId = Number(suggestionInsert.lastInsertRowid);
+    enqueueWeeklyBudgetProposalDeliveries(database, {
+      configId,
+      periodKey,
+      suggestionId,
+      revision: 1,
+      targetAmountCents: calculation.targetAmountCents,
+      directExpenseCents: calculation.directExpenseCents,
+      targetBalanceCents: calculation.targetBalanceCents,
+      transferAmountCents: calculation.transferAmountCents,
+      now: clock()
+    });
     database.prepare(`
       UPDATE weekly_budget_job_runs SET
         period_id = ?, status = 'succeeded', finished_at = ?,

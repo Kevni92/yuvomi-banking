@@ -536,6 +536,12 @@ zurück; Anlegen und Abmelden erfordern Session, Origin-Prüfung und Banking-CSR
 speichert auch den Benachrichtigungsinhalt verschlüsselt, bevor ein künftiger
 Sender ihn zustellt oder erneut versucht.
 
+Beim Finalisieren eines Stichtags sowie bei jeder zulässigen Neuberechnung
+entsteht pro aktiver Subscription eine Outbox-Zeile innerhalb derselben
+Datenbanktransaktion wie der Vorschlag. Ihr Schlüssel umfasst Konfiguration,
+Periodenschlüssel, Revision und Subscription. So führt ein Scheduler-Replay
+weder zu einem zweiten Vorschlag noch zu einer doppelten Zustellung.
+
 ### 11.2 Inhalt
 
 Für einen positiven Vorschlag:

@@ -2,114 +2,74 @@
 
 Stand der Analyse:
 
-- `yuvomi-banking`: `33f74ea91f5b11c7f89a5f534f548bdf19daef93`
+- `yuvomi-banking`: `c25fa2471ad9debade687d521cbf5e3d63e459fc`
 - Yuvomi Core: `1f96c4dc80f0a9668fd0d2885ca6242f9fc5b0ca`
+- UI-Review anhand des aktuellen Browserstands vom 11.09.2026
 
-Dieses Dokument ist die verbindliche Umsetzungsplanung für den nächsten UI-Umbau. Es ist absichtlich konkreter als ein gewöhnliches UX-Konzept, damit ein nachgelagerter Coding-Agent die Arbeit ohne erneute Architekturentscheidung abarbeiten kann.
-
-## 1. Zielbild
-
-Die Banking-Seite soll von einer technisch orientierten Integrations-/Debugseite zu einer alltagstauglichen Finanzansicht werden.
-
-Die Hauptseite `/m/banking` zeigt in dieser Reihenfolge:
-
-1. **Wochenbudget** – aktuelle Kennzahlen und ggf. GiroCode/Überweisungsvorschlag.
-2. **Konten** – kompakte Kontenübersicht und Synchronisationsaktionen.
-3. **Umsätze** – eine volle, einklappbare, filterbare und sortierbare Tabelle über alle eigenen Banking-Konten.
-4. **Umsatzkategorisierung** – offene Prüfungen und Kategorie-Vorschläge.
-5. **Wochenbudget-Historie** – vergangene Perioden und Revisionen.
-
-Nicht mehr auf der Hauptseite:
-
-- Banking-Sidecar-Debugkarte
-- eingeloggter Yuvomi-Benutzer als Debugkarte
-- Banking-Berechtigung als Debugkarte
-- Bank anbinden
-- Liste der Bankverbindungen
-- Wochenbudget-Konfigurationsformular
-- Push-/Benachrichtigungseinstellungen
-- Wochenbudget-Kategorie-Defaults
-- generischer `banking-empty-state`-Platzhalter
-
-Die Hauptseite ist damit eine **Nutzungsansicht**, keine Konfigurationsseite.
+Dieses Dokument ist die verbindliche technische Planung für die nächste UI-Iteration. Es beschreibt nicht mehr den ursprünglichen Umbau von Grund auf, sondern den **bereits erreichten Stand nach `c25fa247`** und die jetzt noch konkret umzusetzenden Korrekturen. Es ist absichtlich so detailliert, dass ein nachgelagerter Coding-Agent die Änderungen ohne erneute Architekturentscheidung abarbeiten kann.
 
 ---
 
-## 2. Analyse des aktuellen Codes
+## 1. Zielbild
 
-### 2.1 Hauptproblem: Seitenaufbau
+Die Banking-Hauptseite `/m/banking` ist eine Nutzungsansicht und bleibt in dieser Reihenfolge aufgebaut:
 
-`modules/banking/index.js::renderOverviewMarkup()` rendert derzeit alles in einen einzigen großen View:
+1. **Wochenbudget**
+2. **Konten**
+3. **Umsätze**
+4. **Umsatzkategorisierung**
+5. **Wochenbudget-Historie**
 
-- `.banking-integration-grid` mit drei Debugkarten
-- Bankverbindungsformular
-- Bankverbindungsliste
-- Wochenbudget inkl. Einstellungen, Push, Kategorien, Kategorisierung und Historie
-- Konten
-
-Dadurch steht das Wochenbudget nicht als primärer Anwendungsfall oben und administrative Konfiguration dominiert die Seite.
-
-### 2.2 Hauptproblem: Umsätze sind an Kontokarten gekoppelt
-
-`renderAccounts()` erzeugt je Konto eine `.banking-account-card`.
-
-Darin erzeugt `.banking-account-card__details` aktuell zwei Spalten:
+Die Konfiguration bleibt unter:
 
 ```text
-Salden | Umsätze
+/m/banking?view=settings
 ```
 
-Die CSS-Regel
+Der aktuelle Umbau hat die wesentlichen Ziele bereits erreicht:
 
-```css
-.banking-account-card__details {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-```
+- Debug-Karten sind von der Hauptseite entfernt.
+- Wochenbudget steht oben.
+- Banking-Einstellungen sind aus der Hauptseite herausgelöst.
+- Bankverbindungen sind im Settings-View einklappbar.
+- Umsätze sind nicht mehr an einzelne Kontokarten gekoppelt.
+- Es gibt eine globale, serverseitig filterbare/sortierbare Umsatz-Tabelle.
+- Die Seite verwendet `data + wide` statt `data + content`.
+- Einnahmen sind grün, Ausgaben rot.
+- Umsatzfilter, Sortierung und Pagination sind vorhanden.
+- Die Umsatzsektion ist einklappbar.
 
-ist der direkte Grund dafür, dass die Umsatzliste auf Desktop nur die rechte Hälfte des Inhalts nutzt.
+Die nächste Iteration konzentriert sich deshalb auf die **Konten-Sektion** und einige beim Review des Commits gefundene UI-/Frontend-Regressionspunkte.
 
-`renderTransactions()` rendert außerdem eine `<ul>` mit Kartenzeilen statt einer Datentabelle. Filterung, Sortierung und Pagination existieren nicht.
+---
 
-### 2.3 Positive Beträge
+## 2. Review des Commits `c25fa247`
 
-`renderTransactions()` setzt `data-direction="incoming|outgoing"` auf den Betrag. In `style.css` existiert aber nur eine Farbregel für `outgoing`:
+### 2.1 Was gut umgesetzt wurde
 
-```css
-.banking-transaction-row__amount[data-direction="outgoing"] {
-  color: var(--color-danger, #b42318);
-}
-```
+Der Commit folgt der ursprünglichen Architekturplanung in den entscheidenden Punkten.
 
-Für `incoming` fehlt die Erfolgsfarbe. Dadurch erscheinen Einnahmen in der Standard-Textfarbe.
+#### Hauptansicht und Settings sind getrennt
 
-### 2.4 Backend ist noch nicht für eine globale Tabelle ausgelegt
-
-`service/src/api/enable-banking-routes.ts` bietet aktuell:
+`modules/banking/index.js::render()` unterscheidet jetzt zwischen:
 
 ```text
-GET /accounts/:accountId/transactions
+view=main
+view=settings
 ```
 
-`listPublicTransactions()` ist an genau ein Konto gebunden, sortiert fest nach Datum und liefert maximal 100 Zeilen.
+und rendert über:
 
-Das reicht nicht für eine globale, filterbare Tabelle über alle Konten. Die neue Tabelle soll **nicht** alle Account-Endpunkte im Browser einzeln laden und anschließend clientseitig zusammenführen. Filter, Sortierung und Pagination gehören serverseitig in eine lokale DB-Abfrage.
-
-### 2.5 Yuvomi-Seitenbreite
-
-`modules/banking/module.json` verwendet aktuell:
-
-```json
-"page": {
-  "composition": "data",
-  "width": "content"
-}
+```text
+renderMainMarkup()
+renderSettingsMarkup()
 ```
 
-Yuvomi erlaubt für `data` die semantische Breite `wide`. Die neue Umsatz-Tabelle braucht mehr Platz, ohne eigenes Seitenlayout oder hartkodierte `max-width`-Werte einzuführen.
+Das ist die richtige Richtung. Die Hauptseite enthält keine Debug-Karten mehr und der Settings-View kapselt Bankverbindungen, Wochenbudget-Konfiguration, Push und Wochenbudget-Kategorien.
 
-Ziel:
+#### Seitenbreite wurde korrekt über Yuvomi gelöst
+
+`modules/banking/module.json` verwendet jetzt:
 
 ```json
 "page": {
@@ -118,706 +78,471 @@ Ziel:
 }
 ```
 
-Keine eigenen Seitenbreiten in `style.css` einführen.
+Das entspricht Yuvomis Page-Composition-Regeln. Es wurde keine eigene globale Seitenbreite in CSS erfunden.
 
----
+#### Globale Umsatz-API ist sauber getrennt
 
-## 3. Wichtige Yuvomi-Einschränkung: Einstellungen von Third-Party-Modulen
-
-Der gewünschte Endzustand ist, Banking-Konfiguration in Yuvomis normaler Einstellungsoberfläche zu haben.
-
-**Das ist mit der aktuellen Third-Party-Modul-API von Yuvomi noch nicht direkt möglich.**
-
-Geprüft wurden im aktuellen Yuvomi-Core insbesondere:
-
-- `MODULES.md`
-- `public/settings/registry.js`
-- `public/pages/settings.js`
-- das Extension-Manifest-/Capabilities-Modell
-
-Aktuell registriert ein Third-Party-Modul über `module.json` nur:
-
-- Permissions
-- Dashboard-Widgets
-- API-Prefix
-
-Die Settings-Leaves sind in `public/settings/registry.js` statisch im Core registriert. Es gibt derzeit kein `capabilities.settings`, kein Extension-Settings-Entry und keinen zulässigen Weg, aus `yuvomi-banking` eine neue `/settings/modules/banking`-Seite einzuhängen.
-
-### Konsequenz
-
-**Yuvomi Core in diesem Projekt nicht patchen.**
-
-Insbesondere nicht:
-
-- `../yuvomi/public/settings/registry.js` verändern
-- eine unbekannte `/settings/modules/banking`-Route erzwingen
-- Core-Dateien aus dem Banking-Repo überschreiben
-
-### Übergangslösung
-
-Die Banking-Konfiguration wird aus der Hauptansicht entfernt und als **eigener Banking-Einstellungsview** umgesetzt:
-
-```text
-/m/banking?view=settings
-```
-
-Die Hauptseite erhält im Page-Header eine Aktion `Einstellungen`.
-
-Der Settings-View verwendet dieselben Yuvomi-Komponenten/Token und sieht damit wie eine Yuvomi-Einstellungskarte aus, bleibt technisch aber innerhalb des Third-Party-Moduls.
-
-Die Settings-UI soll von Anfang an so gekapselt werden, dass sie später ohne Business-Logic-Umbau in einen zukünftigen offiziellen Yuvomi-Settings-Hook verschoben werden kann.
-
-Wenn Yuvomi später eine Extension-Capability für Settings bereitstellt, wird nur das Mounting geändert; API und Formlogik bleiben bestehen.
-
----
-
-## 4. Zielstruktur der Hauptseite
-
-### 4.1 Header
-
-`Banking` als normaler Page-Titel.
-
-Rechts im Header:
-
-```text
-[Einstellungen]
-```
-
-Die Aktion navigiert same-origin zu:
-
-```text
-/m/banking?view=settings
-```
-
-Die drei Debugkarten entfallen vollständig.
-
-`GET /health` bleibt als Server-/Monitoring-Endpunkt bestehen, wird aber nicht mehr für eine sichtbare Debugkarte auf der normalen Seite benötigt.
-
-`GET /me` bleibt erforderlich, weil `render()` daraus `banking_permission` ableitet.
-
-### 4.2 Wochenbudget
-
-Erste sichtbare Karte der Hauptseite.
-
-Auf der Hauptseite bleiben nur:
-
-- `banking-weekly-summary`
-- aktueller GiroCode/Überweisungsvorschlag
-- Button `Neu laden`
-
-Nicht mehr in dieser Karte:
-
-- `data-weekly-budget-settings`
-- Push-Konfiguration
-- Wochenbudget-Kategorie-Defaults
-- Kategorisierung
-- Historie
-
-Diese Bestandteile werden aufgeteilt wie unten beschrieben.
-
-### 4.3 Konten
-
-Zweite Karte.
-
-Je Konto:
-
-- Kontoname
-- maskierte IBAN / Typ / Währung
-- letzter Sync optional
-- `Details anzeigen`
-- bei `write`: `Konto synchronisieren`
-
-Beim Öffnen der Details werden nur noch Salden/Kontodetails angezeigt.
-
-Die Umsatzliste wird aus `.banking-account-card__details` entfernt.
-
-`Händlerlogos laden` nicht als gleichwertigen Hauptbutton neben Sync darstellen. Die Funktion bleibt erhalten, wird aber als sekundäre Wartungsaktion in den aufgeklappten Kontodetails oder im Banking-Settings-View platziert.
-
-### 4.4 Umsätze
-
-Dritte Karte und zentrale Datenansicht.
-
-Sie ist mit einem nativen `<details>` einklappbar:
-
-```html
-<details class="banking-panel banking-transactions-panel" open>
-  <summary>Umsätze …</summary>
-  … Filter …
-  … Tabelle …
-  … Pagination …
-</details>
-```
-
-Die Tabelle nutzt die komplette verfügbare Seitenbreite innerhalb der `wide` Page-Composition.
-
-### 4.5 Kategorisierung
-
-Eigene Karte nach den Umsätzen.
-
-Hier bleiben:
-
-- `Ungeklärte Umsätze analysieren`
-- Review-Liste
-- Kategorie-Vorschläge
-
-Die eigentlichen Kategorie-Dropdowns pro Umsatz bleiben zusätzlich direkt in der Tabelle verfügbar.
-
-### 4.6 Wochenbudget-Historie
-
-Eigene einklappbare Karte nach der Kategorisierung.
-
-Die bestehende `renderWeeklyBudgetHistory()`-Logik soll weiterverwendet werden.
-
----
-
-## 5. Umsatz-Tabelle: verbindliches UI-Konzept
-
-### 5.1 Spalten
-
-Desktop-Tabelle:
-
-| Spalte | Inhalt | sortierbar |
-|---|---|---|
-| Datum | Buchungs-/Wert-/Transaktionsdatum | ja |
-| Empfänger / Händler | Logo, Merchant/Counterparty, darunter Verwendungszweck | ja |
-| Konto | `account_display_name` | ja |
-| Kategorie | vorhandenes Kategorie-Select | ja |
-| Wochenbudget | `inherit/include/exclude`-Select | nein |
-| Status | Gebucht / Vorgemerkt / Unbekannt | ja |
-| Betrag | formatierter Betrag | ja |
-
-Betrag immer rechtsbündig innerhalb **seiner Tabellenzelle**, nicht als separate rechte Kartenhälfte.
-
-Farben:
-
-```text
-outgoing -> var(--color-danger)
-incoming -> var(--color-success)
-```
-
-Damit sind positive Einnahmen explizit grün.
-
-### 5.2 Filter
-
-Oberhalb der Tabelle ein kompaktes Filterformular mit:
-
-- freie Suche `q`
-- Konto
-- Kategorie
-- Richtung: Alle / Einnahmen / Ausgaben
-- Status: Alle / Gebucht / Vorgemerkt / Unbekannt
-- Datum von
-- Datum bis
-- Button `Filter zurücksetzen`
-
-Optional in derselben Implementierung, wenn ohne Zusatzkomplexität möglich:
-
-- `Nur ohne Kategorie`
-
-Nicht in Phase 1 des UI-Redesigns aufnehmen:
-
-- komplexe Betragsbereiche
-- gespeicherte Filtersets
-- freie SQL-artige Filter
-
-### 5.3 Sortierung
-
-Sortierung erfolgt serverseitig.
-
-Klick auf einen sortierbaren Tabellenkopf:
-
-1. neues Sortierfeld -> Standardrichtung setzen
-2. gleiches Sortierfeld -> `asc`/`desc` toggeln
-3. `aria-sort` aktualisieren
-4. Offset auf `0` setzen
-5. Tabelle neu laden
-
-Default:
-
-```text
-sort=date
-order=desc
-```
-
-### 5.4 Pagination
-
-Default:
-
-```text
-limit=50
-offset=0
-```
-
-Maximal 100 Zeilen pro Request.
-
-Footer:
-
-```text
-1–50 von 347    [Zurück] [Weiter]
-```
-
-Keine unendliche DOM-Liste mit allen historischen Umsätzen erzeugen.
-
-### 5.5 Einklappen
-
-Die Umsatzsektion ist standardmäßig offen.
-
-Der Benutzer kann sie über `<details>` schließen.
-
-Optional darf der Open/Closed-Zustand in `sessionStorage` gespeichert werden, z. B.:
-
-```text
-yuvomi:banking:transactions-open
-```
-
-Keine serverseitige Preference und keine neue DB-Spalte nur für diesen UI-Zustand.
-
-### 5.6 Responsive Verhalten
-
-Keine neue moduleigene Page-Geometrie und keine hartkodierte Seitenbreite.
-
-Die Tabelle liegt in einem Komponenten-Scrollcontainer:
-
-```css
-.banking-transactions-table-wrap {
-  overflow-x: auto;
-}
-```
-
-Auf kleinen Seitenbreiten darf die Tabelle horizontal scrollen. Nicht versuchen, die gesamte Seite mit negativen Margins oder eigener Viewport-Geometrie breiter zu machen.
-
----
-
-## 6. Neues Backend-API für die globale Umsatzliste
-
-### 6.1 Neuer Endpoint
-
-Implementieren:
+Neu vorhanden:
 
 ```text
 GET /api/extensions/banking/transactions
 ```
 
-Berechtigung:
+mit:
 
-```text
-ext:banking = read oder write
-```
-
-Der Endpoint liest ausschließlich aus `banking.db` und ruft Enable Banking **nicht** auf.
-
-### 6.2 Query-Parameter
-
-Unterstützen:
-
-```text
-q=<string max 200>
-account_id=<positive integer>
-category_id=<positive integer>
-uncategorized=1
-direction=incoming|outgoing
-status=BOOK|PDNG|UNKNOWN
-date_from=YYYY-MM-DD
-date_to=YYYY-MM-DD
-sort=date|amount|merchant|account|category|status
-order=asc|desc
-limit=1..100
-offset>=0
-```
-
-Regeln:
-
-- `category_id` und `uncategorized=1` nicht gleichzeitig; sonst `400`.
-- unbekannte `sort`-/`order`-Werte -> `400`, nicht still in SQL übernehmen.
-- `date_from > date_to` -> `400`.
-- Filterwerte immer parameterisieren.
-- SQL-Spaltennamen nur über eine feste serverseitige Sort-Whitelist auswählen.
-
-### 6.3 Ownership
-
-Die Query muss immer über folgende Kette scopen:
-
-```text
-transactions
- -> bank_accounts
- -> enable_banking_connections
- -> yuvomi_user_id = eingeloggter Benutzer
-```
-
-Ein `account_id` eines anderen Yuvomi-Benutzers darf niemals Daten liefern.
-
-### 6.4 Search
-
-`q` sucht case-insensitive in:
-
-- `merchant_name`
-- `counterparty_name`
-- `purpose`
-
-Keine Suche in verschlüsselter IBAN.
-
-### 6.5 Sort-Mapping
-
-Feste Zuordnung, sinngemäß:
-
-```text
-date     -> COALESCE(booking_date, value_date, transaction_date)
-amount   -> amount_cents
-merchant -> COALESCE(merchant_name, counterparty_name, purpose, '') COLLATE NOCASE
-account  -> COALESCE(bank_accounts.display_name, '') COLLATE NOCASE
-category -> COALESCE(categories.name, '') COLLATE NOCASE
-status   -> transactions.status
-```
-
-Immer einen stabilen Tie-Breaker ergänzen:
-
-```text
-transactions.id
-```
-
-### 6.6 Response
-
-Zielvertrag:
-
-```json
-{
-  "data": {
-    "transactions": [],
-    "pagination": {
-      "total": 347,
-      "limit": 50,
-      "offset": 0
-    }
-  }
-}
-```
-
-Jede Transaction enthält mindestens:
-
-```text
-id
-account_id
-account_display_name
-booking_date
-value_date
-transaction_date
-amount
-currency
-direction
-counterparty_name
-purpose
-merchant_name
-merchant_key
-merchant_logo_available
-status
-category_id
-category_name
-category_source
-category_confidence
-weekly_budget_override
-category_weekly_budget_default
-```
-
-Nicht an den Browser senden:
-
-- Provider Account UID
-- Klartext-IBAN
-- `iban_encrypted`
-- Raw Provider Payload
-- Provider Session IDs
-
-### 6.7 Bestehenden Code wiederverwenden
-
-`listPublicTransactions()` lebt aktuell in `enable-banking-routes.ts`.
-
-Diese Projektion nicht ein zweites Mal unabhängig implementieren.
-
-Empfohlene Refaktorierung:
-
-```text
-service/src/services/transactions-query.ts
-```
-
-Dort kapseln:
-
-- öffentliche SELECT-Projektion
-- Filterbau
+- Ownership über `enable_banking_connections.yuvomi_user_id`
+- serverseitigen Filtern
+- serverseitiger Sortierung
 - Sort-Whitelist
 - Pagination
-- `amount_cents -> amount`-Formatierung
+- read-Berechtigung
+- keiner Enable-Banking-Netzwerkabfrage
 
-Danach verwenden:
-
-- neuer globaler `/transactions`-Endpoint
-- bestehender `/accounts/:accountId/transactions`-Endpoint
-- Sync-Response nach `POST /accounts/:accountId/sync`
-
-Der alte Account-Endpoint bleibt aus Kompatibilitätsgründen bestehen.
-
-### 6.8 Router
-
-Neue Datei bevorzugt:
+Die Logik liegt sinnvoll getrennt in:
 
 ```text
 service/src/api/transaction-routes.ts
+service/src/services/transactions-query.ts
 ```
 
-In `service/src/app.ts` unter demselben `API_PREFIX` mounten.
+Das ist besser als ein clientseitiges Zusammenführen mehrerer Account-Endpunkte.
 
-Der Router verwendet die vorhandenen Security-Helfer aus:
+#### Tests und CI
 
-```text
-service/src/api/route-security.ts
-```
-
-insbesondere `resolveAuthorizedUser(..., 'read')` und `noStore()`.
-
-Für den reinen GET-Endpoint ist kein CSRF-Token notwendig.
+Der Commit enthält neue API-Tests für die globale Umsatzliste. Die GitHub-CI für `c25fa247` ist grün.
 
 ---
 
-## 7. Frontend-Änderungen – genaue Codeorte
+## 2.2 Noch offene bzw. neu sichtbare Probleme
 
-### 7.1 `modules/banking/module.json`
+### A. Die Konten-Sektion ist nicht einklappbar
 
-Ändern:
+In `renderMainMarkup()` ist der Bereich weiterhin ein normales:
 
-```text
-page.width: content -> wide
+```html
+<section class="banking-panel">
 ```
 
-`composition: data` beibehalten.
+Im Gegensatz zu Umsätzen und Historie kann der Nutzer die gesamte Konten-Sektion daher nicht schließen.
 
-### 7.2 `modules/banking/index.js` – Render-Einstieg
-
-`render()` nicht mehr blind `renderOverviewMarkup()` aufrufen lassen.
-
-View aus der URL bestimmen:
-
-```text
-new URLSearchParams(window.location.search).get('view')
-```
-
-Zulässige Views:
-
-```text
-main (Default)
-settings
-```
-
-Unbekannte Werte -> Main.
-
-Danach getrennt:
-
-```text
-renderMainMarkup()
-renderSettingsMarkup()
-```
-
-`GET /me` weiterhin vor Datenzugriff verwenden.
-
-Die Debug-Darstellung von Health/User/Permission vollständig entfernen.
-
-### 7.3 `renderOverviewMarkup()` ersetzen
-
-Nicht weiter als monolithische Funktion ausbauen.
-
-Aufteilen in mindestens:
-
-```text
-renderMainMarkup()
-renderSettingsMarkup()
-renderTransactionsPanelMarkup()
-```
-
-Optional weitere kleine Markup-Helfer.
-
-### 7.4 `loadOverview()` aufteilen
-
-Aktuell lädt `loadOverview()` gleichzeitig Connections, Accounts, Weekly Budget, Kategorien, Perioden und Kategorisierung.
-
-Aufteilen in:
-
-```text
-loadMainView(container, signal, canWrite)
-loadSettingsView(container, signal, canWrite)
-```
-
-`loadMainView` lädt:
-
-- Accounts
-- weekly-budget/current
-- categories
-- weekly-budget/periods
-- categorization/reviews
-- category-suggestions
-- erste Seite `/transactions`
-
-`loadSettingsView` lädt:
-
-- connections
-- accounts
-- weekly-budget/current bzw. die nötigen Settingsdaten
-- categories
-- Push-/Recipient-Daten
-
-Dadurch werden auf der Hauptseite keine ASPSP-/Push-/Settingsdaten geladen, die dort nicht sichtbar sind.
-
-### 7.5 `renderAccounts()`
-
-Beibehalten, aber Detailbereich vereinfachen.
-
-Entfernen:
-
-```text
-<h4>Umsätze</h4>
-[data-account-transactions]
-```
-
-Der Detailbereich zeigt nur noch Salden und sekundäre Kontoaktionen.
-
-### 7.6 `loadAccountDetails()`
-
-Nicht mehr laden:
-
-```text
-GET /accounts/:id/transactions
-GET /categories
-```
-
-Nur noch Salden/Kontodetails laden.
-
-### 7.7 `syncAccount()`
-
-Provider-Sync-Verhalten beibehalten.
-
-Nach erfolgreichem Sync:
-
-1. Feedback der Kontokarte aktualisieren.
-2. Saldo aktualisieren.
-3. globale Umsatz-Tabelle neu laden, falls sie im Main-View existiert.
-4. Weekly Budget aktualisieren, weil ein Sync dessen Berechnung verändern kann.
-
-Nicht wieder eine lokale Umsatzliste in die Account-Karte rendern.
-
-### 7.8 `renderTransactions()` ersetzen
-
-Die jetzige Kartenlisten-Funktion nicht für die neue Tabelle weiterverwenden.
-
-Neue Funktionen mit klarer Verantwortung:
-
-```text
-renderTransactionTable(host, payload, state, canWrite, categories)
-renderTransactionFilters(host, accounts, categories, state)
-loadTransactionTable(...)
-updateTransactionSort(...)
-resetTransactionFilters(...)
-```
-
-Die bestehenden Mutation-Funktionen für Kategorie und Wochenbudget-Override weiterverwenden, aber ihr DOM-Umfeld an die Tabellenzeile statt an `[data-banking-account-card]` anpassen.
-
-### 7.9 Event Delegation
-
-Transaction-Events nicht mehr auf `[data-banking-accounts]` binden.
-
-Neuer Host:
-
-```text
-[data-banking-transactions]
-```
-
-Dort delegieren:
-
-- `change` für Kategorie
-- `change` für Wochenbudget-Override
-- `click` für Sort-Header
-- `submit/change/input` für Filter
-- Pagination
-
-Suche `q` mit ca. 250 ms Debounce, damit nicht jeder Tastendruck einen Request erzeugt.
-
-Race-Condition vermeiden: bei einem neuen Tabellenrequest entweder vorherigen Child-`AbortController` abbrechen oder eine monotone Request-ID verwenden und veraltete Antworten ignorieren.
-
-### 7.10 Category-/Weekly-Budget-Mutation
-
-`updateTransactionCategory()` und `updateTransactionWeeklyBudget()` dürfen nicht mehr voraussetzen, dass die Transaction in einer Account-Card lebt.
-
-Nach erfolgreicher Mutation:
-
-- aktuelle Tabellen-Seite neu laden
-- Categorization Reviews aktualisieren
-- Weekly Budget aktualisieren, wenn Kategorie/Override die Berechnung beeinflusst
+**Ziel:** Konten werden wie Umsätze zu einem nativen `<details>`-Panel.
 
 ---
 
-## 8. Banking Settings View
+### B. Einzelne Konten sind im geschlossenen Zustand deutlich zu groß
 
-### 8.1 Navigation
-
-Main Header:
+`renderAccounts()` rendert derzeit pro Konto:
 
 ```text
-Banking                                  [Einstellungen]
+.banking-account-card
+  .banking-account-card__header
+  .banking-feedback
+  .banking-account-card__details
 ```
 
-Settings Header:
+Auch ohne geöffnete Details entsteht zu viel vertikale Fläche. Auf dem aktuellen Screenshot nimmt jedes Konto einen großen Block ein.
 
-```text
-Banking-Einstellungen                    [Zurück zu Banking]
-```
+Dazu tragen insbesondere bei:
 
-Keine neue Yuvomi-Core-Route.
+- relativ großes `padding` und `gap`
+- Aktionsbuttons, die teilweise untereinander umbrechen
+- ein immer vorhandenes Feedback-Element
+- der Detailbereich ist visuell nicht zuverlässig verborgen
 
-### 8.2 Inhalte
-
-Settings-View in dieser Reihenfolge:
-
-1. **Bankverbindungen** – einklappbar
-2. **Wochenbudget konfigurieren**
-3. **Benachrichtigungen**
-4. **Wochenbudget-Kategorien**
-5. optional **Wartung** (z. B. Händlerlogos)
-
-### 8.3 Bankverbindungen einklappbar
-
-Bank anbinden + vorhandene Verbindungen zusammen in ein `<details>`.
-
-Default:
-
-- geschlossen, wenn mindestens eine autorisierte Verbindung existiert
-- offen, wenn noch keine Verbindung existiert
-- offen, wenn `?banking=error` oder `?banking=connected` vorhanden ist, damit das Ergebnis des OAuth-Flows sichtbar ist
-
-### 8.4 OAuth-Callback
-
-`service/src/api/enable-banking-routes.ts::redirectToModule()` aktuell auf `/m/banking`.
-
-Ändern auf:
-
-```text
-/m/banking?view=settings&banking=connected
-/m/banking?view=settings&banking=error
-```
-
-So landet der Nutzer nach einer Bankautorisierung wieder dort, wo die Bankverwaltung jetzt lebt.
-
-### 8.5 Spätere echte Yuvomi-Settings-Integration
-
-Die Settings-Renderlogik möglichst in einer eigenen Datei kapseln, z. B.:
-
-```text
-modules/banking/settings.js
-```
-
-mit einer exportierten Render-/Wire-Funktion.
-
-Das ist keine Pflicht für den ersten Commit, aber die bevorzugte Struktur, weil `index.js` bereits sehr groß ist.
-
-Wenn Yuvomi später Third-Party-Settings unterstützt, kann diese Komponente in den offiziellen Settings-Mount verschoben werden.
+**Ziel:** Ein geschlossenes Konto ist nur noch eine kompakte Zeile bzw. maximal eine zweizeilige Row.
 
 ---
 
-## 9. CSS-Änderungen
+### C. Der Detailbereich ist im Screenshot sichtbar, obwohl das HTML `hidden` setzt
+
+`renderAccounts()` erzeugt korrekt:
+
+```html
+<div class="banking-account-card__details" data-account-details hidden>
+```
+
+Gleichzeitig setzt `style.css` aber:
+
+```css
+.banking-account-card__details {
+  display: grid;
+}
+```
+
+Der aktuelle Browserstand zeigt dadurch bereits im geschlossenen Konto:
+
+```text
+Salden
+Noch nicht geladen.
+```
+
+Unabhängig davon, welche UA-Regel der Browser für `hidden` anwendet, soll sich das Modul hier **nicht auf implizites Browserverhalten verlassen**.
+
+Verbindlicher Fix:
+
+```css
+.banking-account-card__details[hidden] {
+  display: none;
+}
+```
+
+Nur der explizit geöffnete Zustand darf ein Layout bekommen.
+
+---
+
+### D. `Details anzeigen` ist aktuell kein Toggle
+
+`configureMainInteractions()` ruft bei `show-account` immer:
+
+```text
+loadAccountDetails(...)
+```
+
+`loadAccountDetails()` öffnet anschließend immer:
+
+```js
+details.hidden = false;
+```
+
+Es gibt keinen Pfad zurück zu `hidden = true`.
+
+**Ziel:** Derselbe Button toggelt zwischen:
+
+```text
+Details anzeigen
+Details ausblenden
+```
+
+und setzt korrekt:
+
+```text
+aria-expanded=true|false
+```
+
+---
+
+### E. Konkreter Frontend-Bug in `loadAccountDetails()`
+
+Der aktuelle Code macht:
+
+```js
+const balancesResult = await Promise.allSettled([
+  loadJson(...)
+]);
+```
+
+prüft danach aber fälschlich:
+
+```js
+balancesResult.status
+balancesResult.value
+balancesResult.reason
+```
+
+`Promise.allSettled()` liefert hier ein Array. Korrekt wäre `balancesResult[0]`; noch besser ist in diesem Fall, `Promise.allSettled()` komplett zu entfernen, weil nur **ein einziger Request** ausgeführt wird.
+
+**Verbindliche Lösung:** `loadAccountDetails()` nicht nur kosmetisch anfassen, sondern beim Account-Refactoring vollständig vereinfachen.
+
+---
+
+### F. `syncAccount()` öffnet Details ungefragt
+
+Aktuell setzt auch `syncAccount()`:
+
+```js
+details.hidden = false;
+```
+
+Damit öffnet ein manueller Sync automatisch das Konto.
+
+Das widerspricht dem gewünschten Verhalten:
+
+> Ein Konto soll sich erst öffnen, wenn der Benutzer explizit `Details anzeigen` auswählt.
+
+**Ziel:** Synchronisieren verändert den Open/Closed-Zustand nicht.
+
+- Konto geschlossen -> nach Sync geschlossen lassen.
+- Konto offen -> geöffnete Salden nach Sync aktualisieren.
+
+---
+
+### G. Leeres Feedback erzeugt unnötige Höhe
+
+Jede Kontokarte enthält immer:
+
+```html
+<p class="banking-feedback" data-account-feedback></p>
+```
+
+Die allgemeine `.banking-feedback`-Regel besitzt Margin. Ein leeres Statusfeld darf im kompakten Zustand keine zusätzliche Zeile erzeugen.
+
+Verbindliche CSS-Regel:
+
+```css
+.banking-feedback:empty {
+  display: none;
+}
+```
+
+Wenn ein Sync-/Fehlertext vorhanden ist, darf es wieder sichtbar werden.
+
+---
+
+### H. Lange Kontonamen drücken die Umsatz-Spalten zusammen
+
+Der neue Umsatz-View ist grundsätzlich richtig. Der aktuelle Screenshot zeigt aber einen Folgezustand:
+
+```text
+AccountOwnerNameLongerThan35DigitsWi
+```
+
+nimmt so viel Tabellenbreite ein, dass die Kategorie- und Wochenbudget-Selects extrem schmal werden.
+
+Das ist kein Backendproblem. Die Tabelle benötigt definierte Komponenten-Spalten und Ellipsis für lange Accountnamen.
+
+Diese kleine Nachbesserung wird in derselben UI-Iteration mit erledigt.
+
+---
+
+## 3. Verbindliches Ziel für die Konten-Sektion
+
+### 3.1 Gesamte Konten-Sektion einklappbar
+
+`renderMainMarkup()` wird geändert von:
+
+```html
+<section class="banking-panel">
+  ...
+</section>
+```
+
+zu sinngemäß:
+
+```html
+<details
+  class="banking-panel banking-accounts-panel"
+  data-banking-accounts-panel
+  open
+>
+  <summary>
+    <span>Konten</span>
+  </summary>
+  <div class="banking-accounts-panel__body">
+    <p class="banking-panel__description">...</p>
+    <div data-banking-accounts></div>
+  </div>
+</details>
+```
+
+Die Sektion ist beim ersten Besuch standardmäßig offen.
+
+Der Zustand wird analog zur Umsatzsektion nur clientseitig in `sessionStorage` gespeichert:
+
+```text
+yuvomi:banking:accounts-open
+```
+
+Werte:
+
+```text
+1 = offen
+0 = geschlossen
+```
+
+Keine DB-Spalte und keine Server-Preference dafür anlegen.
+
+---
+
+## 3.2 Geschlossenes Konto = kompakte Row
+
+Das Konto ist im Ausgangszustand **kein großer Content-Block** mehr.
+
+Desktop-Ziel:
+
+```text
+Ann-Kathrin Staab        DE45••••5100 · EUR          [Details] [Synchronisieren]
+```
+
+oder bei etwas weniger Platz:
+
+```text
+Ann-Kathrin Staab                                  [Details] [Synchronisieren]
+DE45••••5100 · EUR
+```
+
+Das Konto soll im geschlossenen Zustand ausschließlich enthalten:
+
+- Kontoname
+- maskierte IBAN bzw. Kontotyp
+- Währung
+- optional `last_synced_at` als kleine Sekundärinformation
+- Detail-Aktion
+- bei `write` Sync-Aktion
+
+Nicht sichtbar im geschlossenen Zustand:
+
+- `Salden`
+- `Noch nicht geladen`
+- Händlerlogo-Wartungsaktion
+- technische Detailtexte
+
+---
+
+## 3.3 Empfohlene DOM-Struktur je Konto
+
+`renderAccounts()` soll sinngemäß erzeugen:
+
+```html
+<article
+  class="banking-account-card"
+  data-banking-account-card
+  data-account-id="42"
+  data-can-write="true"
+>
+  <div class="banking-account-card__header">
+    <div class="banking-account-card__identity">
+      <strong class="banking-account-card__name">Ann-Kathrin Staab</strong>
+      <span class="banking-account-card__meta">DE45••••5100 · EUR</span>
+    </div>
+
+    <div class="banking-account-card__actions">
+      <button
+        class="btn btn--secondary"
+        type="button"
+        data-action="show-account"
+        aria-expanded="false"
+        aria-controls="banking-account-details-42"
+      >
+        Details anzeigen
+      </button>
+
+      <button ... data-action="sync-account">
+        Konto synchronisieren
+      </button>
+    </div>
+  </div>
+
+  <p class="banking-feedback" data-account-feedback role="status"></p>
+
+  <div
+    id="banking-account-details-42"
+    class="banking-account-card__details"
+    data-account-details
+    data-loaded="false"
+    hidden
+  >
+    ...
+  </div>
+</article>
+```
+
+Wichtig:
+
+- `aria-controls` muss auf die echte Detail-ID zeigen.
+- `aria-expanded` muss mit `hidden` synchron bleiben.
+- Keine verschachtelten interaktiven Buttons innerhalb eines `<summary>` pro Konto bauen.
+- Das **Panel** darf `<details>` sein; das einzelne Konto bleibt bewusst eine Row mit explizitem Toggle-Button.
+
+---
+
+## 4. Detail-Toggle: exaktes Verhalten
+
+### 4.1 Neue Funktion statt aktuellem `loadAccountDetails()`
+
+Die bisherige Funktion soll durch eine klare Toggle-Logik ersetzt werden, z. B.:
+
+```text
+toggleAccountDetails({ card, button, signal })
+```
+
+Ablauf:
+
+### Fall 1: Konto ist offen
+
+```text
+1. details.hidden = true
+2. button.ariaExpanded = false
+3. Buttontext = "Details anzeigen"
+4. kein Netzwerkrequest
+```
+
+Geladene Daten dürfen im DOM bleiben. Beim erneuten Öffnen müssen sie nicht erneut geladen werden.
+
+### Fall 2: Konto ist geschlossen und bereits geladen
+
+Wenn:
+
+```text
+details.dataset.loaded === 'true'
+```
+
+nur öffnen:
+
+```text
+1. details.hidden = false
+2. aria-expanded = true
+3. Buttontext = "Details ausblenden"
+4. kein erneuter Netzwerkrequest
+```
+
+### Fall 3: Konto ist geschlossen und noch nicht geladen
+
+```text
+1. Detailbereich öffnen
+2. Loading-Zustand anzeigen
+3. GET /accounts/:id/balances
+4. renderBalances(...)
+5. data-loaded = true
+6. Loading-Zustand entfernen
+```
+
+Dafür ist `Promise.allSettled()` nicht erforderlich.
+
+Sinngemäß:
+
+```js
+const payload = await loadJson(`accounts/${id}/balances`, { signal });
+renderBalances(balancesHost, payload?.data);
+details.dataset.loaded = 'true';
+```
+
+Fehler:
+
+- Detailbereich bleibt offen.
+- Fehler wird im Detailbereich oder Feedback angezeigt.
+- `data-loaded` bleibt `false`, damit ein weiterer Versuch möglich ist.
+
+---
+
+## 5. Sync-Verhalten
+
+`syncAccount()` bleibt eine eigene Aktion.
+
+### Verbindliche Regel
+
+**Ein Sync darf ein geschlossenes Konto nicht öffnen.**
+
+Zu Beginn:
+
+```js
+const wasOpen = !details.hidden;
+```
+
+Dann:
+
+1. `POST /accounts/:id/sync` immer ausführen.
+2. Wenn `wasOpen === true`, zusätzlich den aktuellen Saldo laden und darstellen.
+3. Wenn `wasOpen === false`, keinen Saldo-Detailbereich öffnen.
+4. Globalen Umsatz-View und Wochenbudget wie bisher aktualisieren.
+5. Open/Closed-Zustand unverändert lassen.
+
+Wenn Salden beim Sync ohnehin aus fachlichen Gründen benötigt werden, dürfen sie intern geladen werden; trotzdem bleibt der Detailbereich geschlossen.
+
+Nach erfolgreichem Sync kann ein kompakter Status kurz im `data-account-feedback` erscheinen.
+
+---
+
+## 6. Kompaktere Account-CSS
 
 Datei:
 
@@ -825,288 +550,531 @@ Datei:
 modules/banking/style.css
 ```
 
-### Entfernen/aufräumen
+### 6.1 Panel
 
-Nach Entfernen der Debugkarten können folgende Klassen entfallen, sofern sonst unbenutzt:
-
-```text
-.banking-integration-grid
-.banking-integration-card
-.banking-integration-card__label
-.banking-integration-card__value
-```
-
-### Kontodetails
-
-`.banking-account-card__details` nicht mehr als Salden/Umsatz-2-Spaltenlayout verwenden.
-
-Nach Entfernen der eingebetteten Umsätze genügt ein einspaltiger interner Bereich.
-
-### Transaktionstabelle
-
-Neue Komponentenklassen, z. B.:
+Neue/angepasste Selektoren:
 
 ```text
-.banking-transactions-panel
-.banking-transactions-panel__summary
-.banking-transaction-filters
-.banking-transactions-table-wrap
-.banking-transactions-table
-.banking-transactions-table__merchant
-.banking-transactions-table__amount
-.banking-transactions-pagination
+.banking-accounts-panel
+.banking-accounts-panel > summary
+.banking-accounts-panel__body
 ```
 
-Tabelle:
+Die Summary soll visuell dieselbe Sprache wie `.banking-transactions-panel > summary` verwenden.
+
+Bestehende gemeinsame Summary-Regel darf erweitert werden:
 
 ```css
-.banking-transactions-table {
-  width: 100%;
-  border-collapse: collapse;
+.banking-transactions-panel > summary,
+.banking-weekly-history-panel > summary,
+.banking-settings-connections > summary,
+.banking-accounts-panel > summary {
+  ...
 }
 ```
 
-Scrollwrapper:
+### 6.2 Konto-Row
+
+Zielwerte als Yuvomi-Tokens, keine willkürliche Card-Mindesthöhe:
 
 ```css
-.banking-transactions-table-wrap {
-  width: 100%;
-  overflow-x: auto;
+.banking-account-card {
+  gap: 0;
+  padding: var(--space-2, 0.5rem) 0;
 }
 ```
 
-Keine eigene Page-`max-width`.
+Header:
 
-### Betragfarben
+```css
+.banking-account-card__header {
+  align-items: center;
+}
+```
+
+Identity:
+
+```css
+.banking-account-card__identity {
+  display: grid;
+  gap: var(--space-1, 0.25rem);
+  min-width: 0;
+}
+```
+
+Name:
+
+```css
+.banking-account-card__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+```
+
+Meta kleiner und sekundär.
+
+Actions auf Desktop möglichst in einer Zeile halten:
+
+```css
+.banking-account-card__actions {
+  align-items: center;
+  flex-wrap: nowrap;
+}
+```
+
+Bei wirklich engem Komponentenplatz darf bestehendes responsives Verhalten umbrechen. Keine neue globale Seitengeometrie einführen.
+
+### 6.3 Details wirklich verstecken
 
 Verbindlich:
 
 ```css
-.banking-transactions-table__amount[data-direction="outgoing"] {
-  color: var(--color-danger, #b42318);
-}
-
-.banking-transactions-table__amount[data-direction="incoming"] {
-  color: var(--color-success, #15803d);
+.banking-account-card__details[hidden] {
+  display: none;
 }
 ```
 
-### Filterlayout
+Für offen:
 
-Komponenteninternes Grid mit `auto-fit/minmax`, damit keine zusätzliche viewportbasierte Page-Geometrie nötig ist.
-
-Neue globale `@media`-Regeln nur vermeiden; Yuvomis Page-Composition soll die äußere Breite kontrollieren.
-
----
-
-## 10. Übersetzungen
-
-Mindestens aktualisieren:
-
-```text
-modules/banking/locales/de.json
-modules/banking/locales/en.json
+```css
+.banking-account-card__details:not([hidden]) {
+  display: grid;
+  gap: var(--space-3, 0.75rem);
+  padding-top: var(--space-3, 0.75rem);
+}
 ```
 
-Neue Keys unter anderem für:
+### 6.4 Leeres Feedback
 
-- Banking-Einstellungen
-- Zurück zu Banking
-- Umsätze
-- Tabelle einklappen/aufklappen, falls zusätzliche Textbuttons verwendet werden
-- Suche
-- Alle Konten
-- Alle Kategorien
-- Ohne Kategorie
-- Einnahmen
-- Ausgaben
-- Gebucht
-- Vorgemerkt
-- Datum von/bis
-- Filter zurücksetzen
-- Tabellenköpfe
-- Vorherige/Nächste Seite
-- `{from}–{to} von {total}`
-- keine Treffer
+Verbindlich:
 
-Keine UI-Texte neu hartkodieren, wenn bereits das vorhandene `localized()`-Muster verwendet wird.
-
----
-
-## 11. Tests
-
-### 11.1 Backend
-
-Neue Testdatei bevorzugt:
-
-```text
-service/test/transaction-routes.test.ts
+```css
+.banking-feedback:empty {
+  display: none;
+}
 ```
 
-Mindestens testen:
-
-1. `read` darf globale Transactions abrufen.
-2. `none` wird abgewiesen.
-3. Daten anderer Yuvomi-Benutzer werden niemals geliefert.
-4. `account_id` filtert korrekt und respektiert Ownership.
-5. `q` findet Merchant/Counterparty/Purpose.
-6. Kategorie-Filter.
-7. `uncategorized=1`.
-8. Direction-Filter.
-9. Status-Filter.
-10. Date Range.
-11. Sortierung Datum asc/desc.
-12. Sortierung Betrag asc/desc.
-13. Pagination und `total`.
-14. ungültiges Sortierfeld -> `400`.
-15. SQL-Injection-artige Sortwerte werden nicht übernommen.
-16. Response enthält keine Klartext-IBAN, Provider-UID oder Raw Payloads.
-
-Bestehende Tests für `/accounts/:id/transactions` dürfen nicht regressieren.
-
-### 11.2 Frontend
-
-Es existiert aktuell keine vollständige Browser-Test-Suite im Banking-Repo. Daher zusätzlich manuelle Acceptance-Prüfung durchführen.
-
-Optional CI um einen reinen Syntaxcheck der Browsermodule ergänzen, sofern dies ohne Yuvomi-Core-Abhängigkeit stabil möglich ist.
+Damit erzeugt ein Konto im Normalzustand keine unsichtbare Statuszeile.
 
 ---
 
-## 12. Manuelle Acceptance Criteria
+## 7. Händlerlogos-Aktion
 
-Der Umbau ist erst fertig, wenn alle folgenden Punkte erfüllt sind.
+`Händlerlogos laden` bleibt vorhanden, ist aber keine primäre Kontoaktion.
 
-### Hauptseite
+Sie bleibt ausschließlich im geöffneten Detailbereich:
 
-- Wochenbudget ist die erste Karte unter dem Header.
-- Debugkarten sind entfernt.
-- Bankverbindungsformular ist nicht auf der Hauptseite.
-- Wochenbudget-Konfigurationsformular ist nicht auf der Hauptseite.
-- Konten stehen über der Umsatzliste.
-- Kategorisierung und Historie sind eigenständige Bereiche.
+```text
+Details
+  Salden
+  Wartung
+    Händlerlogos laden
+```
 
-### Umsätze
-
-- Umsätze stehen nicht mehr in der rechten Hälfte einer Kontokarte.
-- Es gibt genau eine globale Umsatzsektion über alle eigenen Konten.
-- Tabelle nutzt die volle `wide`-Seitenbreite.
-- Positive/incoming Beträge sind grün.
-- Negative/outgoing Beträge sind rot.
-- Filter funktionieren gemeinsam.
-- Sortierung funktioniert.
-- Pagination funktioniert.
-- Filter/Sortierung führen nicht zu Daten eines anderen Nutzers.
-- Tabelle ist einklappbar.
-- Kategorie und Wochenbudget-Override können weiterhin direkt geändert werden.
-
-### Settings
-
-- `Einstellungen` im Banking-Header öffnet `/m/banking?view=settings`.
-- Bankverwaltung ist dort einklappbar.
-- Wochenbudget-Konfiguration ist dort vorhanden.
-- Push-Konfiguration ist dort vorhanden.
-- Kategorie-Defaults sind dort vorhanden.
-- OAuth-Callback landet im Settings-View.
-- Keine Änderung am Yuvomi-Core erforderlich.
-
-### Read-only
-
-Bei `ext:banking=read`:
-
-- Hauptseite und Umsatzfilter funktionieren.
-- Settings können gelesen werden, soweit sinnvoll.
-- Sync-/Mutation-/Speicheraktionen bleiben deaktiviert oder unsichtbar.
+Im geschlossenen Konto darf dieser Button nicht sichtbar sein.
 
 ---
 
-## 13. Empfohlene Implementierungsreihenfolge
+## 8. Umsatz-Tabelle: kleine Nachbesserung aus dem Commit-Review
 
-Die Reihenfolge ist absichtlich so gewählt, dass jeder Schritt separat testbar bleibt.
+Der globale Umsatz-View ist grundsätzlich korrekt und bleibt erhalten.
 
-### Schritt 1 – globale Transaction Query im Sidecar
+Der Screenshot zeigt jedoch, dass sehr lange Kontonamen die Spalten `Kategorie` und `Wochenbudget` zusammendrücken.
 
-- `transactions-query.ts`
-- `transaction-routes.ts`
-- `app.ts` mounten
-- Tests grün
+### 8.1 Ziel
 
-Noch keine UI ändern.
+Lange Namen dürfen nicht die Bedienbarkeit der Selects zerstören.
 
-### Schritt 2 – globale Tabelle auf bestehender Seite ergänzen
+Empfohlen:
 
-- `module.json` auf `width: wide`
-- neue Transaction-Sektion
-- Filter, Sortierung, Pagination
-- positive Beträge grün
-- Mutationen aus Tabelle funktional
+- Tabellenlayout kontrollieren, z. B. über `<colgroup>` oder klar definierte Komponentenbreiten.
+- Account-Spalte begrenzen.
+- sichtbaren Accountnamen mit Ellipsis darstellen.
+- vollständigen Namen über `title` verfügbar machen.
+- Kategorie- und Wochenbudget-Select dürfen nicht auf eine praktisch unbedienbare Breite schrumpfen.
 
-Bestehende eingebettete Account-Transaktionen vorübergehend noch nicht entfernen, bis die neue Tabelle funktioniert.
+Beispiel für die Account-Zelle:
 
-### Schritt 3 – Account-Transaktionen entfernen
+```html
+<td class="banking-transactions-table__account" title="Vollständiger Kontoname">
+  AccountOwnerNameLonger…
+</td>
+```
 
-- Umsatzspalte aus `renderAccounts()` entfernen
-- `loadAccountDetails()` vereinfachen
-- `syncAccount()` auf globale Tabelle umstellen
-- alte Transaction-List-CSS entfernen, soweit nicht von Categorization verwendet
+CSS sinngemäß:
 
-### Schritt 4 – Hauptseite neu ordnen
+```css
+.banking-transactions-table__account {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-- Debugkarten entfernen
-- Wochenbudget ganz nach oben
-- Accounts danach
-- Transactions danach
-- Categorization danach
-- History danach
+.banking-transactions-table select {
+  width: 100%;
+  min-width: 8rem;
+}
+```
 
-### Schritt 5 – Settings-View extrahieren
-
-- `?view=settings`
-- Bankverbindungen
-- Weekly-Budget-Form
-- Push
-- Kategorie-Defaults
-- Header-Navigation
-- OAuth-Redirect anpassen
-
-### Schritt 6 – Cleanup
-
-- tote CSS-Regeln entfernen
-- tote Locale-Keys nur entfernen, wenn sicher unbenutzt
-- keine Debug-Requests/DOM-Reste
-- `npm test`
-- `npm run build`
-- manueller Test in Yuvomi Desktop + schmaler Ansicht
+Die konkrete Spaltenaufteilung ist Komponentenlayout und darf lokal definiert werden. Keine Änderung an Yuvomis Page-Width-System.
 
 ---
 
-## 14. Nicht-Ziele dieses Umbaus
+## 9. Dateien, die in dieser Iteration geändert werden sollen
 
-Nicht gleichzeitig neu bauen:
+### `modules/banking/index.js`
 
-- Enable-Banking-Importlogik
-- Wochenbudget-Berechnungsalgorithmus
-- OpenAI-Kategorisierungslogik
+Änderungen:
+
+1. Konten-Panel in `renderMainMarkup()` als `<details>` ausgeben.
+2. Panel-Open-State über `sessionStorage` verwalten.
+3. `renderAccounts()` auf kompakte Row-Struktur umstellen.
+4. `aria-expanded` / `aria-controls` hinzufügen.
+5. `loadAccountDetails()` durch Toggle-Logik ersetzen.
+6. den `Promise.allSettled()`-Fehler entfernen.
+7. Details nur beim expliziten Details-Klick öffnen.
+8. `syncAccount()` darf geschlossene Details nicht öffnen.
+9. Sync aktualisiert Salden nur sichtbar, wenn Details bereits offen sind bzw. hält den Open-State unverändert.
+10. Händlerlogo-Aktion nur im Detailbereich belassen.
+11. Umsatz-Accountzelle mit eigener CSS-Klasse und `title` rendern.
+12. ggf. `<colgroup>` bzw. kontrollierte Tabellenbreiten ergänzen.
+
+### `modules/banking/style.css`
+
+Änderungen:
+
+1. Accounts-Panel-Summary unterstützen.
+2. Account-Rows deutlich kompakter machen.
+3. `[hidden]` explizit auf `display:none` setzen.
+4. leeres `.banking-feedback` verstecken.
+5. Account-Actions kompakt halten.
+6. Accountname mit Ellipsis unterstützen.
+7. Umsatz-Accountspalte begrenzen.
+8. Selects in der Tabelle nicht unbenutzbar klein werden lassen.
+
+### `modules/banking/locales/de.json`
+
+Neu mindestens:
+
+```json
+"hideAccountDetails": "Details ausblenden"
+```
+
+Optional, falls für Summary/Status benötigt:
+
+```json
+"accountsCollapsed": "Konten"
+```
+
+Keine neuen Keys einführen, wenn ein vorhandener semantisch exakt passt.
+
+### `modules/banking/locales/en.json`
+
+Entsprechender Key:
+
+```json
+"hideAccountDetails": "Hide details"
+```
+
+### `service/test/weekly-budget-frontend.test.ts`
+
+Frontend-Vertrag ergänzen.
+
+Siehe Testabschnitt unten.
+
+### Backend
+
+Für diesen Account-UI-Umbau ist **keine neue Migration und kein neuer Banking-Endpoint** erforderlich.
+
+Die bestehende Account-API reicht aus.
+
+---
+
+## 10. Interaktionsdetails
+
+### 10.1 Accounts-Panel-State
+
+Beim Initialisieren:
+
+```text
+sessionStorage key nicht vorhanden -> open
+"1" -> open
+"0" -> closed
+```
+
+Beim `toggle`-Event des `<details>`:
+
+```text
+yuvomi:banking:accounts-open = panel.open ? "1" : "0"
+```
+
+Fehler in `sessionStorage` dürfen die UI nicht blockieren.
+
+### 10.2 Konto-State
+
+Der Open-State einzelner Konten muss **nicht** serverseitig persistiert werden.
+
+Für diese Iteration reicht:
+
+- bei Seitenaufruf alle Konten geschlossen
+- während derselben gerenderten Seite bleibt ein manuell geöffnetes Konto offen
+
+Optional darf später auch je Account ein `sessionStorage`-State ergänzt werden. Das ist für diese Iteration nicht notwendig.
+
+### 10.3 Sync bei geöffnetem Konto
+
+Wenn das Konto geöffnet ist und Sync erfolgreich war:
+
+- Saldo aktualisieren
+- globalen Umsatz-View neu laden
+- Wochenbudget neu laden
+- Detailbereich offen lassen
+
+### 10.4 Sync bei geschlossenem Konto
+
+Wenn das Konto geschlossen ist:
+
+- synchronisieren
+- globalen Umsatz-View neu laden
+- Wochenbudget neu laden
+- Konto geschlossen lassen
+- kein `details.hidden = false`
+
+---
+
+## 11. Accessibility
+
+Verbindlich:
+
+- Konten-Panel über natives `<details>/<summary>`.
+- Detailbutton je Konto mit `aria-expanded`.
+- `aria-controls` auf eindeutige Detail-ID.
+- Buttontext reflektiert den Zustand.
+- Ausblenden darf keinen Netzwerkrequest auslösen.
+- Tastaturbedienung der Buttons bleibt erhalten.
+- `hidden` ist die einzige Quelle für die Sichtbarkeit des Account-Detailbereichs; CSS respektiert diesen Zustand explizit.
+
+---
+
+## 12. Tests
+
+Die bisherige CI prüft Backend und einige statische Frontend-Verträge, aber kein echtes Browser-DOM-Verhalten. Genau deshalb konnte der `Promise.allSettled()`-Fehler in `loadAccountDetails()` trotz grüner CI bestehen bleiben.
+
+### 12.1 Bestehenden Frontend-Vertrag erweitern
+
+In `service/test/weekly-budget-frontend.test.ts` mindestens Marker prüfen für:
+
+```text
+data-banking-accounts-panel
+yuvomi:banking:accounts-open
+aria-expanded
+aria-controls
+hideAccountDetails
+banking-account-card__details[hidden]
+```
+
+Weiterhin sicherstellen:
+
+```text
+keine data-account-transactions innerhalb der Account-Karten
+```
+
+### 12.2 Regression gegen den konkreten Promise-Bug
+
+Mindestens statisch verhindern, dass erneut folgender fehlerhafte Zustand entsteht:
+
+```text
+const balancesResult = await Promise.allSettled([singleRequest]);
+balancesResult.status
+```
+
+Bevorzugt ist allerdings eine kleine testbare Helper-Struktur statt eines Regex-only-Tests.
+
+Wenn ohne große Infrastruktur möglich, Account-Toggle-Logik in kleine pure/helper-nahe Funktionen zerlegen, sodass folgende Zustände getestet werden können:
+
+1. geschlossen -> öffnen
+2. offen -> schließen
+3. bereits geladen -> erneut öffnen ohne Request
+4. Sync geschlossen -> bleibt geschlossen
+5. Sync offen -> bleibt offen
+
+Keine neue große DOM-Testbibliothek nur für diesen Umbau einführen.
+
+### 12.3 Backend-Regression
+
+Die bestehenden Tests für:
+
+```text
+GET /transactions
+Filter
+Sortierung
+Pagination
+Ownership
+```
+
+müssen unverändert grün bleiben.
+
+---
+
+## 13. Acceptance Criteria
+
+Die Änderung ist erst fertig, wenn alle folgenden Punkte erfüllt sind.
+
+### Konten-Sektion
+
+- [ ] Die gesamte Konten-Sektion kann ein- und ausgeklappt werden.
+- [ ] Zustand der Sektion bleibt während der Browser-Session erhalten.
+- [ ] Standard beim ersten Besuch ist offen.
+
+### Einzelnes Konto
+
+- [ ] Jedes Konto ist initial kompakt und geschlossen.
+- [ ] Im geschlossenen Zustand sind weder `Salden` noch `Noch nicht geladen` sichtbar.
+- [ ] Ein Konto benötigt im Normalzustand nur ungefähr die Höhe seiner Identitäts-/Aktionszeile, nicht den bisherigen großen Block.
+- [ ] `Details anzeigen` öffnet das Konto.
+- [ ] Button wechselt zu `Details ausblenden`.
+- [ ] `Details ausblenden` schließt ohne Netzwerkrequest.
+- [ ] Erneutes Öffnen bereits geladener Details benötigt keinen erneuten Balance-Request.
+- [ ] `aria-expanded` ist korrekt.
+- [ ] `aria-controls` zeigt auf den richtigen Detailbereich.
+- [ ] Read-only-Nutzer können Details öffnen.
+- [ ] Read-only-Nutzer erhalten keinen Sync-Button.
+
+### Sync
+
+- [ ] Sync eines geschlossenen Kontos lässt es geschlossen.
+- [ ] Sync eines offenen Kontos lässt es offen.
+- [ ] Nach Sync werden globale Umsätze und Wochenbudget weiterhin aktualisiert.
+- [ ] Kein `details.hidden = false` allein als Seiteneffekt des Syncs.
+
+### CSS
+
+- [ ] `.banking-account-card__details[hidden] { display:none; }` oder äquivalente explizite Regel vorhanden.
+- [ ] Leeres Feedback erzeugt keine Höhe.
+- [ ] Account-Actions stehen auf Desktop möglichst in einer Zeile.
+- [ ] Lange Accountnamen sprengen die Row nicht.
+
+### Umsatz-Tabelle
+
+- [ ] Sehr lange Accountnamen drücken Kategorie-/Wochenbudget-Selects nicht mehr auf unbenutzbare Breite.
+- [ ] Vollständiger Accountname bleibt über Tooltip/`title` erreichbar.
+- [ ] Einnahmen bleiben grün.
+- [ ] Ausgaben bleiben rot.
+- [ ] Filter, Sortierung und Pagination regressieren nicht.
+
+### Qualität
+
+- [ ] `npm test` grün.
+- [ ] `npm run build` grün.
+- [ ] GitHub-CI grün.
+- [ ] Keine Änderung am Yuvomi-Core.
+- [ ] Keine Änderung an `yuvomi.db`.
+- [ ] Keine neue DB-Migration für reinen UI-State.
+
+---
+
+## 14. Empfohlene Implementierungsreihenfolge für Codex
+
+Diese Reihenfolge soll eingehalten werden, damit der Umbau klein und überprüfbar bleibt.
+
+### Schritt 1 – konkreten Bug beseitigen
+
+- `loadAccountDetails()` prüfen.
+- `Promise.allSettled()` für den Einzelrequest entfernen.
+- bestehenden Balance-Load wieder funktional machen.
+
+### Schritt 2 – Account-Toggle implementieren
+
+- `show-account` zu echtem Toggle machen.
+- `aria-expanded` / `aria-controls`.
+- Lazy Loading + `data-loaded`.
+- Schließen ohne Request.
+
+### Schritt 3 – Sync vom Open-State entkoppeln
+
+- `syncAccount()` darf nicht automatisch öffnen.
+- geöffneten Zustand bewahren.
+- globales Reload-Verhalten erhalten.
+
+### Schritt 4 – Konten kompakt stylen
+
+- Detailbereich mit `[hidden]` wirklich verstecken.
+- Feedback `:empty` verstecken.
+- Padding/Gaps reduzieren.
+- Aktionen horizontal halten.
+- Name/Meta kompakt darstellen.
+
+### Schritt 5 – gesamtes Konten-Panel einklappbar machen
+
+- `<details>` in `renderMainMarkup()`.
+- Session-State wie bei Umsatzpanel.
+
+### Schritt 6 – Tabellenbreiten nachziehen
+
+- lange Accountnamen begrenzen.
+- Select-Spalten schützen.
+- keine globale Page-Geometrie ändern.
+
+### Schritt 7 – Locale + Tests
+
+- DE/EN-Key für `Details ausblenden`.
+- Frontend-Vertragstests erweitern.
+- vollständige Tests/Build.
+
+---
+
+## 15. Nicht Teil dieser Iteration
+
+Nicht gleichzeitig ändern:
+
+- Enable-Banking-Providerlogik
+- Consent-Flow
+- Datenbankmodell
+- Kategorisierungslogik
+- OpenAI-Prompting
+- Wochenbudget-Berechnungsformel
 - GiroCode-Generierung
-- Push-Delivery-Backend
-- DB-Schema der Transactions ohne konkreten Query-Performance-Grund
-- Yuvomi-Core
-- offizielles Yuvomi-Settings-Extension-System
+- Push-Delivery-Architektur
+- Yuvomi-Core-Settings-Registry
 
-Der Umbau ist primär **Informationsarchitektur + Transaction-Query + UI-Darstellung**.
+Diese Iteration ist ein fokussierter **Account-UX- und kleiner Tabellenlayout-Fix** auf der bereits implementierten Redesign-Basis.
 
 ---
 
-## 15. Regeln für den implementierenden Agenten
+## 16. Definition of Done
 
-1. Vor Änderungen dieses Dokument vollständig lesen.
-2. `../yuvomi/MODULES.md`, `DESIGN.md` und `docs/PAGE-COMPOSITION.md` gegen den lokal installierten Stand prüfen.
-3. Yuvomi-Core nicht verändern.
-4. Keine eigene Seitenbreite oder Shell-Geometrie in Banking-CSS einführen.
-5. Datenfilterung/Sortierung nicht durch Laden aller historischen Transactions in den Browser lösen.
-6. SQL-Sortfelder niemals direkt aus Query-Strings interpolieren; nur Whitelist-Mapping.
-7. Bestehende Berechtigungs- und CSRF-Regeln beibehalten.
-8. Keine Provider-IDs/IBANs zusätzlich an den Browser exponieren.
-9. Bestehende Mutation-Funktionen für Kategorie und Wochenbudget nicht duplizieren, sondern an den neuen Tabellenkontext anpassen.
-10. Nach jedem Implementierungsschritt Tests ausführen und Regressionen beheben.
+Die gewünschte visuelle Wirkung ist erreicht, wenn die Banking-Seite beim Öffnen ungefähr so gelesen wird:
 
-Wenn während der Umsetzung eine Annahme dieses Dokuments vom aktuellen lokalen Yuvomi-Stand abweicht, darf die technische Detailumsetzung angepasst werden. Die UX-Ziele und die Architekturregel `kein Yuvomi-Core-Patch` bleiben jedoch verbindlich.
+```text
+Banking                                      [Einstellungen]
+
+[ Wochenbudget ............................................... ]
+
+[ ▼ Konten ................................................... ]
+  Account 1 · IBAN · EUR                     [Details] [Sync]
+  Account 2 · IBAN · EUR                     [Details] [Sync]
+  Account 3 · IBAN · EUR                     [Details] [Sync]
+
+[ ▼ Umsätze .................................................. ]
+  Filter
+  Tabelle
+
+[ Kategorisierung ............................................ ]
+
+[ ▼ Historie ................................................. ]
+```
+
+Erst nach Klick auf `Details` wird aus genau **einer** Account-Row:
+
+```text
+Account 2 · IBAN · EUR               [Details ausblenden] [Sync]
+  Salden
+    ITAV  123,45 €
+    CLBD  123,45 €
+  Händlerlogos laden
+```
+
+Alle anderen Konten bleiben kompakt.
+
+Damit ist die Kontenübersicht auch bei mehreren verbundenen Konten schnell scanbar und nimmt nicht mehr den Großteil der Seite ein.

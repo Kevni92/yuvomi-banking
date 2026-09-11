@@ -22,6 +22,7 @@ test('banking page exposes weekly-budget settings and both override controls', (
     "loadJson('category-suggestions'",
     'data-banking-category-management',
     'data-banking-category-dialog',
+    '#banking-category-dialog-title',
     'data-action="add-category"',
     'data-action="save-category"',
     'refreshCategoryDependentViews',

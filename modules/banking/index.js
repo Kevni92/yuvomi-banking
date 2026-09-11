@@ -1439,7 +1439,7 @@ function openCreateCategoryDialog(container) {
   const dialog = container.querySelector('[data-banking-category-dialog]');
   if (!dialog) return;
   dialog.dataset.categoryId = '';
-  dialog.querySelector('[data-banking-category-dialog-title]').textContent = localized('categoryAdd', 'Add category');
+  dialog.querySelector('#banking-category-dialog-title').textContent = localized('categoryAdd', 'Add category');
   dialog.querySelector('[data-category-name]').value = '';
   dialog.querySelector('[data-category-type]').value = 'expense';
   dialog.querySelector('[data-category-type]').disabled = false;
@@ -1456,7 +1456,7 @@ function openEditCategoryDialog(container, category) {
   const dialog = container.querySelector('[data-banking-category-dialog]');
   if (!dialog) return;
   dialog.dataset.categoryId = String(category.id);
-  dialog.querySelector('[data-banking-category-dialog-title]').textContent = localized('categoryEdit', 'Edit category');
+  dialog.querySelector('#banking-category-dialog-title').textContent = localized('categoryEdit', 'Edit category');
   dialog.querySelector('[data-category-name]').value = category.name || '';
   dialog.querySelector('[data-category-type]').value = category.type || 'expense';
   dialog.querySelector('[data-category-type]').disabled = true;

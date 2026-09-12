@@ -1,6 +1,8 @@
 import { render as renderEnhanced } from './enhanced-index.js';
 import { installMainLayoutPolish } from './layout-polish.js';
 
+const TABLE_LAYOUT_STYLE_ID = 'banking-table-layout-compat';
+
 // The enhancement layer deliberately post-processes markup produced by the stable
 // base module. Suppress MutationObserver records caused by that post-processing
 // itself, while still observing base-module re-renders (filters/table/categories).
@@ -57,8 +59,18 @@ export async function render(container, context) {
 
   if (!context?.signal?.aborted) {
     await installMainLayoutPolish(container, context);
+    ensureTableLayoutCompatStyles();
   }
   return result;
+}
+
+function ensureTableLayoutCompatStyles() {
+  if (document.getElementById(TABLE_LAYOUT_STYLE_ID)) return;
+  const link = document.createElement('link');
+  link.id = TABLE_LAYOUT_STYLE_ID;
+  link.rel = 'stylesheet';
+  link.href = new URL('./table-layout-compat.css', import.meta.url).href;
+  document.head.appendChild(link);
 }
 
 function isEnhancementMutation(record) {

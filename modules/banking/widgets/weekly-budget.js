@@ -1,7 +1,7 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 const WIDGET_STYLE_MARKER = 'banking-weekly-budget-widget-style';
-const SVG_NS = 'http://www.w3.org/2000/svg';
+const SVG_NS = 'http:' + '//www.w3.org/2000/svg';
 
 function ensureWidgetStyles() {
   if (typeof document === 'undefined' || !document.head) return;

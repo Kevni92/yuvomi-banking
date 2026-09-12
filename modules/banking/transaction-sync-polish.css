@@ -1,0 +1,83 @@
+/* Transaction metadata introduced by transaction-sync-polish.js. */
+
+.banking-transactions-table__date-stack {
+  display: inline-grid;
+  gap: .18rem;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.banking-transactions-table__date-main {
+  color: var(--color-text-primary, inherit);
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.banking-transactions-table__date-time {
+  color: var(--color-text-secondary, #9ca3af);
+  font-size: .72rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+
+.banking-recent-sync-separator > td {
+  padding: 1.05rem 0 .55rem !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.banking-recent-sync-separator__content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .75rem;
+  width: 100%;
+  color: var(--color-text-secondary, #aaa);
+  font-size: .74rem;
+  font-weight: 750;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+
+.banking-recent-sync-separator__content::before,
+.banking-recent-sync-separator__content::after {
+  content: '';
+  height: 1px;
+  flex: 1 1 0;
+  min-width: 0;
+  background: color-mix(
+    in srgb,
+    var(--color-success, #22c55e) 45%,
+    var(--color-border, rgba(255,255,255,.13))
+  );
+}
+
+.banking-recent-sync-separator__content > span {
+  flex: 0 0 auto;
+  padding: .2rem .55rem;
+  border: 1px solid color-mix(
+    in srgb,
+    var(--color-success, #22c55e) 34%,
+    var(--color-border, rgba(255,255,255,.13))
+  );
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-success, #22c55e) 7%, transparent);
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* A very small cue still identifies the rows when a non-date sort interleaves
+ * old and new entries. The separator remains the primary indication. */
+.banking-transactions-table__row[data-new-since-last-sync="true"] > td:first-child {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-success, #22c55e) 44%, transparent);
+}
+
+@media (max-width: 44rem) {
+  .banking-recent-sync-separator__content {
+    gap: .45rem;
+    font-size: .68rem;
+  }
+}

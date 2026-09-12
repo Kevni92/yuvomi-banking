@@ -9,6 +9,7 @@ const moduleRoot = path.resolve(here, '../../../modules/banking');
 const entry = fs.readFileSync(path.join(moduleRoot, 'entry.js'), 'utf8');
 const polish = fs.readFileSync(path.join(moduleRoot, 'layout-polish.js'), 'utf8');
 const style = fs.readFileSync(path.join(moduleRoot, 'layout-polish.css'), 'utf8');
+const tableCompatStyle = fs.readFileSync(path.join(moduleRoot, 'table-layout-compat.css'), 'utf8');
 
 test('main banking layout installs the polish layer after the enhanced renderer', () => {
   assert.match(entry, /installMainLayoutPolish/);
@@ -25,9 +26,13 @@ test('weekly budget summary is compact and the accounts panel moves to the botto
 });
 
 test('transaction table consumes the full Yuvomi page-composition rail', () => {
-  assert.match(style, /\.banking-transactions-table-wrap\s*\{[^}]*inline-size:\s*100%\s*!important/s);
-  assert.match(style, /\.banking-transactions-table\s*\{[^}]*min-inline-size:\s*max\(100%,\s*62rem\)\s*!important/s);
-  assert.match(style, /\.banking-transactions-table\s*\{[^}]*max-inline-size:\s*none\s*!important/s);
+  assert.match(entry, /ensureTableLayoutCompatStyles/);
+  assert.match(entry, /table-layout-compat\.css/);
+  assert.match(tableCompatStyle, /banking-transactions-table-wrap[\s\S]*inline-size:\s*100%\s*!important/);
+  assert.match(tableCompatStyle, /banking-transactions-table[\s\S]*table-layout:\s*auto\s*!important/);
+  assert.match(tableCompatStyle, /banking-transactions-table\s*>\s*colgroup[\s\S]*display:\s*none\s*!important/);
+  assert.match(tableCompatStyle, /:nth-child\(2\)[\s\S]*width:\s*100%\s*!important/);
+  assert.match(tableCompatStyle, /data-transaction-column\]\[hidden\][\s\S]*display:\s*none\s*!important/);
 });
 
 test('transaction table receives budget-week separators derived from the current period', () => {

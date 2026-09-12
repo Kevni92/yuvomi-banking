@@ -209,7 +209,7 @@ test('module manifest exposes the Phase 1 Yuvomi contract', () => {
 
   assert.equal(manifest.manifestVersion, 1);
   assert.equal(manifest.id, 'banking');
-  assert.equal(manifest.entry, 'index.js');
+  assert.equal(manifest.entry, 'entry.js');
   assert.equal(manifest.page.composition, 'data');
   assert.equal(manifest.page.width, 'wide');
   assert.equal(manifest.capabilities.api.prefix, '/api/extensions/banking');

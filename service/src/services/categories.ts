@@ -8,6 +8,8 @@ export interface BankingCategory {
   type: CategoryType;
   active: boolean;
   weeklyBudgetDefault: boolean;
+  iconKey: string | null;
+  colorHex: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -31,7 +33,7 @@ export function listCategories(
   { includeInactive = true }: { includeInactive?: boolean } = {}
 ): BankingCategory[] {
   const rows = database.prepare(`
-    SELECT id, name, type, active, weekly_budget_default, created_at, updated_at
+    SELECT id, name, type, active, weekly_budget_default, icon_key, color_hex, created_at, updated_at
     FROM categories
     ${includeInactive ? '' : 'WHERE active = 1'}
     ORDER BY active DESC,
@@ -43,11 +45,20 @@ export function listCategories(
 
 export function createCategory(
   database: DatabaseSync,
-  input: { name: unknown; type: unknown; weeklyBudgetDefault?: unknown; now?: Date }
+  input: {
+    name: unknown;
+    type: unknown;
+    weeklyBudgetDefault?: unknown;
+    iconKey?: unknown;
+    colorHex?: unknown;
+    now?: Date;
+  }
 ): BankingCategory {
   const name = validateName(input.name);
   if (!isCategoryType(input.type)) throw new CategoryValidationError('Category type is invalid.');
   const weeklyBudgetDefault = validateWeeklyBudgetDefault(input.weeklyBudgetDefault ?? false, input.type, true);
+  const iconKey = validateIconKey(input.iconKey ?? null);
+  const colorHex = validateColorHex(input.colorHex ?? null);
   const timestamp = timestampFor(input.now);
   let open = false;
   try {
@@ -55,9 +66,10 @@ export function createCategory(
     open = true;
     assertNameAvailable(database, name, input.type);
     const result = database.prepare(`
-      INSERT INTO categories (name, type, active, weekly_budget_default, created_at, updated_at)
-      VALUES (?, ?, 1, ?, ?, ?)
-    `).run(name, input.type, weeklyBudgetDefault ? 1 : 0, timestamp, timestamp);
+      INSERT INTO categories (
+        name, type, active, weekly_budget_default, icon_key, color_hex, created_at, updated_at
+      ) VALUES (?, ?, 1, ?, ?, ?, ?, ?)
+    `).run(name, input.type, weeklyBudgetDefault ? 1 : 0, iconKey, colorHex, timestamp, timestamp);
     const category = findCategory(database, Number(result.lastInsertRowid));
     database.exec('COMMIT;');
     open = false;
@@ -71,14 +83,21 @@ export function createCategory(
 export function updateCategory(
   database: DatabaseSync,
   categoryId: number,
-  input: { name?: unknown; active?: unknown; weeklyBudgetDefault?: unknown; now?: Date }
+  input: {
+    name?: unknown;
+    active?: unknown;
+    weeklyBudgetDefault?: unknown;
+    iconKey?: unknown;
+    colorHex?: unknown;
+    now?: Date;
+  }
 ): BankingCategory {
   if (!Number.isSafeInteger(categoryId) || categoryId < 1) {
     throw new CategoryNotFoundError('Category not found.');
   }
   const fields = Object.keys(input).filter((key) => key !== 'now');
   if (fields.length === 0) throw new CategoryValidationError('At least one category field is required.');
-  if (fields.some((key) => !['name', 'active', 'weeklyBudgetDefault'].includes(key))) {
+  if (fields.some((key) => !['name', 'active', 'weeklyBudgetDefault', 'iconKey', 'colorHex'].includes(key))) {
     throw new CategoryValidationError('Category fields are invalid.');
   }
   const timestamp = timestampFor(input.now);
@@ -92,12 +111,14 @@ export function updateCategory(
     const weeklyBudgetDefault = Object.hasOwn(input, 'weeklyBudgetDefault')
       ? validateWeeklyBudgetDefault(input.weeklyBudgetDefault, existing.type)
       : existing.weeklyBudgetDefault;
+    const iconKey = Object.hasOwn(input, 'iconKey') ? validateIconKey(input.iconKey) : existing.iconKey;
+    const colorHex = Object.hasOwn(input, 'colorHex') ? validateColorHex(input.colorHex) : existing.colorHex;
     if (Object.hasOwn(input, 'name')) assertNameAvailable(database, name, existing.type, categoryId);
     database.prepare(`
       UPDATE categories
-      SET name = ?, active = ?, weekly_budget_default = ?, updated_at = ?
+      SET name = ?, active = ?, weekly_budget_default = ?, icon_key = ?, color_hex = ?, updated_at = ?
       WHERE id = ?
-    `).run(name, active ? 1 : 0, weeklyBudgetDefault ? 1 : 0, timestamp, categoryId);
+    `).run(name, active ? 1 : 0, weeklyBudgetDefault ? 1 : 0, iconKey, colorHex, timestamp, categoryId);
     const category = findCategory(database, categoryId);
     database.exec('COMMIT;');
     open = false;
@@ -114,6 +135,8 @@ interface CategoryRow {
   type: string;
   active: number;
   weekly_budget_default: number;
+  icon_key: string | null;
+  color_hex: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -123,13 +146,14 @@ function toCategory(row: CategoryRow): BankingCategory {
   return {
     id: Number(row.id), name: row.name, type: row.type,
     active: Boolean(row.active), weeklyBudgetDefault: Boolean(row.weekly_budget_default),
+    iconKey: row.icon_key ?? null, colorHex: row.color_hex ?? null,
     createdAt: row.created_at, updatedAt: row.updated_at
   };
 }
 
 function findCategory(database: DatabaseSync, categoryId: number): BankingCategory {
   const row = database.prepare(`
-    SELECT id, name, type, active, weekly_budget_default, created_at, updated_at
+    SELECT id, name, type, active, weekly_budget_default, icon_key, color_hex, created_at, updated_at
     FROM categories WHERE id = ?
   `).get(categoryId) as CategoryRow | undefined;
   if (!row) throw new CategoryNotFoundError('Category not found.');
@@ -161,6 +185,24 @@ function validateWeeklyBudgetDefault(
     throw new CategoryValidationError('Only expense categories can be included in the weekly budget by default.');
   }
   return value;
+}
+
+function validateIconKey(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string') throw new CategoryValidationError('Category icon is invalid.');
+  const iconKey = value.trim().toLowerCase();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(iconKey) || iconKey.length > 64) {
+    throw new CategoryValidationError('Category icon is invalid.');
+  }
+  return iconKey;
+}
+
+function validateColorHex(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) {
+    throw new CategoryValidationError('Category color must be a six-digit hex color.');
+  }
+  return value.toUpperCase();
 }
 
 function assertNameAvailable(database: DatabaseSync, name: string, type: CategoryType, exceptId?: number): void {

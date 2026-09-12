@@ -12,12 +12,15 @@ import {
 import {
   addCalendarDays,
   instantForLocalDateTime,
-  localDateForInstant
+  localDateForInstant,
+  weeklyBudgetWindow
 } from './weekly-budget-schedule.js';
 import { reconcileWeeklyBudgetLifecycle } from './weekly-budget-revisions.js';
 import { enrichAccountTransactions } from './transaction-enrichment.js';
+import { enqueueWeeklyBudgetDailySummaryDeliveries } from './push-outbox.js';
 
 const RETRY_DELAYS_MS = [5, 15, 30].map((minutes) => minutes * 60_000);
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface ScheduledSyncConfig {
   id: number;
@@ -306,6 +309,25 @@ export async function runScheduledAccountSync({
       syncedAt.toISOString(),
       claimed.runId
     );
+
+    const budgetWindow = weeklyBudgetWindow({
+      now: syncedAt,
+      cutoffWeekday: Number(budgetConfig.cutoff_weekday),
+      cutoffTime: budgetConfig.cutoff_time,
+      timezone: budgetConfig.timezone,
+      effectiveFromDate: budgetConfig.effective_from_date
+    });
+    const daysRemaining = Math.min(7, Math.max(0, Math.ceil(
+      (Date.parse(budgetWindow.nextCutoffAt) - syncedAt.getTime()) / DAY_MS
+    )));
+    enqueueWeeklyBudgetDailySummaryDeliveries(database, {
+      configId,
+      scheduledAt: slot.scheduledAt,
+      availableBudgetCents: targetBalances.usableBalance.amountCents,
+      daysRemaining,
+      now: syncedAt
+    });
+
     database.exec('COMMIT;');
     transactionOpen = false;
     // Detail requests deliberately happen after the short import transaction.

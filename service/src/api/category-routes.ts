@@ -29,7 +29,12 @@ export function createCategoryRouter({
     try {
       const body = objectBody(request.body);
       const category = createCategory(database, {
-        name: body.name, type: body.type, weeklyBudgetDefault: body.weekly_budget_default, now: clock()
+        name: body.name,
+        type: body.type,
+        weeklyBudgetDefault: body.weekly_budget_default,
+        iconKey: body.icon,
+        colorHex: body.color,
+        now: clock()
       });
       noStore(response);
       response.status(201).json({ data: serializeCategory(category) });
@@ -46,6 +51,8 @@ export function createCategoryRouter({
         ...(Object.hasOwn(body, 'name') ? { name: body.name } : {}),
         ...(Object.hasOwn(body, 'active') ? { active: body.active } : {}),
         ...(Object.hasOwn(body, 'weekly_budget_default') ? { weeklyBudgetDefault: body.weekly_budget_default } : {}),
+        ...(Object.hasOwn(body, 'icon') ? { iconKey: body.icon } : {}),
+        ...(Object.hasOwn(body, 'color') ? { colorHex: body.color } : {}),
         now: clock()
       });
       noStore(response);
@@ -87,8 +94,13 @@ function categoryId(value: string): number {
 
 function serializeCategory(category: BankingCategory): Record<string, unknown> {
   return {
-    id: category.id, name: category.name, type: category.type, active: category.active,
-    weekly_budget_default: category.weeklyBudgetDefault
+    id: category.id,
+    name: category.name,
+    type: category.type,
+    active: category.active,
+    weekly_budget_default: category.weeklyBudgetDefault,
+    icon: category.iconKey,
+    color: category.colorHex
   };
 }
 

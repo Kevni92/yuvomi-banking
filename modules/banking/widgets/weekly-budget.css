@@ -198,6 +198,13 @@
   overflow: visible;
 }
 
+.banking-weekly-widget__sparkline-guide {
+  stroke: color-mix(in srgb, var(--color-border-subtle, rgba(255,255,255,.09)) 68%, transparent);
+  stroke-width: .8;
+  stroke-dasharray: 1 4;
+  vector-effect: non-scaling-stroke;
+}
+
 .banking-weekly-widget__sparkline-area {
   fill: color-mix(in srgb, var(--trend-color) 20%, transparent);
 }
@@ -212,8 +219,17 @@
   filter: drop-shadow(0 0 .18rem color-mix(in srgb, var(--trend-color) 28%, transparent));
 }
 
-.banking-weekly-widget__sparkline-dot {
+.banking-weekly-widget__sparkline-day-dot {
+  fill: var(--color-surface, #211f1c);
+  stroke: var(--trend-color);
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.banking-weekly-widget__sparkline-day-dot[data-current="true"] {
   fill: var(--trend-color);
+  stroke: color-mix(in srgb, var(--color-surface, #211f1c) 75%, transparent);
+  stroke-width: 1.8;
 }
 
 .banking-weekly-widget__week {

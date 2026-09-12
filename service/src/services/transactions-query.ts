@@ -10,8 +10,9 @@ export interface TransactionQuery {
   userId: number;
   q?: string;
   accountId?: number;
-  categoryId?: number;
+  categoryIds?: number[];
   uncategorized?: boolean;
+  weeklyBudgetOnly?: boolean;
   direction?: TransactionDirection;
   status?: TransactionStatus;
   dateFrom?: string;
@@ -26,6 +27,8 @@ export interface PublicTransaction {
   id: number;
   account_id: number;
   account_display_name?: string | null;
+  account_alias?: string | null;
+  account_color?: string | null;
   booking_date: string | null;
   value_date: string | null;
   transaction_date: string | null;
@@ -40,10 +43,13 @@ export interface PublicTransaction {
   status: TransactionStatus;
   category_id: number | null;
   category_name: string | null;
+  category_icon: string | null;
+  category_color: string | null;
   category_source: string | null;
   category_confidence: number | null;
   weekly_budget_override: string;
   category_weekly_budget_default: number | null;
+  weekly_budget_selected: number;
 }
 
 export interface TransactionQueryResult {
@@ -69,14 +75,24 @@ const SORT_SQL: Record<TransactionSort, string> = {
   date: 'COALESCE(transactions.booking_date, transactions.value_date, transactions.transaction_date)',
   amount: 'transactions.amount_cents',
   merchant: "COALESCE(transactions.merchant_name, transactions.counterparty_name, transactions.purpose, '') COLLATE NOCASE",
-  account: "COALESCE(bank_accounts.display_name, '') COLLATE NOCASE",
+  account: "COALESCE(NULLIF(bank_accounts.alias, ''), bank_accounts.display_name, '') COLLATE NOCASE",
   category: "COALESCE(categories.name, '') COLLATE NOCASE",
   status: 'transactions.status'
 };
 
+const WEEKLY_BUDGET_SELECTED_SQL = `(
+  transactions.weekly_budget_override = 'include'
+  OR (
+    transactions.weekly_budget_override = 'inherit'
+    AND COALESCE(categories.weekly_budget_default, 0) = 1
+  )
+)`;
+
 const PUBLIC_SELECT = `
   SELECT transactions.id, transactions.account_id,
          bank_accounts.display_name AS account_display_name,
+         bank_accounts.alias AS account_alias,
+         bank_accounts.color_hex AS account_color,
          transactions.booking_date, transactions.value_date,
          transactions.transaction_date, transactions.amount_cents,
          transactions.currency, transactions.direction,
@@ -85,9 +101,12 @@ const PUBLIC_SELECT = `
          transactions.category_id, transactions.category_source,
          transactions.category_confidence,
          categories.name AS category_name,
+         categories.icon_key AS category_icon,
+         categories.color_hex AS category_color,
          CASE WHEN merchant_logos.logo_key IS NULL THEN 0 ELSE 1 END AS merchant_logo_available,
          transactions.weekly_budget_override,
-         categories.weekly_budget_default AS category_weekly_budget_default
+         categories.weekly_budget_default AS category_weekly_budget_default,
+         CASE WHEN ${WEEKLY_BUDGET_SELECTED_SQL} THEN 1 ELSE 0 END AS weekly_budget_selected
 `;
 
 const JOINS = `
@@ -139,7 +158,13 @@ export function listPublicTransactions(
     order: 'desc',
     limit: 100,
     offset: 0
-  }).transactions.map(({ account_display_name: _accountDisplayName, account_id: _accountId, ...transaction }) => transaction);
+  }).transactions.map(({
+    account_display_name: _accountDisplayName,
+    account_alias: _accountAlias,
+    account_color: _accountColor,
+    account_id: _accountId,
+    ...transaction
+  }) => transaction);
 }
 
 /**
@@ -171,8 +196,12 @@ export function getTransactionDetail(
       transactions.weekly_budget_override, transactions.yuvomi_budget_entry_id,
       transactions.created_at, transactions.updated_at, transactions.raw_payload_encrypted,
       categories.name AS category_name,
+      categories.icon_key AS category_icon,
+      categories.color_hex AS category_color,
       categories.weekly_budget_default AS category_weekly_budget_default,
       bank_accounts.display_name AS account_display_name,
+      bank_accounts.alias AS account_alias,
+      bank_accounts.color_hex AS account_color,
       bank_accounts.currency AS account_currency,
       bank_accounts.account_type AS account_type,
       bank_accounts.provider_account_id,
@@ -222,6 +251,8 @@ export function getTransactionDetail(
     status: row.status,
     category_id: row.category_id,
     category_name: row.category_name,
+    category_icon: row.category_icon,
+    category_color: row.category_color,
     category_source: row.category_source,
     category_confidence: row.category_confidence,
     weekly_budget_override: row.weekly_budget_override,
@@ -234,6 +265,8 @@ export function getTransactionDetail(
   const account = {
     id: row.account_id,
     display_name: row.account_display_name,
+    alias: row.account_alias,
+    color: row.account_color,
     currency: row.account_currency,
     account_type: row.account_type,
     provider_account_id: row.provider_account_id,
@@ -303,11 +336,12 @@ function buildWhere(query: TransactionQuery): { where: string; params: Array<str
     clauses.push('transactions.account_id = ?');
     params.push(query.accountId);
   }
-  if (query.categoryId !== undefined) {
-    clauses.push('transactions.category_id = ?');
-    params.push(query.categoryId);
+  if (query.categoryIds?.length) {
+    clauses.push(`transactions.category_id IN (${query.categoryIds.map(() => '?').join(', ')})`);
+    params.push(...query.categoryIds);
   }
   if (query.uncategorized) clauses.push('transactions.category_id IS NULL');
+  if (query.weeklyBudgetOnly) clauses.push(WEEKLY_BUDGET_SELECTED_SQL);
   if (query.direction) {
     clauses.push('transactions.direction = ?');
     params.push(query.direction);
@@ -334,7 +368,7 @@ export function parseTransactionQuery(
 ): TransactionQuery {
   const q = optionalString(raw.q, 'q', 200);
   const accountId = optionalPositiveInteger(raw.account_id, 'account_id');
-  const categoryId = optionalPositiveInteger(raw.category_id, 'category_id');
+  const categoryIds = optionalPositiveIntegerList(raw.category_id, 'category_id', 50);
   const uncategorizedValue = raw.uncategorized === undefined
     ? undefined
     : exactString(raw.uncategorized, 'uncategorized');
@@ -342,9 +376,16 @@ export function parseTransactionQuery(
     throw new TransactionQueryValidationError('uncategorized is invalid.');
   }
   const uncategorized = uncategorizedValue === '1';
-  if (categoryId !== undefined && uncategorized) {
+  if (categoryIds?.length && uncategorized) {
     throw new TransactionQueryValidationError('category_id and uncategorized cannot be combined.');
   }
+  const weeklyBudgetValue = raw.weekly_budget === undefined
+    ? undefined
+    : exactString(raw.weekly_budget, 'weekly_budget');
+  if (weeklyBudgetValue !== undefined && weeklyBudgetValue !== '0' && weeklyBudgetValue !== '1') {
+    throw new TransactionQueryValidationError('weekly_budget is invalid.');
+  }
+  const weeklyBudgetOnly = weeklyBudgetValue === '1';
 
   const direction = optionalEnum(raw.direction, 'direction', ['incoming', 'outgoing'] as const);
   const status = optionalEnum(raw.status, 'status', ['BOOK', 'PDNG', 'UNKNOWN'] as const);
@@ -362,8 +403,9 @@ export function parseTransactionQuery(
     userId,
     ...(q ? { q } : {}),
     ...(accountId === undefined ? {} : { accountId }),
-    ...(categoryId === undefined ? {} : { categoryId }),
+    ...(categoryIds?.length ? { categoryIds } : {}),
     ...(uncategorized ? { uncategorized: true } : {}),
+    ...(weeklyBudgetOnly ? { weeklyBudgetOnly: true } : {}),
     ...(direction ? { direction } : {}),
     ...(status ? { status } : {}),
     ...(dateFrom ? { dateFrom } : {}),
@@ -409,6 +451,25 @@ function optionalString(value: unknown, name: string, maxLength: number): string
 function optionalPositiveInteger(value: unknown, name: string): number | undefined {
   if (value === undefined) return undefined;
   return requiredInteger(value, name, 1, Number.MAX_SAFE_INTEGER);
+}
+
+function optionalPositiveIntegerList(value: unknown, name: string, maxItems: number): number[] | undefined {
+  if (value === undefined) return undefined;
+  const raw = exactString(value, name).trim();
+  if (!raw) return undefined;
+  const items = raw.split(',').map((part) => part.trim());
+  if (items.length > maxItems || items.some((part) => !part)) {
+    throw new TransactionQueryValidationError(`${name} is invalid.`);
+  }
+  const result = [...new Set(items.map((part) => {
+    if (!/^\d+$/.test(part)) throw new TransactionQueryValidationError(`${name} is invalid.`);
+    const parsed = Number(part);
+    if (!Number.isSafeInteger(parsed) || parsed < 1) {
+      throw new TransactionQueryValidationError(`${name} is invalid.`);
+    }
+    return parsed;
+  }))];
+  return result.length ? result : undefined;
 }
 
 function requiredInteger(value: unknown, name: string, min: number, max: number): number {

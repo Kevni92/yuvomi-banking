@@ -6,6 +6,7 @@ import {
   queryTransactions,
   TransactionQueryValidationError
 } from '../services/transactions-query.js';
+import { decorateTransactionListMetadata } from '../services/transaction-list-metadata.js';
 import type { EncryptionService } from '../security/encryption.js';
 import { createEncryptionService } from '../security/encryption.js';
 import type { EnableBankingClient } from '../enable-banking/client.js';
@@ -37,10 +38,11 @@ export function createTransactionRouter({
     try {
       const query = parseTransactionQuery(user.id, request.query as Record<string, unknown>);
       const result = queryTransactions(database, query);
+      const transactions = decorateTransactionListMetadata(database, user.id, result.transactions);
       noStore(response);
       response.json({
         data: {
-          transactions: result.transactions,
+          transactions,
           pagination: {
             total: result.total,
             limit: result.limit,

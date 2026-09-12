@@ -42,6 +42,7 @@
 .banking-budget-week-separator__content {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: .75rem;
   width: 100%;
   color: var(--color-text-secondary, #aaa);
@@ -55,12 +56,9 @@
 .banking-budget-week-separator__content::after {
   content: '';
   height: 1px;
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-width: 0;
   background: color-mix(in srgb, var(--color-primary, #8b5cf6) 42%, var(--color-border, rgba(255,255,255,.13)));
-}
-
-.banking-budget-week-separator__content::before {
-  flex: 0 0 1.5rem;
 }
 
 .banking-budget-week-separator__content > span {
@@ -69,6 +67,8 @@
   border: 1px solid color-mix(in srgb, var(--color-primary, #8b5cf6) 28%, var(--color-border, rgba(255,255,255,.13)));
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-primary, #8b5cf6) 6%, transparent);
+  text-align: center;
+  white-space: nowrap;
 }
 
 [data-banking-accounts-panel] {
@@ -83,9 +83,5 @@
   .banking-budget-week-separator__content {
     font-size: .7rem;
     gap: .45rem;
-  }
-
-  .banking-budget-week-separator__content::before {
-    flex-basis: .6rem;
   }
 }

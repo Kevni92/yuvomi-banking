@@ -19,6 +19,7 @@ import {
 
 const TEST_KEY = 'ab'.repeat(32);
 const TEST_IBAN = 'DE89 3704 0044 0532 0130 00';
+const ALL_MIGRATIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
 test('opens only the Banking database and applies migrations idempotently', () => {
   const directory = mkdtempSync(join(tmpdir(), 'yuvomi-banking-phase2-'));
@@ -26,13 +27,13 @@ test('opens only the Banking database and applies migrations idempotently', () =
 
   try {
     const inMemory = new DatabaseSync(':memory:');
-    assert.deepEqual(migrateDatabase(inMemory), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+    assert.deepEqual(migrateDatabase(inMemory), ALL_MIGRATIONS);
     assert.deepEqual(migrateDatabase(inMemory), []);
     assert.equal(inMemory.prepare('PRAGMA foreign_keys').get()?.foreign_keys, 1);
     const appliedVersions = inMemory
       .prepare('SELECT version FROM schema_migrations ORDER BY version')
       .all() as Array<{ version: number }>;
-    assert.deepEqual(appliedVersions.map((row) => Number(row.version)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+    assert.deepEqual(appliedVersions.map((row) => Number(row.version)), ALL_MIGRATIONS);
     assert.equal(
       inMemory.prepare(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transactions'"
@@ -43,6 +44,16 @@ test('opens only the Banking database and applies migrations idempotently', () =
       (inMemory.prepare('PRAGMA table_info(transactions)').all() as Array<{ name: string; type: string }>)
         .find((column) => column.name === 'amount_cents')?.type,
       'INTEGER'
+    );
+    assert.equal(
+      (inMemory.prepare('PRAGMA table_info(categories)').all() as Array<{ name: string }>)
+        .some((column) => column.name === 'icon_key'),
+      true
+    );
+    assert.equal(
+      (inMemory.prepare('PRAGMA table_info(bank_accounts)').all() as Array<{ name: string }>)
+        .some((column) => column.name === 'alias'),
+      true
     );
     inMemory.close();
 
@@ -172,7 +183,7 @@ test('applies all later migrations to an existing phase-5 database', () => {
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(accountId, 'phase5-transaction', 100, 'EUR', 'outgoing', '2026-01-01', '2026-01-01');
 
-  assert.deepEqual(migrateDatabase(database), [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+  assert.deepEqual(migrateDatabase(database), [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
   const transaction = database.prepare(
     'SELECT status, transaction_date FROM transactions'
   ).get() as { status: string; transaction_date: string | null };
@@ -181,6 +192,7 @@ test('applies all later migrations to an existing phase-5 database', () => {
   assert.equal(database.prepare(
     'SELECT aspsp_maximum_consent_validity FROM enable_banking_connections'
   ).get()?.aspsp_maximum_consent_validity, null);
+  assert.equal(database.prepare('SELECT alias FROM bank_accounts WHERE id = ?').get(accountId)?.alias, null);
   database.close();
 });
 

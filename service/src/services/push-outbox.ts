@@ -3,7 +3,7 @@ import { createEncryptionService } from '../security/encryption.js';
 import { formatEuroCents } from './weekly-budget.js';
 import { createGiroCodeImageCapability } from './girocode-image-tokens.js';
 
-export type BankingNotificationType = 'proposal' | 'sync_failed' | 'test';
+export type BankingNotificationType = 'proposal' | 'sync_failed' | 'test' | 'daily_summary';
 
 export interface BankingPushPayload {
   title: string;
@@ -111,6 +111,56 @@ export function enqueueWeeklyBudgetProposalDeliveries(
   return queued;
 }
 
+export function enqueueWeeklyBudgetDailySummaryDeliveries(
+  database: DatabaseSync,
+  input: {
+    configId: number;
+    scheduledAt: string;
+    availableBudgetCents: number;
+    daysRemaining: number;
+    now: Date;
+  }
+): number {
+  if (!Number.isSafeInteger(input.availableBudgetCents)) {
+    throw new Error('Available weekly budget is invalid.');
+  }
+  if (!Number.isSafeInteger(input.daysRemaining) || input.daysRemaining < 0 || input.daysRemaining > 7) {
+    throw new Error('Remaining weekly-budget days are invalid.');
+  }
+  if (!Number.isFinite(Date.parse(input.scheduledAt))) {
+    throw new Error('Scheduled account-sync time is invalid.');
+  }
+
+  const config = database.prepare(`
+    SELECT notification_enabled, notification_user_id
+    FROM weekly_budget_configs WHERE id = ?
+  `).get(input.configId) as {
+    notification_enabled: number;
+    notification_user_id: number | null;
+  } | undefined;
+  if (!config || !config.notification_enabled || !config.notification_user_id) return 0;
+
+  const subscriptions = database.prepare(`
+    SELECT id FROM banking_push_subscriptions
+    WHERE yuvomi_user_id = ? AND status = 'active'
+    ORDER BY id
+  `).all(config.notification_user_id) as Array<{ id: number }>;
+  const payload = dailyWeeklyBudgetSummaryPayload(input);
+  let queued = 0;
+  for (const subscription of subscriptions) {
+    const result = enqueuePushDelivery(database, {
+      subscriptionId: Number(subscription.id),
+      recipientYuvomiUserId: Number(config.notification_user_id),
+      idempotencyKey: `weekly-budget:${input.configId}:daily-summary:${input.scheduledAt}:subscription:${subscription.id}`,
+      notificationType: 'daily_summary',
+      payload,
+      now: input.now
+    });
+    if (result.created) queued += 1;
+  }
+  return queued;
+}
+
 export function enqueueWeeklyBudgetSyncFailureDeliveries(
   database: DatabaseSync,
   input: {
@@ -179,6 +229,24 @@ function weeklyBudgetPayload(input: {
   };
 }
 
+function dailyWeeklyBudgetSummaryPayload(input: {
+  configId: number;
+  availableBudgetCents: number;
+  daysRemaining: number;
+}): BankingPushPayload {
+  const amount = formatEuroCents(input.availableBudgetCents);
+  let body: string;
+  if (input.daysRemaining === 0) body = 'Die aktuelle Budgetwoche endet heute.';
+  else if (input.daysRemaining === 1) body = 'Muss noch 1 Tag reichen.';
+  else body = `Muss noch ${input.daysRemaining} Tage reichen.`;
+  return {
+    title: `Wochenbudget: ${amount} € verfügbar`,
+    body,
+    url: '/m/banking',
+    tag: `banking-weekly-budget-daily-summary-${input.configId}`
+  };
+}
+
 function validateOutboxInput(input: {
   recipientYuvomiUserId: number;
   idempotencyKey: string;
@@ -192,7 +260,7 @@ function validateOutboxInput(input: {
   if (!/^[A-Za-z0-9:._-]{1,200}$/.test(input.idempotencyKey)) {
     throw new Error('Notification idempotency key is invalid.');
   }
-  if (!['proposal', 'sync_failed', 'test'].includes(input.notificationType)) {
+  if (!['proposal', 'sync_failed', 'test', 'daily_summary'].includes(input.notificationType)) {
     throw new Error('Notification type is invalid.');
   }
   if (!(input.now instanceof Date) || Number.isNaN(input.now.getTime())) {

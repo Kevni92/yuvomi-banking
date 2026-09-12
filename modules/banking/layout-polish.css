@@ -1,4 +1,4 @@
-/* Main-page polish: compact weekly-budget summary and visible week boundaries. */
+/* Main-page polish: compact weekly-budget summary, detailed budget trend and week boundaries. */
 
 .banking-weekly-budget--compact .banking-panel__header {
   align-items: center;
@@ -31,6 +31,230 @@
   margin-top: .05rem;
   color: var(--color-text-secondary, #aaa);
   font-size: .78rem;
+}
+
+/* Yuvomi's page-composition rail now owns the available inline size. The table
+ * used to rely on the browser's intrinsic table algorithm after optional
+ * <col>s were hidden/removed. Make the contract explicit: consume the whole
+ * measured rail, but keep the 62rem desktop grid as the horizontal-scroll floor. */
+.banking-transactions-table-wrap {
+  inline-size: 100% !important;
+  max-inline-size: 100% !important;
+  min-inline-size: 0 !important;
+}
+
+.banking-transactions-table {
+  inline-size: 100% !important;
+  width: 100% !important;
+  min-inline-size: max(100%, 62rem) !important;
+  min-width: max(100%, 62rem) !important;
+  max-inline-size: none !important;
+  max-width: none !important;
+}
+
+.banking-weekly-budget-chart {
+  display: grid;
+  gap: .8rem;
+  margin-top: .2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border-subtle, rgba(255,255,255,.08));
+}
+
+.banking-weekly-budget-chart__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.banking-weekly-budget-chart__header h3,
+.banking-weekly-budget-chart__header p {
+  margin: 0;
+}
+
+.banking-weekly-budget-chart__header h3 {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.banking-weekly-budget-chart__header p {
+  margin-top: .2rem;
+  color: var(--color-text-secondary, #aaa);
+  font-size: .78rem;
+}
+
+.banking-weekly-budget-chart__legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .8rem;
+  color: var(--color-text-secondary, #aaa);
+  font-size: .75rem;
+  white-space: nowrap;
+}
+
+.banking-weekly-budget-chart__legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+.banking-weekly-budget-chart__legend i {
+  display: block;
+  width: .55rem;
+  height: .55rem;
+  border-radius: 50%;
+}
+
+.banking-weekly-budget-chart__legend i[data-direction="incoming"] {
+  background: var(--color-success, #54d17a);
+}
+
+.banking-weekly-budget-chart__legend i[data-direction="outgoing"] {
+  background: var(--color-danger, #ff646c);
+}
+
+.banking-weekly-budget-chart__viewport {
+  position: relative;
+  inline-size: 100%;
+  min-inline-size: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border, rgba(255,255,255,.12));
+  border-radius: var(--radius-md, 12px);
+  background: color-mix(in srgb, var(--color-surface-2, rgba(255,255,255,.025)) 88%, transparent);
+}
+
+.banking-weekly-budget-chart__svg {
+  display: block;
+  inline-size: 100%;
+  width: 100%;
+  block-size: clamp(14rem, 24vw, 18rem);
+  min-block-size: 14rem;
+}
+
+.banking-weekly-budget-chart__grid-line {
+  stroke: color-mix(in srgb, var(--color-border-subtle, rgba(255,255,255,.08)) 78%, transparent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.banking-weekly-budget-chart__day-guide {
+  stroke: color-mix(in srgb, var(--color-border-subtle, rgba(255,255,255,.07)) 52%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 2 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.banking-weekly-budget-chart__axis-label,
+.banking-weekly-budget-chart__day-label {
+  fill: var(--color-text-secondary, #999);
+  font-family: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.banking-weekly-budget-chart__day-label {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.banking-weekly-budget-chart__target-line {
+  stroke: color-mix(in srgb, var(--color-text-secondary, #aaa) 42%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 6 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.banking-weekly-budget-chart__area {
+  fill: color-mix(in srgb, var(--color-primary, #9b7cff) 10%, transparent);
+}
+
+.banking-weekly-budget-chart__line {
+  fill: none;
+  stroke: var(--color-primary, #9b7cff);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 .18rem color-mix(in srgb, var(--color-primary, #9b7cff) 25%, transparent));
+}
+
+.banking-weekly-budget-chart__event {
+  stroke: var(--color-surface, #211f1c);
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+  transition: r .12s ease, filter .12s ease;
+}
+
+.banking-weekly-budget-chart__event[data-direction="incoming"] {
+  fill: var(--color-success, #54d17a);
+}
+
+.banking-weekly-budget-chart__event[data-direction="outgoing"] {
+  fill: var(--color-danger, #ff646c);
+}
+
+.banking-weekly-budget-chart__event:hover,
+.banking-weekly-budget-chart__event:focus {
+  r: 8px;
+  filter: drop-shadow(0 0 .35rem currentColor);
+  outline: none;
+}
+
+.banking-weekly-budget-chart__current-dot {
+  fill: var(--color-primary, #9b7cff);
+  stroke: var(--color-surface, #211f1c);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.banking-weekly-budget-chart__tooltip {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  gap: .18rem;
+  width: max-content;
+  max-width: min(19rem, calc(100% - 1rem));
+  padding: .6rem .7rem;
+  border: 1px solid var(--color-border, rgba(255,255,255,.16));
+  border-radius: .65rem;
+  background: color-mix(in srgb, var(--color-surface, #211f1c) 96%, black 4%);
+  color: var(--color-text-primary, #fff);
+  box-shadow: 0 .5rem 1.4rem rgba(0,0,0,.28);
+  pointer-events: none;
+}
+
+.banking-weekly-budget-chart__tooltip[hidden] {
+  display: none;
+}
+
+.banking-weekly-budget-chart__tooltip-date,
+.banking-weekly-budget-chart__tooltip small {
+  color: var(--color-text-secondary, #aaa);
+  font-size: .72rem;
+}
+
+.banking-weekly-budget-chart__tooltip strong {
+  max-width: 17rem;
+  overflow: hidden;
+  font-size: .82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.banking-weekly-budget-chart__tooltip b {
+  font-size: .9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.banking-weekly-budget-chart__tooltip b[data-direction="incoming"] {
+  color: var(--color-success, #54d17a);
+}
+
+.banking-weekly-budget-chart__tooltip b[data-direction="outgoing"] {
+  color: var(--color-danger, #ff646c);
 }
 
 .banking-budget-week-separator > td {
@@ -80,8 +304,27 @@
     grid-template-columns: 1fr;
   }
 
+  .banking-weekly-budget-chart__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .banking-weekly-budget-chart__legend {
+    justify-content: flex-start;
+  }
+
+  .banking-weekly-budget-chart__svg {
+    block-size: 14rem;
+  }
+
   .banking-budget-week-separator__content {
     font-size: .7rem;
     gap: .45rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .banking-weekly-budget-chart__event {
+    transition: none;
   }
 }

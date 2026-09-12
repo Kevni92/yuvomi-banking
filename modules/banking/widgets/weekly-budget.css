@@ -1,0 +1,91 @@
+/* Dashboard-only styles for the Banking weekly-budget extension widget.
+   Yuvomi loads module style.css only on the module page, so the widget entry
+   injects this stylesheet explicitly when it is mounted on the dashboard. */
+
+.banking-weekly-widget {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: var(--space-4, 1rem);
+  color: var(--color-text-primary, #111827);
+  text-decoration: none;
+}
+
+.banking-weekly-widget:hover {
+  background: var(--color-surface-hover, rgba(0, 0, 0, .03));
+}
+
+.banking-weekly-widget:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--color-accent, #4f46e5);
+  outline-offset: -2px;
+}
+
+.banking-weekly-widget__title {
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.banking-weekly-widget__content {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: var(--space-3, .75rem);
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  text-align: center;
+}
+
+.banking-weekly-widget__amount {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: clamp(2.5rem, 2rem + 2vw, 3.5rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.banking-weekly-widget__progress {
+  width: min(100%, 18rem);
+  height: .65rem;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, .12));
+  border-radius: 999px;
+  background: var(--color-surface-3, rgba(255, 255, 255, .08));
+}
+
+.banking-weekly-widget__progress-fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent, #4f46e5);
+  transition: width 180ms ease-out;
+}
+
+.banking-weekly-widget__remaining {
+  margin: 0;
+  color: var(--color-text-secondary, #6b7280);
+  font-size: clamp(.9rem, .85rem + .2vw, 1rem);
+  text-align: center;
+}
+
+.banking-weekly-widget p,
+.banking-weekly-widget small {
+  margin: 0;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .banking-weekly-widget__progress-fill {
+    transition: none;
+  }
+}

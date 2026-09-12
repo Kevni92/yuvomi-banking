@@ -1,0 +1,91 @@
+/* Main-page polish: compact weekly-budget summary and visible week boundaries. */
+
+.banking-weekly-budget--compact .banking-panel__header {
+  align-items: center;
+}
+
+.banking-weekly-budget--compact .banking-weekly-summary {
+  gap: .75rem;
+}
+
+.banking-weekly-budget--compact .banking-weekly-summary__card {
+  min-height: 0;
+  padding: 1rem;
+  gap: .35rem;
+}
+
+.banking-weekly-budget--compact .banking-weekly-summary__card > span {
+  color: var(--color-text-secondary, #aaa);
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .025em;
+  text-transform: uppercase;
+}
+
+.banking-weekly-budget--compact .banking-weekly-summary__card > strong {
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+  line-height: 1.1;
+}
+
+.banking-weekly-budget--compact .banking-weekly-summary__card > small {
+  margin-top: .05rem;
+  color: var(--color-text-secondary, #aaa);
+  font-size: .78rem;
+}
+
+.banking-budget-week-separator > td {
+  padding: 1.2rem 0 .55rem !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.banking-budget-week-separator__content {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  width: 100%;
+  color: var(--color-text-secondary, #aaa);
+  font-size: .76rem;
+  font-weight: 700;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+
+.banking-budget-week-separator__content::before,
+.banking-budget-week-separator__content::after {
+  content: '';
+  height: 1px;
+  flex: 1 1 auto;
+  background: color-mix(in srgb, var(--color-primary, #8b5cf6) 42%, var(--color-border, rgba(255,255,255,.13)));
+}
+
+.banking-budget-week-separator__content::before {
+  flex: 0 0 1.5rem;
+}
+
+.banking-budget-week-separator__content > span {
+  flex: 0 0 auto;
+  padding: .18rem .5rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary, #8b5cf6) 28%, var(--color-border, rgba(255,255,255,.13)));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary, #8b5cf6) 6%, transparent);
+}
+
+[data-banking-accounts-panel] {
+  margin-top: var(--space-5, 1.25rem);
+}
+
+@media (max-width: 44rem) {
+  .banking-weekly-budget--compact .banking-weekly-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .banking-budget-week-separator__content {
+    font-size: .7rem;
+    gap: .45rem;
+  }
+
+  .banking-budget-week-separator__content::before {
+    flex-basis: .6rem;
+  }
+}

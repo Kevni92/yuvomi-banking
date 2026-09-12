@@ -12,6 +12,10 @@ function bankingStyle(): string {
   return readFileSync(resolve(process.cwd(), '../modules/banking/style.css'), 'utf8');
 }
 
+function weeklyBudgetWidgetStyle(): string {
+  return moduleFile('widgets/weekly-budget.css');
+}
+
 test('banking page exposes weekly-budget settings and both override controls', () => {
   const source = moduleFile('index.js');
   for (const marker of [
@@ -121,7 +125,7 @@ test('banking push worker is scoped to the module and never imports app-shell co
   assert.doesNotMatch(worker, /importScripts|https?:\/\//i);
 });
 
-test('dashboard widget reads the local current-weekly-budget endpoint', () => {
+test('dashboard widget renders budget, trend and segmented week progress from local Banking APIs', () => {
   const source = moduleFile('widgets/weekly-budget.js');
   const manifest = JSON.parse(moduleFile('module.json')) as {
     capabilities?: { widgets?: Array<{ id?: string; defaultVisible?: boolean }> };
@@ -130,24 +134,40 @@ test('dashboard widget reads the local current-weekly-budget endpoint', () => {
   assert.ok(widget, 'weekly-budget widget must remain registered');
   assert.equal(widget.defaultVisible, true);
   assert.match(source, /\/api\/extensions\/banking\/weekly-budget\/current/);
+  assert.match(source, /\/api\/extensions\/banking\/transactions\?/);
   assert.match(source, /available_to_spend_cents/);
+  assert.match(source, /target_amount_cents/);
   assert.match(source, /period\?\.next_cutoff_at/);
   assert.match(source, /wrapper\.dataset\.route\s*=\s*['"]\/m\/banking/);
   assert.match(source, /wrapper\.href\s*=\s*['"]\/m\/banking/);
-  assert.match(source, /banking-weekly-widget__title/);
-  assert.match(source, /banking-weekly-widget__content/);
-  assert.match(source, /banking-weekly-widget__progress/);
-  assert.match(source, /banking-weekly-widget__progress-fill/);
-  assert.match(source, /banking-weekly-widget__remaining/);
-  assert.match(source, /progress\.setAttribute\('role', 'progressbar'\)/);
-  assert.match(source, /progress\.setAttribute\('aria-valuenow', String\(percentage\)\)/);
+  for (const marker of [
+    'banking-weekly-widget__header',
+    'banking-weekly-widget__amount',
+    'banking-weekly-widget__baseline',
+    'banking-weekly-widget__budget-progress',
+    'banking-weekly-widget__budget-progress-fill',
+    'banking-weekly-widget__budget-percent',
+    'banking-weekly-widget__trend',
+    'banking-weekly-widget__trend-badge',
+    'banking-weekly-widget__sparkline',
+    'banking-weekly-widget__week-progress',
+    'banking-weekly-widget__week-labels'
+  ]) assert.ok(source.includes(marker), `Missing dashboard widget marker: ${marker}`);
+  assert.match(source, /budgetProgress\.setAttribute\('role', 'progressbar'\)/);
+  assert.match(source, /weekProgress\.setAttribute\('role', 'progressbar'\)/);
+  assert.match(source, /calculateBudgetTrendState/);
+  assert.match(source, /buildBudgetTrendPoints/);
+  assert.match(source, /buildBudgetWeekSegments/);
   assert.doesNotMatch(source, /transfer_amount_cents/);
   assert.doesNotMatch(source, /https?:\/\//i);
-  const style = bankingStyle();
-  assert.match(style, /\.banking-weekly-widget\s*\{[^}]*grid-template-rows:\s*auto minmax\(0,\s*1fr\)/s);
-  assert.match(style, /\.banking-weekly-widget__content\s*\{[^}]*align-content:\s*center;[^}]*justify-items:\s*center/s);
+
+  const style = weeklyBudgetWidgetStyle();
   assert.match(style, /\.banking-weekly-widget__amount\s*\{[^}]*font-size:\s*clamp\(/s);
-  assert.match(style, /\.banking-weekly-widget__progress-fill\s*\{[^}]*background:\s*var\(--color-accent/s);
+  assert.match(style, /\.banking-weekly-widget__budget-progress-fill\s*\{[^}]*linear-gradient/s);
+  assert.match(style, /\.banking-weekly-widget__trend\s*\{[^}]*border-radius:/s);
+  assert.match(style, /\.banking-weekly-widget__week-progress,[\s\S]*grid-template-columns:\s*repeat\(7,/s);
+  assert.match(style, /data-state="past"/);
+  assert.match(style, /data-state="current"/);
 });
 
 test('dashboard widget countdown handles exact, partial and invalid cutoffs', async () => {
@@ -177,6 +197,43 @@ test('dashboard widget countdown handles exact, partial and invalid cutoffs', as
   assert.equal(widget.formatRemainingWeeklyBudget(cutoff(-1), now, 'en'), 'ends today');
   assert.equal(widget.formatRemainingWeeklyBudget(undefined, now, 'de'), 'Zeitraum nicht verfügbar');
   assert.equal(widget.formatRemainingWeeklyBudget('not-a-date', now, 'en'), 'Period unavailable.');
+});
+
+test('dashboard widget budget trend compares remaining money with remaining week', async () => {
+  const widget = await import(pathToFileURL(resolve(process.cwd(), '../modules/banking/widgets/weekly-budget.js')).href) as {
+    calculateBudgetTrendState: (budgetRatio: number, remainingWeekRatio: number, tolerance?: number) => string;
+    budgetColorForRatio: (ratio: number) => string;
+    buildBudgetWeekSegments: (periodEndDate: string, now?: number | Date, timezone?: string, locale?: string) => Array<{ date: string; label: string; state: string }>;
+    buildBudgetTrendPoints: (current: unknown, transactions: unknown[], now?: number | Date) => number[];
+  };
+
+  assert.equal(widget.calculateBudgetTrendState(0.10, 0.60), 'under');
+  assert.equal(widget.calculateBudgetTrendState(0.55, 0.50), 'on');
+  assert.equal(widget.calculateBudgetTrendState(0.80, 0.40), 'over');
+  assert.match(widget.budgetColorForRatio(0), /^hsl\(0 /);
+  assert.match(widget.budgetColorForRatio(1), /^hsl\(120 /);
+
+  const segments = widget.buildBudgetWeekSegments(
+    '2026-09-17',
+    Date.parse('2026-09-12T10:00:00.000Z'),
+    'Europe/Berlin',
+    'de'
+  );
+  assert.equal(segments.length, 7);
+  assert.deepEqual(segments.map((entry) => entry.label), ['Do', 'Fr', 'Sa', 'So', 'Mo', 'Di', 'Mi']);
+  assert.equal(segments[2].state, 'current');
+
+  const current = {
+    available_to_spend_cents: 4500,
+    settings: { target_amount_cents: 45000, timezone: 'Europe/Berlin' },
+    period: { start_date: '2026-09-10', end_date: '2026-09-17' }
+  };
+  const points = widget.buildBudgetTrendPoints(current, [
+    { booking_date: '2026-09-10', amount: '20.00', direction: 'outgoing' },
+    { booking_date: '2026-09-11', amount: '10.00', direction: 'outgoing' }
+  ], Date.parse('2026-09-12T10:00:00.000Z'));
+  assert.equal(points.at(-1), 4500);
+  assert.ok(points.length >= 2);
 });
 
 test('weekly-budget locale keys exist in German and English', () => {

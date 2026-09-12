@@ -1,7 +1,20 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
+const WIDGET_STYLE_MARKER = 'banking-weekly-budget-widget-style';
+
+function ensureWidgetStyles() {
+  if (typeof document === 'undefined' || !document.head) return;
+  if (document.head.querySelector(`link[data-widget-style="${WIDGET_STYLE_MARKER}"]`)) return;
+
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = new URL('./weekly-budget.css', import.meta.url).href;
+  link.dataset.widgetStyle = WIDGET_STYLE_MARKER;
+  document.head.append(link);
+}
 
 export async function renderWidget(container) {
+  ensureWidgetStyles();
   container.replaceChildren();
 
   const wrapper = document.createElement('a');

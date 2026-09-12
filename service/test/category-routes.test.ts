@@ -17,16 +17,18 @@ async function close(server: Server): Promise<void> { await new Promise<void>((r
 function user(permission: 'read' | 'write') { return { id: 7, permissions: { modules: { 'ext:banking': permission } } }; }
 function headers() { return { 'content-type': 'application/json', origin: config.publicOrigin, cookie: 'yuvomi.sid=x; banking.csrf=x', 'x-banking-csrf': 'x' }; }
 
-test('category routes protect writes and retain the legacy weekly-budget endpoint', async () => {
+test('category routes protect writes, expose visual identity, and retain the legacy weekly-budget endpoint', async () => {
   const db = database(); const { server, origin } = await listen(createApp({ database: db, resolveSession: async () => user('write'), clock: () => NOW }));
   try {
-    const created = await fetch(`${origin}/api/extensions/banking/categories`, { method: 'POST', headers: headers(), body: JSON.stringify({ name: 'Lebensmittel', type: 'expense', weekly_budget_default: true }) });
+    const created = await fetch(`${origin}/api/extensions/banking/categories`, { method: 'POST', headers: headers(), body: JSON.stringify({ name: 'Lebensmittel', type: 'expense', weekly_budget_default: true, icon: 'shopping-cart', color: '#22c55e' }) });
     assert.equal(created.status, 201);
-    assert.deepEqual((await created.json()).data, { id: 1, name: 'Lebensmittel', type: 'expense', active: true, weekly_budget_default: true });
+    assert.deepEqual((await created.json()).data, { id: 1, name: 'Lebensmittel', type: 'expense', active: true, weekly_budget_default: true, icon: 'shopping-cart', color: '#22C55E' });
     const duplicate = await fetch(`${origin}/api/extensions/banking/categories`, { method: 'POST', headers: headers(), body: JSON.stringify({ name: 'lebensmittel', type: 'expense' }) });
     assert.equal(duplicate.status, 409);
-    const renamed = await fetch(`${origin}/api/extensions/banking/categories/1`, { method: 'PATCH', headers: headers(), body: JSON.stringify({ name: 'Groceries', active: false }) });
-    assert.deepEqual((await renamed.json()).data, { id: 1, name: 'Groceries', type: 'expense', active: false, weekly_budget_default: true });
+    const invalidVisual = await fetch(`${origin}/api/extensions/banking/categories/1`, { method: 'PATCH', headers: headers(), body: JSON.stringify({ color: 'red' }) });
+    assert.equal(invalidVisual.status, 400);
+    const renamed = await fetch(`${origin}/api/extensions/banking/categories/1`, { method: 'PATCH', headers: headers(), body: JSON.stringify({ name: 'Groceries', active: false, icon: 'shopping-bag', color: '#7c3aed' }) });
+    assert.deepEqual((await renamed.json()).data, { id: 1, name: 'Groceries', type: 'expense', active: false, weekly_budget_default: true, icon: 'shopping-bag', color: '#7C3AED' });
     const legacy = await fetch(`${origin}/api/extensions/banking/categories/1/weekly-budget`, { method: 'PATCH', headers: headers(), body: JSON.stringify({ weekly_budget_default: false }) });
     assert.deepEqual((await legacy.json()).data, { id: 1, weekly_budget_default: false });
   } finally { await close(server); db.close(); }

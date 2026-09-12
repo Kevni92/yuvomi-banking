@@ -367,9 +367,18 @@ function renderSparkline(svg, values) {
     return [x, y];
   });
 
+  const guides = coordinates.map(([x]) => {
+    const guide = document.createElementNS(SVG_NS, 'line');
+    guide.setAttribute('x1', String(x));
+    guide.setAttribute('x2', String(x));
+    guide.setAttribute('y1', String(pad));
+    guide.setAttribute('y2', String(height - pad));
+    guide.setAttribute('class', 'banking-weekly-widget__sparkline-guide');
+    return guide;
+  });
+
   const area = document.createElementNS(SVG_NS, 'path');
   const line = document.createElementNS(SVG_NS, 'polyline');
-  const dot = document.createElementNS(SVG_NS, 'circle');
   const areaPath = [
     `M ${coordinates[0][0]} ${height - pad}`,
     ...coordinates.map(([x, y]) => `L ${x} ${y}`),
@@ -380,12 +389,18 @@ function renderSparkline(svg, values) {
   area.setAttribute('class', 'banking-weekly-widget__sparkline-area');
   line.setAttribute('points', coordinates.map(([x, y]) => `${x},${y}`).join(' '));
   line.setAttribute('class', 'banking-weekly-widget__sparkline-line');
-  const [lastX, lastY] = coordinates[coordinates.length - 1];
-  dot.setAttribute('cx', String(lastX));
-  dot.setAttribute('cy', String(lastY));
-  dot.setAttribute('r', '3.5');
-  dot.setAttribute('class', 'banking-weekly-widget__sparkline-dot');
-  svg.append(area, line, dot);
+
+  const dayDots = coordinates.map(([x, y], index) => {
+    const dot = document.createElementNS(SVG_NS, 'circle');
+    dot.setAttribute('cx', String(x));
+    dot.setAttribute('cy', String(y));
+    dot.setAttribute('r', index === coordinates.length - 1 ? '3.5' : '2.6');
+    dot.setAttribute('class', 'banking-weekly-widget__sparkline-day-dot');
+    if (index === coordinates.length - 1) dot.dataset.current = 'true';
+    return dot;
+  });
+
+  svg.append(...guides, area, line, ...dayDots);
 }
 
 function formatTrendLabel(state, locale) {

@@ -1,0 +1,120 @@
+/*
+ * Transaction-table compatibility for Yuvomi's Page Composition System.
+ *
+ * The base table is rendered with a <colgroup> and table-layout: fixed. That
+ * worked while every optional column participated in the grid, but after the
+ * Yuvomi composition update the combination of hidden/removed optional columns
+ * can leave the effective table grid at its intrinsic width even though the
+ * wrapper itself spans the complete data rail. The visible result is a table
+ * ending around the action column with a large unused area on the right.
+ *
+ * Keep the semantic <table>, but let the visible cells own column sizing. The
+ * merchant column is the flexible column and absorbs the remaining rail width;
+ * fixed/compact columns keep their existing component widths. On narrow pages
+ * the wrapper remains the horizontal scrollport.
+ */
+
+[data-banking-transactions-table].banking-transactions-table-wrap {
+  display: block !important;
+  box-sizing: border-box;
+  inline-size: 100% !important;
+  width: 100% !important;
+  min-inline-size: 0 !important;
+  max-inline-size: 100% !important;
+  max-width: 100% !important;
+  justify-self: stretch !important;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+[data-banking-transactions-table] > .banking-transactions-table {
+  display: table !important;
+  box-sizing: border-box;
+  inline-size: 100% !important;
+  width: 100% !important;
+  min-inline-size: 52rem !important;
+  min-width: 52rem !important;
+  max-inline-size: none !important;
+  max-width: none !important;
+  table-layout: auto !important;
+}
+
+/*
+ * Width hints from the legacy/fixed-layout colgroup are the part that keeps
+ * stale geometry alive when optional columns are hidden. Cells still define
+ * the same semantic columns, so removing the colgroup from layout is safe.
+ */
+[data-banking-transactions-table] > .banking-transactions-table > colgroup {
+  display: none !important;
+}
+
+/* Be explicit about native table roles in case a host stylesheet changes the
+ * generic table display model. */
+[data-banking-transactions-table] > .banking-transactions-table > thead {
+  display: table-header-group !important;
+}
+
+[data-banking-transactions-table] > .banking-transactions-table > tbody {
+  display: table-row-group !important;
+}
+
+[data-banking-transactions-table] > .banking-transactions-table > :is(thead, tbody) > tr {
+  display: table-row !important;
+}
+
+[data-banking-transactions-table] > .banking-transactions-table > :is(thead, tbody) > tr > :is(th, td) {
+  display: table-cell;
+  box-sizing: border-box;
+}
+
+[data-banking-transactions-table] > .banking-transactions-table [data-transaction-column][hidden] {
+  display: none !important;
+}
+
+/* Recipient / merchant is the elastic column. Without this hint the browser
+ * may keep it close to max-content width after optional columns disappear. */
+[data-banking-transactions-table] > .banking-transactions-table > :is(thead, tbody) > tr > :nth-child(2) {
+  width: 100% !important;
+}
+
+[data-banking-transactions-table] .banking-transactions-table__date {
+  width: 6.5rem !important;
+  min-width: 6.5rem;
+}
+
+[data-banking-transactions-table] .banking-transactions-table__account {
+  width: 11rem !important;
+  min-width: 11rem;
+  max-width: 11rem;
+}
+
+[data-banking-transactions-table] .banking-transactions-table__category {
+  width: 9.5rem !important;
+  min-width: 9.5rem;
+}
+
+[data-banking-transactions-table] .banking-transactions-table__status {
+  width: 7rem !important;
+  min-width: 7rem;
+}
+
+[data-banking-transactions-table] .banking-transactions-table__amount-column {
+  width: 8rem !important;
+  min-width: 8rem;
+}
+
+[data-banking-transactions-table] .banking-transactions-table__action {
+  width: 3rem !important;
+  min-width: 3rem;
+}
+
+[data-banking-transactions-table] .banking-transactions-table__merchant {
+  min-width: 14rem;
+}
+
+@media (max-width: 52rem) {
+  [data-banking-transactions-table] > .banking-transactions-table {
+    min-inline-size: 48rem !important;
+    min-width: 48rem !important;
+  }
+}

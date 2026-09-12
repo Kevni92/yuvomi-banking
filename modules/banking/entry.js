@@ -1,7 +1,5 @@
 import { render as renderEnhanced } from './enhanced-index.js';
 
-const API_PREFIX = '/api/extensions/banking';
-
 // The enhancement layer deliberately post-processes markup produced by the stable
 // base module. Suppress MutationObserver records caused by that post-processing
 // itself, while still observing base-module re-renders (filters/table/categories).
@@ -41,17 +39,18 @@ export async function render(container, context) {
 
   window.MutationObserver = BankingMutationObserver;
   window.fetch = preferenceAwareFetch;
-  const cleanup = () => {
-    if (window.fetch === preferenceAwareFetch) window.fetch = nativeFetch;
-  };
-  context?.signal?.addEventListener('abort', cleanup, { once: true });
+  context?.signal?.addEventListener('abort', () => {
+    // enhanced-index restores its inner fetch wrapper during the same abort
+    // dispatch. Restore the pre-Banking fetch one microtask later.
+    queueMicrotask(() => { window.fetch = nativeFetch; });
+  }, { once: true });
 
   try {
     return await renderEnhanced(container, context);
   } finally {
     window.MutationObserver = NativeMutationObserver;
-    // Do not restore fetch here: enhanced-index intentionally installs its own
-    // scoped wrapper on top and removes it when the page signal aborts.
+    // Do not restore fetch here: enhanced-index intentionally keeps its scoped
+    // wrapper until the page signal aborts.
   }
 }
 

@@ -4,7 +4,7 @@
   "name": "Banking",
   "version": "0.1.0",
   "description": "Bankkonten, Umsätze, Kategorisierung und Wochenbudget.",
-  "entry": "enhanced-index.js",
+  "entry": "entry.js",
   "style": "style.css",
   "icon": "landmark",
   "accent": "#2F6B55",

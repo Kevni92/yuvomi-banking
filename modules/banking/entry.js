@@ -1,4 +1,5 @@
 import { render as renderEnhanced } from './enhanced-index.js';
+import { installMainLayoutPolish } from './layout-polish.js';
 
 // The enhancement layer deliberately post-processes markup produced by the stable
 // base module. Suppress MutationObserver records caused by that post-processing
@@ -45,13 +46,19 @@ export async function render(container, context) {
     queueMicrotask(() => { window.fetch = nativeFetch; });
   }, { once: true });
 
+  let result;
   try {
-    return await renderEnhanced(container, context);
+    result = await renderEnhanced(container, context);
   } finally {
     window.MutationObserver = NativeMutationObserver;
     // Do not restore fetch here: enhanced-index intentionally keeps its scoped
     // wrapper until the page signal aborts.
   }
+
+  if (!context?.signal?.aborted) {
+    await installMainLayoutPolish(container, context);
+  }
+  return result;
 }
 
 function isEnhancementMutation(record) {

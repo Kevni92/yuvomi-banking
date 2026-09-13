@@ -86,7 +86,7 @@ export function evaluateDirectExpense(
 
   if (candidate.accountId !== candidate.sourceAccountId) exclusionReason = 'wrong_account';
   else if (candidate.direction !== 'outgoing') exclusionReason = 'not_outgoing';
-  else if (candidate.status !== 'BOOK') exclusionReason = 'not_booked';
+  else if (candidate.status !== 'BOOK' && candidate.status !== 'PDNG') exclusionReason = 'not_booked';
   else if (candidate.currency.toUpperCase() !== 'EUR') exclusionReason = 'not_eur';
   else if (candidate.isInternalTransfer) exclusionReason = 'internal_transfer';
   else if (candidate.isRefillTransfer) exclusionReason = 'refill_transfer';

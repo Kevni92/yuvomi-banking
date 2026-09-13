@@ -20,7 +20,7 @@ test('manifest boots the observer-safe enhancement layer', () => {
 
 test('transaction enhancements remove the dedicated weekly-budget column and provide context actions', () => {
   assert.match(enhanced, /data-transaction-column=\\?"weeklyBudget/);
-  assert.match(enhanced, /data\.action = 'transaction-menu'/);
+  assert.match(enhanced, /action\.dataset\.action = 'transaction-menu'/);
   assert.match(enhanced, /Details anzeigen…/);
   assert.match(enhanced, /Im Wochenbudget berücksichtigen/);
   assert.match(enhanced, /weekly_budget_selected/);

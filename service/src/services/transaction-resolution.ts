@@ -300,7 +300,7 @@ function resolveCandidate(
 function canonicalizeCandidate(candidate: ResolutionCandidate, aliases: MerchantAlias[]): ResolutionCandidate {
   const normalized = normalizeAlias(candidate.displayName);
   const alias = aliases.find((entry) => normalized === entry.alias_normalized)
-    ?? aliases.find((entry) => normalized.includes(` ${entry.alias_normalized} `));
+    ?? aliases.find((entry) => (` ${normalized} `).includes(` ${entry.alias_normalized} `));
   if (alias) {
     return {
       ...candidate,
@@ -416,7 +416,7 @@ function extractRemittanceMerchant(value: string | null): string | null {
   if (!value) return null;
   const normalized = value.replace(/\s+/g, ' ').trim();
   const patterns = [
-    /(?:ihr\s+)?einkauf\s+bei\s+(.+?)(?=\s+(?:referenz|reference|ref\.?|transaktion|transaction|zahlung|payment)\b|[;,]|$)/i,
+    /(?:ihr\s+)?einkauf\s+bei\s+(.+?)(?=\s+(?:referenz|reference|ref\.?|transaktion|transaction)\b|[;,]|$)/i,
     /(?:merchant|haendler|händler)\s*[:=-]\s*(.+?)(?=[;,]|$)/i
   ];
   for (const pattern of patterns) {
@@ -441,13 +441,13 @@ function isRejectedMerchant(value: string): boolean {
 }
 
 function normalizeAlias(value: string): string {
-  return ` ${value
+  return value
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim()} `;
+    .trim();
 }
 
 function statusLabel(status: ObservationStatus): string {

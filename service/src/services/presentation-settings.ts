@@ -16,16 +16,27 @@ export function getPresentationSettings(
   database: DatabaseSync,
   yuvomiUserId: number
 ): BankingPresentationSettings {
-  const row = database.prepare(`
-    SELECT transaction_title_mode
-    FROM banking_presentation_settings
-    WHERE yuvomi_user_id = ?
-    LIMIT 1
-  `).get(yuvomiUserId) as { transaction_title_mode?: string } | undefined;
+  try {
+    const row = database.prepare(`
+      SELECT transaction_title_mode
+      FROM banking_presentation_settings
+      WHERE yuvomi_user_id = ?
+      LIMIT 1
+    `).get(yuvomiUserId) as { transaction_title_mode?: string } | undefined;
 
-  return {
-    transactionTitleMode: normalizeTransactionTitleMode(row?.transaction_title_mode)
-  };
+    return {
+      transactionTitleMode: normalizeTransactionTitleMode(row?.transaction_title_mode)
+    };
+  } catch (error) {
+    // A few isolated readers/tests build only the transaction tables. More
+    // importantly, this also makes a rolling deployment safe while migration 22
+    // has not been applied yet: presentation is optional and must never break
+    // the transaction list.
+    if (error instanceof Error && /no such table:\s*banking_presentation_settings/i.test(error.message)) {
+      return { ...DEFAULT_SETTINGS };
+    }
+    throw error;
+  }
 }
 
 export function savePresentationSettings(

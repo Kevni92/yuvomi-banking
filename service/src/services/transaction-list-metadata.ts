@@ -46,9 +46,12 @@ export function decorateTransactionListMetadata(
   }
 
   const placeholders = ids.map(() => '?').join(', ');
+  const evidenceColumns = transactionEvidenceColumnsAvailable(database)
+    ? `transactions.merchant_resolution_method, transactions.merchant_evidence_source,`
+    : `NULL AS merchant_resolution_method, NULL AS merchant_evidence_source,`;
   const rows = database.prepare(`
     SELECT transactions.id, transactions.created_at, transactions.bank_transaction_code,
-           transactions.merchant_resolution_method, transactions.merchant_evidence_source,
+           ${evidenceColumns}
            bank_accounts.last_synced_at
     FROM transactions
     JOIN bank_accounts ON bank_accounts.id = transactions.account_id
@@ -112,6 +115,12 @@ function semanticListMetadata(
     }),
     prefer_transaction_type_display: semantic.preferDisplay ? 1 : 0
   };
+}
+
+function transactionEvidenceColumnsAvailable(database: DatabaseSync): boolean {
+  const columns = database.prepare('PRAGMA table_info(transactions)').all() as Array<{ name?: string }>;
+  const names = new Set(columns.map((column) => column.name));
+  return names.has('merchant_resolution_method') && names.has('merchant_evidence_source');
 }
 
 /**

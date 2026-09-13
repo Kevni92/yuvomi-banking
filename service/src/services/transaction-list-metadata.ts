@@ -48,6 +48,7 @@ export function decorateTransactionListMetadata(
   const placeholders = ids.map(() => '?').join(', ');
   const rows = database.prepare(`
     SELECT transactions.id, transactions.created_at, transactions.bank_transaction_code,
+           transactions.merchant_resolution_method, transactions.merchant_evidence_source,
            bank_accounts.last_synced_at
     FROM transactions
     JOIN bank_accounts ON bank_accounts.id = transactions.account_id
@@ -59,6 +60,8 @@ export function decorateTransactionListMetadata(
     id: number;
     created_at: string | null;
     bank_transaction_code: string | null;
+    merchant_resolution_method: string | null;
+    merchant_evidence_source: string | null;
     last_synced_at: string | null;
   }>;
   const metadata = new Map(rows.map((row) => [Number(row.id), row]));
@@ -69,7 +72,13 @@ export function decorateTransactionListMetadata(
       ...transaction,
       transaction_time: inferTransactionTime(transaction),
       new_since_last_sync: row && isAtOrAfter(row.created_at, row.last_synced_at) ? 1 : 0,
-      ...semanticListMetadata(row?.bank_transaction_code ?? null, transaction, titleMode)
+      ...semanticListMetadata(
+        row?.bank_transaction_code ?? null,
+        transaction,
+        titleMode,
+        row?.merchant_resolution_method ?? null,
+        row?.merchant_evidence_source ?? null
+      )
     };
   });
 }
@@ -77,7 +86,9 @@ export function decorateTransactionListMetadata(
 function semanticListMetadata(
   bankTransactionCode: unknown,
   transaction: PublicTransaction,
-  titleMode: ReturnType<typeof getPresentationSettings>['transactionTitleMode']
+  titleMode: ReturnType<typeof getPresentationSettings>['transactionTitleMode'],
+  merchantResolutionMethod: string | null = null,
+  merchantEvidenceSource: string | null = null
 ): Pick<
   PublicTransactionWithListMetadata,
   | 'transaction_type'
@@ -95,7 +106,10 @@ function semanticListMetadata(
     transaction_type_description: semantic.description,
     payment_method: semantic.paymentMethod,
     transaction_display_label: semantic.displayLabel,
-    transaction_display_title: resolveTransactionDisplayTitle(transaction, semantic, titleMode),
+    transaction_display_title: resolveTransactionDisplayTitle(transaction, semantic, titleMode, {
+      resolutionMethod: merchantResolutionMethod,
+      evidenceSource: merchantEvidenceSource
+    }),
     prefer_transaction_type_display: semantic.preferDisplay ? 1 : 0
   };
 }

@@ -1,5 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { PublicTransaction } from './transactions-query.js';
+import {
+  getPresentationSettings,
+  resolveTransactionDisplayTitle
+} from './presentation-settings.js';
 import { deriveTransactionSemantics } from './transaction-semantics.js';
 
 export type PublicTransactionWithListMetadata = PublicTransaction & {
@@ -10,6 +14,7 @@ export type PublicTransactionWithListMetadata = PublicTransaction & {
   transaction_type_description: string | null;
   payment_method: string | null;
   transaction_display_label: string | null;
+  transaction_display_title: string | null;
   prefer_transaction_type_display: number;
 };
 
@@ -27,6 +32,7 @@ export function decorateTransactionListMetadata(
 ): PublicTransactionWithListMetadata[] {
   if (!transactions.length) return [];
 
+  const titleMode = getPresentationSettings(database, userId).transactionTitleMode;
   const ids = transactions
     .map((transaction) => Number(transaction.id))
     .filter((id) => Number.isSafeInteger(id) && id > 0);
@@ -35,7 +41,7 @@ export function decorateTransactionListMetadata(
       ...transaction,
       transaction_time: inferTransactionTime(transaction),
       new_since_last_sync: 0,
-      ...semanticListMetadata(null)
+      ...semanticListMetadata(null, transaction, titleMode)
     }));
   }
 
@@ -63,18 +69,23 @@ export function decorateTransactionListMetadata(
       ...transaction,
       transaction_time: inferTransactionTime(transaction),
       new_since_last_sync: row && isAtOrAfter(row.created_at, row.last_synced_at) ? 1 : 0,
-      ...semanticListMetadata(row?.bank_transaction_code ?? null)
+      ...semanticListMetadata(row?.bank_transaction_code ?? null, transaction, titleMode)
     };
   });
 }
 
-function semanticListMetadata(bankTransactionCode: unknown): Pick<
+function semanticListMetadata(
+  bankTransactionCode: unknown,
+  transaction: PublicTransaction,
+  titleMode: ReturnType<typeof getPresentationSettings>['transactionTitleMode']
+): Pick<
   PublicTransactionWithListMetadata,
   | 'transaction_type'
   | 'transaction_type_label'
   | 'transaction_type_description'
   | 'payment_method'
   | 'transaction_display_label'
+  | 'transaction_display_title'
   | 'prefer_transaction_type_display'
 > {
   const semantic = deriveTransactionSemantics(bankTransactionCode);
@@ -84,6 +95,7 @@ function semanticListMetadata(bankTransactionCode: unknown): Pick<
     transaction_type_description: semantic.description,
     payment_method: semantic.paymentMethod,
     transaction_display_label: semantic.displayLabel,
+    transaction_display_title: resolveTransactionDisplayTitle(transaction, semantic, titleMode),
     prefer_transaction_type_display: semantic.preferDisplay ? 1 : 0
   };
 }

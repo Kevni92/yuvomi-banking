@@ -1,6 +1,7 @@
 import { render as renderEnhanced } from './enhanced-index.js';
 import { installMainLayoutPolish } from './layout-polish.js';
 import { installPopoverGuard } from './popover-guard.js';
+import { installPresentationSettings } from './presentation-settings.js';
 import { installTransactionSyncPolish } from './transaction-sync-polish.js';
 import { installTransactionSemanticsPolish } from './transaction-semantics-polish.js';
 
@@ -87,6 +88,7 @@ export async function render(container, context) {
   }
 
   if (!context?.signal?.aborted) {
+    await installPresentationSettings(container, context);
     await installMainLayoutPolish(container, context);
     installPopoverGuard(container, context);
     installTransactionSyncPolish(container, context, () => latestTransactions);
@@ -118,6 +120,7 @@ function isEnhancementMutation(record) {
   if ([...record.addedNodes].some((node) => node instanceof Element && (
     node.matches('.banking-recent-sync-separator')
     || node.matches('.banking-transaction-semantic-summary')
+    || node.matches('[data-banking-presentation-settings]')
   ))) return true;
   return Boolean(target.closest(
     '[data-enhanced-category-chip],'
@@ -132,6 +135,7 @@ function isEnhancementMutation(record) {
     + '.banking-recent-sync-separator,'
     + '[data-transaction-semantics-owned],'
     + '.banking-transaction-semantic-summary,'
+    + '[data-banking-presentation-settings],'
     + 'select[data-transaction-filter="accountId"]'
   ));
 }

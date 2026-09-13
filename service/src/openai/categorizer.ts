@@ -17,6 +17,9 @@ export interface CategorizationTransaction {
   currency: string;
   direction: 'incoming' | 'outgoing';
   mcc: string | null;
+  transaction_type: string | null;
+  transaction_type_description: string | null;
+  payment_method: string | null;
 }
 
 export interface CategorizationResult {
@@ -76,6 +79,10 @@ export class OpenAiCategorizer implements CategorizationClient {
             'Use category_id only when it is in the allowlist; otherwise use null.',
             'If no supplied category fits, return category_id null and provide a concise suggested_category.',
             'If the category allowlist is empty, return category_id null and propose the best reusable category for each transaction.',
+            'Treat transaction_type and transaction_type_description as strong bank-supplied semantic evidence when present.',
+            'A cash_withdrawal or explicit Bargeldabhebung should map to a cash/Bargeld category when one exists.',
+            'payment_method such as Apple Pay or Google Pay describes how a payment was made; it is not the merchant and usually not a category by itself.',
+            'When counterparty_name is a bank or payment processor but transaction_type describes the real operation, prefer the operation semantics over the bank name.',
             'Suggest short reusable household-finance category names, not transaction-specific descriptions or merchant names unless the merchant is itself a meaningful category.',
             'Prefer broad household-finance categories such as Lebensmittel, Versicherungen, Abonnements, Mobilität, Freizeit, Einkommen, and Transfers.',
             'Do not infer, request, or output banking identifiers, IBANs, account numbers, or personal data.',

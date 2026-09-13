@@ -11,6 +11,7 @@ import { createEnableBankingSettingsRouter } from './api/enable-banking-settings
 import { createWeeklyBudgetRouter } from './api/weekly-budget-routes.js';
 import { createCategoryRouter } from './api/category-routes.js';
 import { createAccountPreferencesRouter } from './api/account-preferences-routes.js';
+import { createPresentationSettingsRouter } from './api/presentation-settings-routes.js';
 import { EnableBankingClient } from './enable-banking/client.js';
 import { createCategorizationRouter } from './api/categorization-routes.js';
 import { createOpenAiSettingsRouter } from './api/openai-settings-routes.js';
@@ -112,6 +113,11 @@ export function createApp({
     }));
     app.use(`${API_PREFIX}`, createCategoryRouter({ database, resolveSession, clock }));
     app.use(`${API_PREFIX}`, createAccountPreferencesRouter({
+      database,
+      resolveSession: resolveBankingSession,
+      clock
+    }));
+    app.use(`${API_PREFIX}`, createPresentationSettingsRouter({
       database,
       resolveSession: resolveBankingSession,
       clock

@@ -1,4 +1,4 @@
-export type PaymentIntermediaryKind = 'processor' | 'technical_bank';
+export type PaymentIntermediaryKind = 'processor' | 'technical_party';
 
 export interface PaymentIntermediary {
   name: string;
@@ -29,21 +29,24 @@ export function detectPaymentIntermediary(
       }
     }
     if (isTechnicalPaymentParty(value)) {
-      return { name: value.trim().slice(0, 200), kind: 'technical_bank' };
+      return { name: value.trim().slice(0, 200), kind: 'technical_party' };
     }
   }
   return null;
 }
 
 /**
- * Detects names and opaque references that describe the payment rail or bank
- * rather than the actual merchant. This intentionally mirrors the smart-title
- * safeguards, but lives in the domain layer so the resolver can use it too.
+ * Detects structurally technical provider values, not institution names.
+ *
+ * Deliberately do not classify a party just because its name contains "Bank",
+ * "Sparkasse" or a particular institution name. A bank can be a legitimate
+ * payee. Whether a counterparty should lose to card/wallet semantics is decided
+ * from transaction evidence in the presentation resolver instead.
  */
 export function isTechnicalPaymentParty(value: string | null | undefined): boolean {
   if (!value || !value.trim()) return false;
   const normalized = normalize(value);
-  return /\b(LANDESBANK|SPARKASSE|SPK|BANK|ISSUER|PAYMENT SERVICES?|CARD SERVICES?)\b/.test(normalized)
+  return /^(?:ISSUER|CARD SERVICES?|PAYMENT SERVICES?)$/.test(normalized)
     || /\bGA\s+NR\d+/i.test(value)
     || /\bBLZ\d+/i.test(value)
     || /^MO\s+\d{6,}(?:\s+|$)/i.test(value)

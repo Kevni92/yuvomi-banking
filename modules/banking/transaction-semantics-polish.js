@@ -1,10 +1,10 @@
 const STYLE_ID = 'banking-transaction-semantics-polish';
 
 /**
- * Replaces misleading processor/bank names with the operation the bank actually
- * reported when that operation is stronger evidence (for example Apple Pay card
- * payments or cash withdrawals). The raw provider payload remains available in
- * the detail dialog.
+ * Uses the strongest available transaction evidence for the user-facing label.
+ * A verified merchant wins; otherwise a bank-reported payment operation such as
+ * Apple Pay or a cash withdrawal can be more meaningful than an unverified raw
+ * counterparty. Raw provider data remains available in the detail dialog.
  */
 export function installTransactionSemanticsPolish(
   container,
@@ -127,9 +127,9 @@ function decorateDetail(container, detailMap) {
 
   const mainSummary = host.querySelector('.banking-transaction-detail-summary');
   mainSummary?.after(summary);
-  if (!detail.transaction.merchant_name && semantics.preferDisplay) {
+  if (semantics.preferDisplay && shouldPreferSemanticDetail(detail.transaction, detail.enrichment)) {
     const title = mainSummary?.querySelector('div > strong');
-    if (title) title.textContent = semantics.displayLabel || semantics.label || title.textContent;
+    if (title) title.textContent = semantics.paymentMethod || semantics.displayLabel || semantics.label || title.textContent;
   }
 }
 
@@ -139,25 +139,86 @@ function isPreferredSemantic(transaction) {
 }
 
 function semanticDisplayLabel(transaction) {
+  const method = text(transaction?.payment_method);
+  if (transaction?.transaction_type === 'card_payment' && method) return method;
   if (typeof transaction?.transaction_display_label === 'string' && transaction.transaction_display_label.trim()) {
     return transaction.transaction_display_label.trim();
   }
   const label = text(transaction?.transaction_type_label);
-  const method = text(transaction?.payment_method);
   return label && method ? `${label} · ${method}` : method || label;
 }
 
 function meaningfulSecondaryLines(transaction, display) {
   const values = [];
-  const description = text(transaction?.transaction_type_description);
-  const purpose = text(transaction?.purpose);
-  if (description && normalize(description) !== normalize(display) && !normalize(display).includes(normalize(description))) {
-    values.push(description);
+  const description = cleanSecondaryText(transaction?.transaction_type_description);
+  const purpose = cleanSecondaryText(transaction?.purpose);
+  const displayNormalized = normalize(display);
+  if (description) {
+    const descriptionNormalized = normalize(description);
+    if (
+      descriptionNormalized !== displayNormalized
+      && !displayNormalized.includes(descriptionNormalized)
+      && !descriptionNormalized.includes(displayNormalized)
+    ) {
+      values.push(description);
+    }
   }
-  if (purpose && normalize(purpose) !== normalize(display) && !values.some((item) => normalize(item) === normalize(purpose))) {
-    values.push(purpose);
+  if (purpose) {
+    const purposeNormalized = normalize(purpose);
+    if (
+      purposeNormalized !== displayNormalized
+      && !values.some((item) => normalize(item) === purposeNormalized)
+    ) {
+      values.push(purpose);
+    }
   }
   return values;
+}
+
+function cleanSecondaryText(value) {
+  const raw = text(value);
+  if (!raw) return null;
+  // Generic ISO/provider family markers are transport metadata, not meaningful
+  // human descriptions. Strip a leading family marker when useful text follows,
+  // and suppress it completely when it is the whole value.
+  const stripped = raw
+    .replace(/^(?:PMNT|PAYMENT)\b\s*(?:[·•|:;\/-]\s*)*/i, '')
+    .trim();
+  if (!stripped || isGenericSecondaryText(stripped)) return null;
+  return stripped;
+}
+
+function isGenericSecondaryText(value) {
+  const normalized = normalize(value);
+  return [
+    'PMNT',
+    'PAYMENT',
+    'ZAHLUNG',
+    'CARD PAYMENT',
+    'KARTENZAHLUNG',
+    'POS',
+    'POSD',
+    'CCRD'
+  ].includes(normalized);
+}
+
+function shouldPreferSemanticDetail(transaction, enrichment) {
+  const merchant = text(transaction?.merchant_name);
+  if (!merchant) return true;
+  return !hasTrustedMerchantEvidence(transaction, enrichment);
+}
+
+function hasTrustedMerchantEvidence(transaction, enrichment) {
+  if (text(transaction?.merchant_key)) return true;
+  const method = text(enrichment?.merchant_resolution_method);
+  if (method === 'manual' || method === 'provider_explicit' || method === 'registry_alias') return true;
+  if (method !== 'external_enrichment') return false;
+  const source = text(enrichment?.merchant_evidence_source) || '';
+  return source === 'own_account'
+    || source.includes('provider_merchant')
+    || source.includes('.counterparty_name')
+    || source.includes('.purpose')
+    || source === 'transaction.purpose';
 }
 
 function deriveFromStableCode(value) {

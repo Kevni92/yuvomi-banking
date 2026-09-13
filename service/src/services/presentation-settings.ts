@@ -8,6 +8,11 @@ export interface BankingPresentationSettings {
   transactionTitleMode: TransactionTitleMode;
 }
 
+export interface MerchantPresentationEvidence {
+  resolutionMethod?: string | null;
+  evidenceSource?: string | null;
+}
+
 const DEFAULT_SETTINGS: BankingPresentationSettings = {
   transactionTitleMode: 'smart'
 };
@@ -68,30 +73,33 @@ export function resolveTransactionDisplayTitle(
     | 'purpose'
   >,
   semantics: TransactionSemantics,
-  mode: TransactionTitleMode
+  mode: TransactionTitleMode,
+  merchantEvidence: MerchantPresentationEvidence = {}
 ): string | null {
   const merchant = text(transaction.merchant_name);
   const counterparty = text(transaction.counterparty_name);
   const purpose = text(transaction.purpose);
   const specificType = semanticTitle(semantics);
+  const trustedMerchant = merchant && hasTrustedMerchantEvidence(transaction, merchantEvidence)
+    ? merchant
+    : null;
 
   if (mode === 'counterparty') {
-    return merchant || counterparty || purpose || specificType;
+    return trustedMerchant || counterparty || merchant || purpose || specificType;
   }
 
   if (mode === 'transaction_type') {
-    return specificType || merchant || counterparty || purpose;
+    return specificType || trustedMerchant || counterparty || merchant || purpose;
   }
 
-  // "Smart" intentionally distinguishes a useful human-facing merchant from
-  // technical provider data. A logo/merchant registry must not make an ATM,
-  // settlement bank or opaque provider reference win over stronger semantics.
-  const merchantIsTrusted = Boolean(merchant && !looksTechnicalParty(merchant));
-
-  if (merchantIsTrusted) return merchant;
+  // Smart mode is evidence-driven: a merchant only wins when it has explicit,
+  // learned or deterministic merchant evidence. Otherwise a bank-reported
+  // operation such as Apple Pay/card payment or a cash withdrawal is stronger
+  // than an unverified counterparty label. No institution-name blacklist is
+  // involved in this decision.
+  if (trustedMerchant) return trustedMerchant;
   if (semantics.preferDisplay && specificType) return specificType;
-  if (counterparty && !looksTechnicalParty(counterparty)) return counterparty;
-  return specificType || merchant || counterparty || purpose;
+  return counterparty || merchant || purpose || specificType;
 }
 
 export function parseTransactionTitleMode(value: unknown): TransactionTitleMode {
@@ -112,10 +120,30 @@ function normalizeTransactionTitleMode(value: unknown): TransactionTitleMode {
 function semanticTitle(semantics: TransactionSemantics): string | null {
   if (semantics.kind === 'cash_withdrawal') return 'Bargeldauszahlung';
   if (semantics.kind === 'cash_deposit') return 'Bargeldeinzahlung';
+  if (semantics.kind === 'card_payment' && text(semantics.paymentMethod)) {
+    return text(semantics.paymentMethod);
+  }
   if (semantics.kind === 'card_payment' && semantics.description) {
     return prettyProviderDescription(semantics.description);
   }
   return text(semantics.displayLabel) || text(semantics.label) || text(semantics.description);
+}
+
+function hasTrustedMerchantEvidence(
+  transaction: Pick<PublicTransaction, 'merchant_key' | 'merchant_logo_available'>,
+  evidence: MerchantPresentationEvidence
+): boolean {
+  if (text(transaction.merchant_key) || Number(transaction.merchant_logo_available) === 1) return true;
+  const method = text(evidence.resolutionMethod);
+  if (method === 'manual' || method === 'provider_explicit' || method === 'registry_alias') return true;
+  if (method !== 'external_enrichment') return false;
+
+  const source = text(evidence.evidenceSource) || '';
+  return source === 'own_account'
+    || source.includes('provider_merchant')
+    || source.includes('.counterparty_name')
+    || source.includes('.purpose')
+    || source === 'transaction.purpose';
 }
 
 function prettyProviderDescription(value: string): string {
@@ -125,19 +153,6 @@ function prettyProviderDescription(value: string): string {
   if (/^BARGELDAUSZAHLUNG$/i.test(normalized)) return 'Bargeldauszahlung';
   if (/^BARGELDEINZAHLUNG$/i.test(normalized)) return 'Bargeldeinzahlung';
   return normalized;
-}
-
-function looksTechnicalParty(value: string): boolean {
-  const normalized = value
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase()
-    .trim();
-  return /\b(LANDESBANK|SPARKASSE|SPK|BANK|ISSUER|PAYMENT SERVICES?|CARD SERVICES?)\b/.test(normalized)
-    || /\bGA\s+NR\d+/i.test(value)
-    || /\bBLZ\d+/i.test(value)
-    || /^MO\s+\d{6,}(?:\s+|$)/i.test(value)
-    || /^[A-Z]{1,3}\s+\d{6,}\s+\d{8,}[A-Z0-9]*$/i.test(value);
 }
 
 function text(value: unknown): string | null {

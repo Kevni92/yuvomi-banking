@@ -11,7 +11,7 @@ const base = {
   purpose: null
 };
 
-test('smart transaction titles replace technical ATM and processor names with useful bank semantics', () => {
+test('smart transaction titles prefer operation semantics when no merchant identity is verified', () => {
   const cash = deriveTransactionSemantics({ description: 'BARGELDAUSZAHLUNG', code: 'NMSC+083+2239+003' });
   assert.equal(resolveTransactionDisplayTitle({
     ...base,
@@ -20,20 +20,36 @@ test('smart transaction titles replace technical ATM and processor names with us
   }, cash, 'smart'), 'Bargeldauszahlung');
 
   const applePay = deriveTransactionSemantics({ description: 'E-COM (APPLE PAY)', code: 'NDDT+106+9248+011' });
-  assert.equal(resolveTransactionDisplayTitle({
+  const unverifiedSettlementParty = {
     ...base,
-    merchant_name: 'Landesbank Hessen-Thuringen',
-    counterparty_name: 'Landesbank Hessen-Thuringen'
-  }, applePay, 'smart'), 'E-COM (Apple Pay)');
+    merchant_name: 'Example Settlement Clearing AG',
+    counterparty_name: 'Example Settlement Clearing AG'
+  };
+  assert.equal(resolveTransactionDisplayTitle(unverifiedSettlementParty, applePay, 'smart'), 'Apple Pay');
+  assert.equal(resolveTransactionDisplayTitle(unverifiedSettlementParty, applePay, 'counterparty'), 'Example Settlement Clearing AG');
+  assert.equal(resolveTransactionDisplayTitle(unverifiedSettlementParty, applePay, 'transaction_type'), 'Apple Pay');
 
   assert.equal(resolveTransactionDisplayTitle({
     ...base,
     merchant_name: 'MO 56005568 120926141638C16',
     counterparty_name: 'MO 56005568 120926141638C16'
-  }, applePay, 'smart'), 'E-COM (Apple Pay)');
+  }, applePay, 'smart'), 'Apple Pay');
 });
 
-test('smart transaction titles keep real merchants while explicit modes remain selectable', () => {
+test('verified merchant evidence wins even when the merchant name looks like a financial institution', () => {
+  const applePay = deriveTransactionSemantics({ description: 'E-COM (APPLE PAY)' });
+  const transaction = {
+    ...base,
+    merchant_name: 'Example Bank AG',
+    counterparty_name: 'Example Bank AG'
+  };
+  assert.equal(resolveTransactionDisplayTitle(transaction, applePay, 'smart', {
+    resolutionMethod: 'provider_explicit',
+    evidenceSource: 'detail.card_acceptor_name'
+  }), 'Example Bank AG');
+});
+
+test('smart transaction titles keep known merchants while explicit modes remain selectable', () => {
   const card = deriveTransactionSemantics({ description: 'E-COM (APPLE PAY)' });
   const transaction = {
     ...base,
@@ -44,5 +60,14 @@ test('smart transaction titles keep real merchants while explicit modes remain s
   };
   assert.equal(resolveTransactionDisplayTitle(transaction, card, 'smart'), 'Lidl');
   assert.equal(resolveTransactionDisplayTitle(transaction, card, 'counterparty'), 'Lidl');
-  assert.equal(resolveTransactionDisplayTitle(transaction, card, 'transaction_type'), 'E-COM (Apple Pay)');
+  assert.equal(resolveTransactionDisplayTitle(transaction, card, 'transaction_type'), 'Apple Pay');
+});
+
+test('ordinary transfer counterparties are not suppressed by name heuristics', () => {
+  const transfer = deriveTransactionSemantics({ description: 'SEPA TRANSFER' });
+  const transaction = {
+    ...base,
+    counterparty_name: 'Example Bank AG'
+  };
+  assert.equal(resolveTransactionDisplayTitle(transaction, transfer, 'smart'), 'Example Bank AG');
 });

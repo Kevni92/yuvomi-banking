@@ -147,11 +147,11 @@ export function resolveTransactionsForAccount({
     const transactionObservations = observationsByTransaction.get(transaction.id) ?? [];
     const rawObservations = storedPayloadObservations(transaction, encryption);
     const allObservations = [...transactionObservations, ...rawObservations];
-    const paymentMethod = resolvePaymentMethod(transaction, allObservations);
-    const intermediary = resolveIntermediary(transaction, allObservations);
     const candidate = resolveCandidate(transaction, allObservations, aliases, ownAccounts);
     if (!candidate) continue;
 
+    const paymentMethod = resolvePaymentMethod(transaction, allObservations);
+    const intermediary = resolveIntermediary(transaction, allObservations, candidate);
     upsertResolution.run(
       transaction.id,
       candidate.entityType,
@@ -236,7 +236,11 @@ function resolveCandidate(
   }
 
   const candidates: ResolutionCandidate[] = [];
-  if (transaction.merchant_name && !isRejectedMerchant(transaction.merchant_name)) {
+  if (
+    transaction.merchant_name
+    && hasReusableMerchantEvidence(transaction)
+    && !isRejectedMerchant(transaction.merchant_name)
+  ) {
     candidates.push(canonicalizeCandidate({
       entityType: 'merchant',
       displayName: transaction.merchant_name,
@@ -297,6 +301,19 @@ function resolveCandidate(
   return valid[0] ?? null;
 }
 
+function hasReusableMerchantEvidence(transaction: TransactionRow): boolean {
+  if (transaction.merchant_key) return true;
+  const method = transaction.merchant_resolution_method;
+  if (method === 'manual' || method === 'provider_explicit' || method === 'registry_alias') return true;
+  if (method !== 'external_enrichment') return false;
+  const source = transaction.merchant_evidence_source || '';
+  return source === 'own_account'
+    || source.includes('provider_merchant')
+    || source.includes('.counterparty_name')
+    || source.includes('.purpose')
+    || source === 'transaction.purpose';
+}
+
 function canonicalizeCandidate(candidate: ResolutionCandidate, aliases: MerchantAlias[]): ResolutionCandidate {
   const normalized = normalizeAlias(candidate.displayName);
   const alias = aliases.find((entry) => normalized === entry.alias_normalized)
@@ -344,10 +361,35 @@ function resolvePaymentMethod(transaction: TransactionRow, observations: Observa
   return null;
 }
 
-function resolveIntermediary(transaction: TransactionRow, observations: ObservationRow[]): string | null {
+function resolveIntermediary(
+  transaction: TransactionRow,
+  observations: ObservationRow[],
+  candidate: ResolutionCandidate
+): string | null {
   const values = [transaction.counterparty_name, ...observations.map((row) => row.counterparty_name)];
   const detected = detectPaymentIntermediary(...values);
-  return detected?.name ?? null;
+  if (detected) return detected.name;
+
+  // Infer the role from evidence rather than the institution's name. If a card
+  // rail/wallet is reported and a stronger merchant identity was resolved from
+  // pending/provider/remittance evidence, a different current counterparty is
+  // settlement/intermediary context, whatever that party happens to be called.
+  if (candidate.entityType !== 'merchant' || !usesCardPaymentRail(transaction, observations)) return null;
+  const currentCounterparty = transaction.counterparty_name?.trim();
+  if (!currentCounterparty || samePartyLabel(currentCounterparty, candidate.displayName)) return null;
+  return currentCounterparty.slice(0, 200);
+}
+
+function usesCardPaymentRail(transaction: TransactionRow, observations: ObservationRow[]): boolean {
+  const values = [transaction.bank_transaction_code, ...observations.map((row) => row.bank_transaction_code)];
+  return values.some((value) => {
+    const semantics = deriveTransactionSemantics(value);
+    return semantics.kind === 'card_payment' || Boolean(semantics.paymentMethod);
+  });
+}
+
+function samePartyLabel(left: string, right: string): boolean {
+  return normalizeAlias(left) === normalizeAlias(right);
 }
 
 function ownAccountIdentities(

@@ -5,6 +5,7 @@ import {
   resolveYuvomiUser,
   type YuvomiUser
 } from './auth/yuvomi-session.js';
+import { createGlobalBankingSessionResolver } from './auth/global-banking-session.js';
 import { createEnableBankingRouter } from './api/enable-banking-routes.js';
 import { createEnableBankingSettingsRouter } from './api/enable-banking-settings-routes.js';
 import { createWeeklyBudgetRouter } from './api/weekly-budget-routes.js';
@@ -92,28 +93,38 @@ export function createApp({
   });
 
   if (database) {
+    // Banking is a global household module. Keep authentication/permissions on
+    // the actual Yuvomi actor, while data-scoped routers transparently use the
+    // owner id of the existing Banking setup. Push subscriptions intentionally
+    // remain per real Yuvomi user/device and therefore use resolveSession below.
+    const resolveBankingSession = createGlobalBankingSessionResolver(database, resolveSession);
+
     app.use(`${API_PREFIX}`, createEnableBankingRouter({
       database,
       client: resolvedEnableBankingClient,
-      resolveSession
+      resolveSession: resolveBankingSession
     }));
     app.use(`${API_PREFIX}`, createEnableBankingSettingsRouter({ database, resolveSession, clock }));
     app.use(`${API_PREFIX}`, createWeeklyBudgetRouter({
       database,
-      resolveSession,
+      resolveSession: resolveBankingSession,
       clock
     }));
     app.use(`${API_PREFIX}`, createCategoryRouter({ database, resolveSession, clock }));
-    app.use(`${API_PREFIX}`, createAccountPreferencesRouter({ database, resolveSession, clock }));
+    app.use(`${API_PREFIX}`, createAccountPreferencesRouter({
+      database,
+      resolveSession: resolveBankingSession,
+      clock
+    }));
     app.use(`${API_PREFIX}`, createCategorizationRouter({
       database,
-      resolveSession,
+      resolveSession: resolveBankingSession,
       categorizer: resolvedCategorizationClient,
       clock
     }));
     app.use(`${API_PREFIX}`, createOpenAiSettingsRouter({ database, resolveSession, clock }));
     app.use(`${API_PREFIX}`, createTransactionRouter({
-      database, resolveSession, encryption, client: resolvedEnableBankingClient
+      database, resolveSession: resolveBankingSession, encryption, client: resolvedEnableBankingClient
     }));
     app.use(`${API_PREFIX}`, createPushRouter({ database, resolveSession, clock }));
     app.use(`${API_PREFIX}`, createGiroCodeTestRouter({ database, resolveSession, clock }));

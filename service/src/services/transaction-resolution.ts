@@ -236,7 +236,11 @@ function resolveCandidate(
   }
 
   const candidates: ResolutionCandidate[] = [];
-  if (transaction.merchant_name && !isRejectedMerchant(transaction.merchant_name)) {
+  if (
+    transaction.merchant_name
+    && hasReusableMerchantEvidence(transaction)
+    && !isRejectedMerchant(transaction.merchant_name)
+  ) {
     candidates.push(canonicalizeCandidate({
       entityType: 'merchant',
       displayName: transaction.merchant_name,
@@ -295,6 +299,19 @@ function resolveCandidate(
     .filter((candidate) => Boolean(candidate.displayName.trim()))
     .sort((left, right) => right.confidence - left.confidence || sourceRank(left.source) - sourceRank(right.source));
   return valid[0] ?? null;
+}
+
+function hasReusableMerchantEvidence(transaction: TransactionRow): boolean {
+  if (transaction.merchant_key) return true;
+  const method = transaction.merchant_resolution_method;
+  if (method === 'manual' || method === 'provider_explicit' || method === 'registry_alias') return true;
+  if (method !== 'external_enrichment') return false;
+  const source = transaction.merchant_evidence_source || '';
+  return source === 'own_account'
+    || source.includes('provider_merchant')
+    || source.includes('.counterparty_name')
+    || source.includes('.purpose')
+    || source === 'transaction.purpose';
 }
 
 function canonicalizeCandidate(candidate: ResolutionCandidate, aliases: MerchantAlias[]): ResolutionCandidate {

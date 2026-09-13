@@ -20,6 +20,7 @@ test('transaction date cell renders provider-derived time on a secondary line', 
   assert.match(polish, /transaction_time/);
   assert.match(polish, /banking-transactions-table__date-stack/);
   assert.match(polish, /banking-transactions-table__date-time/);
+  assert.match(polish, /clock\.textContent = ` \$\{time\}`/);
   assert.match(style, /\.banking-transactions-table__date-time/);
 });
 

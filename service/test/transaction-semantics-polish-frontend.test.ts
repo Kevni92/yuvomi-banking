@@ -13,7 +13,8 @@ const style = fs.readFileSync(path.join(moduleRoot, 'transaction-semantics-polis
 test('banking entry captures transaction details and installs semantic presentation', () => {
   assert.match(entry, /installTransactionSemanticsPolish/);
   assert.match(entry, /latestTransactionDetails/);
-  assert.match(entry, /transactions\\\/(\\d\+\)\$/);
+  assert.match(entry, /transactionDetailMatch/);
+  assert.match(entry, /latestTransactionDetails\.set/);
 });
 
 test('semantic presentation favors useful bank operation data over processor bank names', () => {

@@ -1,9 +1,16 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { PublicTransaction } from './transactions-query.js';
+import { deriveTransactionSemantics } from './transaction-semantics.js';
 
 export type PublicTransactionWithListMetadata = PublicTransaction & {
   transaction_time: string | null;
   new_since_last_sync: number;
+  transaction_type: string | null;
+  transaction_type_label: string | null;
+  transaction_type_description: string | null;
+  payment_method: string | null;
+  transaction_display_label: string | null;
+  prefer_transaction_type_display: number;
 };
 
 /**
@@ -27,13 +34,15 @@ export function decorateTransactionListMetadata(
     return transactions.map((transaction) => ({
       ...transaction,
       transaction_time: inferTransactionTime(transaction),
-      new_since_last_sync: 0
+      new_since_last_sync: 0,
+      ...semanticListMetadata(null)
     }));
   }
 
   const placeholders = ids.map(() => '?').join(', ');
   const rows = database.prepare(`
-    SELECT transactions.id, transactions.created_at, bank_accounts.last_synced_at
+    SELECT transactions.id, transactions.created_at, transactions.bank_transaction_code,
+           bank_accounts.last_synced_at
     FROM transactions
     JOIN bank_accounts ON bank_accounts.id = transactions.account_id
     JOIN enable_banking_connections
@@ -43,6 +52,7 @@ export function decorateTransactionListMetadata(
   `).all(userId, ...ids) as Array<{
     id: number;
     created_at: string | null;
+    bank_transaction_code: string | null;
     last_synced_at: string | null;
   }>;
   const metadata = new Map(rows.map((row) => [Number(row.id), row]));
@@ -52,9 +62,30 @@ export function decorateTransactionListMetadata(
     return {
       ...transaction,
       transaction_time: inferTransactionTime(transaction),
-      new_since_last_sync: row && isAtOrAfter(row.created_at, row.last_synced_at) ? 1 : 0
+      new_since_last_sync: row && isAtOrAfter(row.created_at, row.last_synced_at) ? 1 : 0,
+      ...semanticListMetadata(row?.bank_transaction_code ?? null)
     };
   });
+}
+
+function semanticListMetadata(bankTransactionCode: unknown): Pick<
+  PublicTransactionWithListMetadata,
+  | 'transaction_type'
+  | 'transaction_type_label'
+  | 'transaction_type_description'
+  | 'payment_method'
+  | 'transaction_display_label'
+  | 'prefer_transaction_type_display'
+> {
+  const semantic = deriveTransactionSemantics(bankTransactionCode);
+  return {
+    transaction_type: semantic.kind,
+    transaction_type_label: semantic.label,
+    transaction_type_description: semantic.description,
+    payment_method: semantic.paymentMethod,
+    transaction_display_label: semantic.displayLabel,
+    prefer_transaction_type_display: semantic.preferDisplay ? 1 : 0
+  };
 }
 
 /**

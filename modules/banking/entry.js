@@ -1,5 +1,6 @@
 import { render as renderEnhanced } from './enhanced-index.js';
 import { installMainLayoutPolish } from './layout-polish.js';
+import { installPopoverGuard } from './popover-guard.js';
 import { installTransactionSyncPolish } from './transaction-sync-polish.js';
 import { installTransactionSemanticsPolish } from './transaction-semantics-polish.js';
 
@@ -87,6 +88,7 @@ export async function render(container, context) {
 
   if (!context?.signal?.aborted) {
     await installMainLayoutPolish(container, context);
+    installPopoverGuard(container, context);
     installTransactionSyncPolish(container, context, () => latestTransactions);
     installTransactionSemanticsPolish(
       container,

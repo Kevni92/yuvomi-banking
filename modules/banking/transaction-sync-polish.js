@@ -91,7 +91,11 @@ function decorateTransactionTimes(table, byId) {
     if (time) {
       const clock = document.createElement('span');
       clock.className = 'banking-transactions-table__date-time';
-      clock.textContent = time;
+      // Keep a textual separator between date and time. The weekly-budget
+      // grouping reads the cell text to recover the localized calendar date;
+      // without this whitespace "10.09.26" + "14:38" becomes "10.09.2614:38"
+      // and the parser can mistake the year for 2614.
+      clock.textContent = ` ${time}`;
       stack.append(clock);
     }
     cell.append(stack);

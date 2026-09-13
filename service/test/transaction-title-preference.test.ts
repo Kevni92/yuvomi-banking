@@ -20,17 +20,20 @@ test('smart transaction titles replace technical ATM and processor names with us
   }, cash, 'smart'), 'Bargeldauszahlung');
 
   const applePay = deriveTransactionSemantics({ description: 'E-COM (APPLE PAY)', code: 'NDDT+106+9248+011' });
-  assert.equal(resolveTransactionDisplayTitle({
+  const technicalApplePay = {
     ...base,
     merchant_name: 'Landesbank Hessen-Thuringen',
     counterparty_name: 'Landesbank Hessen-Thuringen'
-  }, applePay, 'smart'), 'E-COM (Apple Pay)');
+  };
+  assert.equal(resolveTransactionDisplayTitle(technicalApplePay, applePay, 'smart'), 'Apple Pay');
+  assert.equal(resolveTransactionDisplayTitle(technicalApplePay, applePay, 'counterparty'), 'Apple Pay');
+  assert.equal(resolveTransactionDisplayTitle(technicalApplePay, applePay, 'transaction_type'), 'Apple Pay');
 
   assert.equal(resolveTransactionDisplayTitle({
     ...base,
     merchant_name: 'MO 56005568 120926141638C16',
     counterparty_name: 'MO 56005568 120926141638C16'
-  }, applePay, 'smart'), 'E-COM (Apple Pay)');
+  }, applePay, 'smart'), 'Apple Pay');
 });
 
 test('smart transaction titles keep real merchants while explicit modes remain selectable', () => {
@@ -44,5 +47,5 @@ test('smart transaction titles keep real merchants while explicit modes remain s
   };
   assert.equal(resolveTransactionDisplayTitle(transaction, card, 'smart'), 'Lidl');
   assert.equal(resolveTransactionDisplayTitle(transaction, card, 'counterparty'), 'Lidl');
-  assert.equal(resolveTransactionDisplayTitle(transaction, card, 'transaction_type'), 'E-COM (Apple Pay)');
+  assert.equal(resolveTransactionDisplayTitle(transaction, card, 'transaction_type'), 'Apple Pay');
 });

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { deriveTransactionSemantics } from './transaction-semantics.js';
 
 type RuleType = 'counterparty' | 'merchant' | 'text';
 type RuleSource = 'manual' | 'learned' | 'system';
@@ -52,7 +53,11 @@ export function applyCategoryRulesForAccount(
   `).get(accountId) as { yuvomi_user_id: number } | undefined;
   if (!owner) throw new CategoryAssignmentNotFoundError('Bank account was not found.');
 
-  return applyRules(database, Number(owner.yuvomi_user_id), accountId, now);
+  // User rules stay authoritative. Provider semantics only fill still-unassigned
+  // transactions afterwards and therefore never replace a remembered/manual rule.
+  const rulesApplied = applyRules(database, Number(owner.yuvomi_user_id), accountId, now);
+  const semanticsApplied = applySemanticCategories(database, accountId, now);
+  return rulesApplied + semanticsApplied;
 }
 
 export function assignManualTransactionCategory(
@@ -237,6 +242,42 @@ function applyRules(
         : 'text_rule';
     const result = update.run(rule.category_id, source, timestamp, transaction.id);
     applied += Number(result.changes);
+  }
+  return applied;
+}
+
+/**
+ * Strong provider transaction types are deterministic local evidence. Cash
+ * withdrawals are a useful special case: when an active Bargeld category exists,
+ * assign it locally before an unresolved transaction ever reaches OpenAI.
+ */
+function applySemanticCategories(database: DatabaseSync, accountId: number, now: Date): number {
+  const cashCategory = database.prepare(`
+    SELECT id FROM categories
+    WHERE active = 1 AND type = 'expense'
+      AND lower(name) IN ('bargeld', 'bargeldabhebung', 'barabhebung')
+    ORDER BY CASE lower(name) WHEN 'bargeld' THEN 0 WHEN 'bargeldabhebung' THEN 1 ELSE 2 END, id
+    LIMIT 1
+  `).get() as { id: number } | undefined;
+  if (!cashCategory) return 0;
+
+  const candidates = database.prepare(`
+    SELECT id, bank_transaction_code
+    FROM transactions
+    WHERE account_id = ? AND direction = 'outgoing' AND category_id IS NULL
+  `).all(accountId) as Array<{ id: number; bank_transaction_code: string | null }>;
+  if (!candidates.length) return 0;
+
+  const update = database.prepare(`
+    UPDATE transactions SET category_id = ?, category_source = 'text_rule',
+      category_confidence = 1, updated_at = ?
+    WHERE id = ? AND category_id IS NULL
+  `);
+  const timestamp = now.toISOString();
+  let applied = 0;
+  for (const transaction of candidates) {
+    if (deriveTransactionSemantics(transaction.bank_transaction_code).kind !== 'cash_withdrawal') continue;
+    applied += Number(update.run(cashCategory.id, timestamp, transaction.id).changes);
   }
   return applied;
 }

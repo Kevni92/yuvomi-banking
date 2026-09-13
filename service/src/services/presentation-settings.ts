@@ -74,9 +74,16 @@ export function resolveTransactionDisplayTitle(
   const counterparty = text(transaction.counterparty_name);
   const purpose = text(transaction.purpose);
   const specificType = semanticTitle(semantics);
+  const merchantIsTechnical = Boolean(merchant && looksTechnicalParty(merchant));
+  const counterpartyIsTechnical = Boolean(counterparty && looksTechnicalParty(counterparty));
 
+  // Even the explicit counterparty mode must not promote a settlement bank,
+  // card issuer or opaque provider reference to the primary user-facing title
+  // when the bank supplies a stronger payment method such as Apple Pay.
   if (mode === 'counterparty') {
-    return merchant || counterparty || purpose || specificType;
+    if (merchant && !merchantIsTechnical) return merchant;
+    if (counterparty && !counterpartyIsTechnical) return counterparty;
+    return specificType || merchant || counterparty || purpose;
   }
 
   if (mode === 'transaction_type') {
@@ -86,11 +93,9 @@ export function resolveTransactionDisplayTitle(
   // "Smart" intentionally distinguishes a useful human-facing merchant from
   // technical provider data. A logo/merchant registry must not make an ATM,
   // settlement bank or opaque provider reference win over stronger semantics.
-  const merchantIsTrusted = Boolean(merchant && !looksTechnicalParty(merchant));
-
-  if (merchantIsTrusted) return merchant;
+  if (merchant && !merchantIsTechnical) return merchant;
   if (semantics.preferDisplay && specificType) return specificType;
-  if (counterparty && !looksTechnicalParty(counterparty)) return counterparty;
+  if (counterparty && !counterpartyIsTechnical) return counterparty;
   return specificType || merchant || counterparty || purpose;
 }
 
@@ -112,6 +117,12 @@ function normalizeTransactionTitleMode(value: unknown): TransactionTitleMode {
 function semanticTitle(semantics: TransactionSemantics): string | null {
   if (semantics.kind === 'cash_withdrawal') return 'Bargeldauszahlung';
   if (semantics.kind === 'cash_deposit') return 'Bargeldeinzahlung';
+  // A wallet/payment method is the strongest useful label when the provider
+  // exposes only a settlement bank as counterparty. "Apple Pay" is clearer
+  // than the transport description "E-COM (APPLE PAY)".
+  if (semantics.kind === 'card_payment' && text(semantics.paymentMethod)) {
+    return text(semantics.paymentMethod);
+  }
   if (semantics.kind === 'card_payment' && semantics.description) {
     return prettyProviderDescription(semantics.description);
   }

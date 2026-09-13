@@ -25,6 +25,12 @@ test('smart transaction titles replace technical ATM and processor names with us
     merchant_name: 'Landesbank Hessen-Thuringen',
     counterparty_name: 'Landesbank Hessen-Thuringen'
   }, applePay, 'smart'), 'E-COM (Apple Pay)');
+
+  assert.equal(resolveTransactionDisplayTitle({
+    ...base,
+    merchant_name: 'MO 56005568 120926141638C16',
+    counterparty_name: 'MO 56005568 120926141638C16'
+  }, applePay, 'smart'), 'E-COM (Apple Pay)');
 });
 
 test('smart transaction titles keep real merchants while explicit modes remain selectable', () => {

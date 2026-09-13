@@ -43,7 +43,7 @@ test('transaction time is exposed only when provider text contains reliable time
   assert.equal(inferTransactionTime(transaction(4, 'Normale Buchung ohne Uhrzeit')), null);
 });
 
-test('list metadata marks only transactions first imported by the latest successful account sync', () => {
+test('list metadata marks latest imports and exposes meaningful provider transaction semantics', () => {
   const database = new DatabaseSync(':memory:');
   database.exec(`
     CREATE TABLE enable_banking_connections (
@@ -58,25 +58,33 @@ test('list metadata marks only transactions first imported by the latest success
     CREATE TABLE transactions (
       id INTEGER PRIMARY KEY,
       account_id INTEGER NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      bank_transaction_code TEXT
     );
     INSERT INTO enable_banking_connections (id, yuvomi_user_id) VALUES (1, 7), (2, 8);
     INSERT INTO bank_accounts (id, connection_id, last_synced_at)
       VALUES (1, 1, '2026-09-12T06:00:00.000Z'),
              (2, 2, '2026-09-12T06:00:00.000Z');
-    INSERT INTO transactions (id, account_id, created_at)
-      VALUES (1, 1, '2026-09-12T06:00:01.000Z'),
-             (2, 1, '2026-09-11T20:00:00.000Z'),
-             (3, 2, '2026-09-12T06:00:02.000Z');
+    INSERT INTO transactions (id, account_id, created_at, bank_transaction_code)
+      VALUES (1, 1, '2026-09-12T06:00:01.000Z', '{"code":"NDDT+106+9248+011","sub_code":null,"description":"E-COM (APPLE PAY)"}'),
+             (2, 1, '2026-09-11T20:00:00.000Z', '{"code":"NMSC+083+2239+003","sub_code":null,"description":"BARGELDAUSZAHLUNG"}'),
+             (3, 2, '2026-09-12T06:00:02.000Z', NULL);
   `);
 
   const decorated = decorateTransactionListMetadata(database, 7, [
-    transaction(1, '10.09/14.38UHR LAMBRECHT'),
-    transaction(2, 'Alt')
+    transaction(1, '2026-09-09T07:51 DebitMastercard'),
+    transaction(2, '10.09/14.38UHR LAMBRECHT')
   ]);
   assert.equal(decorated[0].new_since_last_sync, 1);
-  assert.equal(decorated[0].transaction_time, '14:38');
+  assert.equal(decorated[0].transaction_time, '07:51');
+  assert.equal(decorated[0].transaction_type, 'card_payment');
+  assert.equal(decorated[0].transaction_type_label, 'Kartenzahlung');
+  assert.equal(decorated[0].payment_method, 'Apple Pay');
+  assert.equal(decorated[0].transaction_display_label, 'Kartenzahlung · Apple Pay');
+  assert.equal(decorated[0].prefer_transaction_type_display, 1);
   assert.equal(decorated[1].new_since_last_sync, 0);
+  assert.equal(decorated[1].transaction_type, 'cash_withdrawal');
+  assert.equal(decorated[1].transaction_display_label, 'Bargeldabhebung');
   assert.equal(isAtOrAfter('2026-09-12T06:00:00.000Z', '2026-09-12T06:00:00.000Z'), true);
   assert.equal(isAtOrAfter('2026-09-12T05:59:59.999Z', '2026-09-12T06:00:00.000Z'), false);
   database.close();

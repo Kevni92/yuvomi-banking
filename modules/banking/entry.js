@@ -1,6 +1,7 @@
 import { render as renderEnhanced } from './enhanced-index.js';
 import { installMainLayoutPolish } from './layout-polish.js';
 import { installTransactionSyncPolish } from './transaction-sync-polish.js';
+import { installTransactionSemanticsPolish } from './transaction-semantics-polish.js';
 
 const TABLE_LAYOUT_STYLE_ID = 'banking-table-layout-compat';
 
@@ -11,6 +12,7 @@ export async function render(container, context) {
   const NativeMutationObserver = window.MutationObserver;
   const nativeFetch = window.fetch.bind(window);
   let latestTransactions = [];
+  const latestTransactionDetails = new Map();
 
   class BankingMutationObserver extends NativeMutationObserver {
     constructor(callback) {
@@ -24,8 +26,8 @@ export async function render(container, context) {
   // Account aliases/colors are updated through a small preferences endpoint.
   // After a successful write, ask the existing transaction filter controller to
   // reload its list so cached row metadata immediately reflects the new alias/color.
-  // The same wrapper keeps the latest public transaction payload available for
-  // presentation-only date/time and "new since latest sync" markers.
+  // The same wrapper keeps the latest public transaction payload and transaction
+  // detail payloads available for presentation-only enhancement layers.
   const preferenceAwareFetch = async (input, init) => {
     const rawUrl = input instanceof Request ? input.url : String(input);
     const url = new URL(rawUrl, window.location.origin);
@@ -38,6 +40,18 @@ export async function render(container, context) {
         latestTransactions = Array.isArray(payload?.data?.transactions) ? payload.data.transactions : [];
       } catch {
         latestTransactions = [];
+      }
+    }
+
+    const transactionDetailMatch = method === 'GET'
+      ? /^\/api\/extensions\/banking\/transactions\/(\d+)$/.exec(url.pathname)
+      : null;
+    if (response.ok && transactionDetailMatch) {
+      try {
+        const payload = await response.clone().json();
+        if (payload?.data) latestTransactionDetails.set(transactionDetailMatch[1], payload.data);
+      } catch {
+        latestTransactionDetails.delete(transactionDetailMatch[1]);
       }
     }
 
@@ -74,6 +88,12 @@ export async function render(container, context) {
   if (!context?.signal?.aborted) {
     await installMainLayoutPolish(container, context);
     installTransactionSyncPolish(container, context, () => latestTransactions);
+    installTransactionSemanticsPolish(
+      container,
+      context,
+      () => latestTransactions,
+      () => latestTransactionDetails
+    );
     ensureTableLayoutCompatStyles();
   }
   return result;
@@ -92,8 +112,11 @@ function isEnhancementMutation(record) {
   if (record.type !== 'childList' && record.type !== 'attributes') return false;
   const target = record.target instanceof Element ? record.target : record.target?.parentElement;
   if (!target) return false;
-  if (target.matches('[data-transaction-sync-date-owned]')) return true;
-  if ([...record.addedNodes].some((node) => node instanceof Element && node.matches('.banking-recent-sync-separator'))) return true;
+  if (target.matches('[data-transaction-sync-date-owned], [data-transaction-semantics-owned]')) return true;
+  if ([...record.addedNodes].some((node) => node instanceof Element && (
+    node.matches('.banking-recent-sync-separator')
+    || node.matches('.banking-transaction-semantic-summary')
+  ))) return true;
   return Boolean(target.closest(
     '[data-enhanced-category-chip],'
     + '[data-enhanced-signature],'
@@ -105,6 +128,8 @@ function isEnhancementMutation(record) {
     + '.banking-account-card__identity--enhanced,'
     + '.banking-transactions-table__date-stack,'
     + '.banking-recent-sync-separator,'
+    + '[data-transaction-semantics-owned],'
+    + '.banking-transaction-semantic-summary,'
     + 'select[data-transaction-filter="accountId"]'
   ));
 }

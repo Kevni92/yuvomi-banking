@@ -305,7 +305,9 @@ test('protects and stores weekly-budget settings without exposing an IBAN', asyn
       name: 'Lebensmittel',
       type: 'expense',
       active: true,
-      weekly_budget_default: true
+      weekly_budget_default: true,
+      icon: null,
+      color: null
     }]);
   } finally {
     await close(server);
@@ -789,7 +791,7 @@ test('learns an owned counterparty category rule only after a protected manual a
   }
 });
 
-test('serves auditable weekly-budget history only through the owning user', async () => {
+test('serves auditable weekly-budget history through the shared Banking owner', async () => {
   const previousKey = config.secrets.dataEncryptionKey;
   config.secrets.dataEncryptionKey = TEST_KEY;
   const database = createFixture();
@@ -847,12 +849,18 @@ test('serves auditable weekly-budget history only through the owning user', asyn
       { headers: { cookie: 'yuvomi.sid=other' } }
     );
     assert.equal(otherListResponse.status, 200);
-    assert.deepEqual((await otherListResponse.json()).data, []);
+    const otherList = (await otherListResponse.json()).data;
+    assert.equal(otherList.length, 1);
+    assert.equal(otherList[0].computed_amount_cents, 32000);
     const otherDetailResponse = await fetch(
       `${otherOrigin}/api/extensions/banking/weekly-budget/periods/1`,
       { headers: { cookie: 'yuvomi.sid=other' } }
     );
-    assert.equal(otherDetailResponse.status, 404);
+    assert.equal(otherDetailResponse.status, 200);
+    const otherDetail = (await otherDetailResponse.json()).data;
+    assert.equal(otherDetail.target_account.iban_masked, 'DE89••••••3000');
+    assert.doesNotMatch(JSON.stringify(otherDetail), new RegExp(TARGET_IBAN));
+    assert.doesNotMatch(JSON.stringify(otherDetail), /target_iban_encrypted/);
   } finally {
     await close(server);
     await close(otherServer);

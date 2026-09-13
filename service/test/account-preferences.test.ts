@@ -50,14 +50,15 @@ test('account aliases and colors are local, validated and user-owned', async () 
   } finally { await close(server); db.close(); }
 });
 
-test('account preference writes do not reveal or mutate another users account', async () => {
+test('account preference writes use the shared Banking owner while preserving actor permissions', async () => {
   const db = fixture();
   const { server, origin } = await listen(createApp({ database: db, resolveSession: async () => user(8, 'write'), clock: () => NOW }));
   try {
     const response = await fetch(`${origin}/api/extensions/banking/accounts/1/preferences`, {
       method: 'PATCH', headers: headers(), body: JSON.stringify({ alias: 'Nope' })
     });
-    assert.equal(response.status, 404);
-    assert.equal(db.prepare('SELECT alias FROM bank_accounts WHERE id = 1').get()?.alias, null);
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).data, { id: 1, alias: 'Nope', color: null });
+    assert.equal(db.prepare('SELECT alias FROM bank_accounts WHERE id = 1').get()?.alias, 'Nope');
   } finally { await close(server); db.close(); }
 });

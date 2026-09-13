@@ -83,18 +83,15 @@ export function resolveTransactionDisplayTitle(
     return specificType || merchant || counterparty || purpose;
   }
 
-  const merchantIsTrusted = Boolean(
-    merchant
-    && (
-      text(transaction.merchant_key)
-      || Number(transaction.merchant_logo_available) === 1
-      || !looksTechnicalParty(merchant)
-    )
-  );
+  // "Smart" intentionally distinguishes a useful human-facing merchant from
+  // technical provider data. A logo/merchant registry must not make an ATM,
+  // settlement bank or opaque provider reference win over stronger semantics.
+  const merchantIsTrusted = Boolean(merchant && !looksTechnicalParty(merchant));
 
   if (merchantIsTrusted) return merchant;
   if (semantics.preferDisplay && specificType) return specificType;
-  return merchant || counterparty || purpose || specificType;
+  if (counterparty && !looksTechnicalParty(counterparty)) return counterparty;
+  return specificType || merchant || counterparty || purpose;
 }
 
 export function parseTransactionTitleMode(value: unknown): TransactionTitleMode {
@@ -134,10 +131,13 @@ function looksTechnicalParty(value: string): boolean {
   const normalized = value
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase();
+    .toUpperCase()
+    .trim();
   return /\b(LANDESBANK|SPARKASSE|SPK|BANK|ISSUER|PAYMENT SERVICES?|CARD SERVICES?)\b/.test(normalized)
     || /\bGA\s+NR\d+/i.test(value)
-    || /\bBLZ\d+/i.test(value);
+    || /\bBLZ\d+/i.test(value)
+    || /^MO\s+\d{6,}(?:\s+|$)/i.test(value)
+    || /^[A-Z]{1,3}\s+\d{6,}\s+\d{8,}[A-Z0-9]*$/i.test(value);
 }
 
 function text(value: unknown): string | null {

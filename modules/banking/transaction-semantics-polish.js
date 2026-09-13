@@ -64,9 +64,12 @@ function apply(runtime) {
 function decorateRows(container, byId) {
   container.querySelectorAll('tr[data-transaction-row][data-transaction-id]').forEach((row) => {
     const transaction = byId.get(String(row.dataset.transactionId || ''));
-    if (!transaction || transaction?.merchant_name || !isPreferredSemantic(transaction)) return;
-    const display = semanticDisplayLabel(transaction);
+    if (!transaction) return;
+    const configuredTitle = text(transaction?.transaction_display_title);
+    const semanticFallback = isPreferredSemantic(transaction) ? semanticDisplayLabel(transaction) : null;
+    const display = configuredTitle || semanticFallback;
     if (!display) return;
+
     const merchant = row.querySelector('.banking-transactions-table__merchant');
     const title = merchant?.querySelector('.banking-merchant > span');
     if (!merchant || !title) return;

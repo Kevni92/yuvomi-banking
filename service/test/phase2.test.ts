@@ -19,7 +19,7 @@ import {
 
 const TEST_KEY = 'ab'.repeat(32);
 const TEST_IBAN = 'DE89 3704 0044 0532 0130 00';
-const ALL_MIGRATIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
+const ALL_MIGRATIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
 
 test('opens only the Banking database and applies migrations idempotently', () => {
   const directory = mkdtempSync(join(tmpdir(), 'yuvomi-banking-phase2-'));
@@ -60,6 +60,12 @@ test('opens only the Banking database and applies migrations idempotently', () =
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'banking_presentation_settings'"
       ).get()?.name,
       'banking_presentation_settings'
+    );
+    assert.equal(
+      inMemory.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transaction_resolutions'"
+      ).get()?.name,
+      'transaction_resolutions'
     );
     inMemory.close();
 
@@ -189,7 +195,7 @@ test('applies all later migrations to an existing phase-5 database', () => {
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(accountId, 'phase5-transaction', 100, 'EUR', 'outgoing', '2026-01-01', '2026-01-01');
 
-  assert.deepEqual(migrateDatabase(database), [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
+  assert.deepEqual(migrateDatabase(database), [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
   const transaction = database.prepare(
     'SELECT status, transaction_date FROM transactions'
   ).get() as { status: string; transaction_date: string | null };
@@ -204,6 +210,12 @@ test('applies all later migrations to an existing phase-5 database', () => {
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'banking_presentation_settings'"
     ).get()?.name,
     'banking_presentation_settings'
+  );
+  assert.equal(
+    database.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transaction_observations'"
+    ).get()?.name,
+    'transaction_observations'
   );
   database.close();
 });

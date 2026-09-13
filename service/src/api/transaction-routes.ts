@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import express from 'express';
+import { config } from '../config.js';
 import {
   parseTransactionQuery,
   getTransactionDetail,
@@ -11,6 +12,7 @@ import type { EncryptionService } from '../security/encryption.js';
 import { createEncryptionService } from '../security/encryption.js';
 import type { EnableBankingClient } from '../enable-banking/client.js';
 import { enrichTransactionById } from '../services/transaction-enrichment.js';
+import { resolveTransactionById } from '../services/transaction-resolution.js';
 import {
   noStore,
   mutationIsAllowed,
@@ -105,12 +107,19 @@ export function createTransactionRouter({
       const result = await enrichTransactionById({
         database, client, transactionId, encryption: resolvedEncryption
       });
+      resolveTransactionById({
+        database,
+        transactionId,
+        encryption: resolvedEncryption,
+        hmacSecret: config.secrets.counterpartyHmac,
+        now: new Date()
+      });
       const detail = getTransactionDetail(database, user.id, transactionId, resolvedEncryption);
       noStore(response);
       response.json({ data: {
         detail_available: result.detailAvailable,
         detail_fetched: result.detailFetched,
-        merchant_resolved: result.merchantResolved,
+        merchant_resolved: Boolean(detail?.transaction.merchant_name) || result.merchantResolved,
         merchant_name: detail?.transaction.merchant_name ?? null,
         provider_detail_state: result.state
       } });

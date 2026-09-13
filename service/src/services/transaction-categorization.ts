@@ -7,6 +7,7 @@ import {
   redactCategorizationText
 } from '../openai/categorizer.js';
 import { applyCategoryRulesForAccount } from './category-rules.js';
+import { deriveTransactionSemantics } from './transaction-semantics.js';
 
 // Keep this threshold explicit: 0.75 is the current product decision. Revisit
 // it (in particular against a more conservative 0.90) before production use.
@@ -23,6 +24,7 @@ interface CandidateRow {
   currency: string;
   direction: string;
   mcc: string | null;
+  bank_transaction_code: string | null;
 }
 
 export interface CategorizationRunResult {
@@ -82,7 +84,8 @@ function unresolvedTransactions(database: DatabaseSync, yuvomiUserId: number): C
     SELECT transactions.id, counterparties.counterparty_id,
            transactions.counterparty_name, transactions.merchant_name,
            transactions.purpose, transactions.amount_cents,
-           transactions.currency, transactions.direction, transactions.mcc
+           transactions.currency, transactions.direction, transactions.mcc,
+           transactions.bank_transaction_code
     FROM transactions
     JOIN bank_accounts ON bank_accounts.id = transactions.account_id
     JOIN enable_banking_connections
@@ -102,6 +105,7 @@ function unresolvedTransactions(database: DatabaseSync, yuvomiUserId: number): C
 }
 
 function toSafeCategorizationTransaction(row: CandidateRow): CategorizationTransaction {
+  const semantics = deriveTransactionSemantics(row.bank_transaction_code);
   return {
     transaction_id: Number(row.id),
     counterparty_id: stringOrNull(row.counterparty_id),
@@ -111,7 +115,10 @@ function toSafeCategorizationTransaction(row: CandidateRow): CategorizationTrans
     amount_cents: Number(row.amount_cents),
     currency: String(row.currency),
     direction: row.direction === 'incoming' ? 'incoming' : 'outgoing',
-    mcc: redactCategorizationText(row.mcc)
+    mcc: redactCategorizationText(row.mcc),
+    transaction_type: semantics.kind,
+    transaction_type_description: redactCategorizationText(semantics.description),
+    payment_method: redactCategorizationText(semantics.paymentMethod)
   };
 }
 

@@ -58,7 +58,7 @@ function fixture(): {
   };
 }
 
-test('preserves a useful pending merchant descriptor when the booked counterparty becomes a settlement bank', () => {
+test('preserves a useful pending merchant descriptor when the booked counterparty changes to a settlement party', () => {
   const { database, encryption, sourceAccountId } = fixture();
   const pending = {
     entry_reference: 'fresh-taste-card-payment',
@@ -85,7 +85,7 @@ test('preserves a useful pending merchant descriptor when the booked counterpart
 
   const booked = {
     ...pending,
-    creditor: { name: 'Landesbank Hessen-Thuringen' },
+    creditor: { name: 'Example Settlement Clearing AG' },
     status: 'BOOK',
     bank_transaction_code: {
       code: 'NDDT+106+9248+011',
@@ -125,7 +125,7 @@ test('preserves a useful pending merchant descriptor when the booked counterpart
       entity_type: 'merchant',
       display_name: 'FreshTaste',
       payment_method: 'Apple Pay',
-      intermediary_name: 'Landesbank Hessen-Thuringen',
+      intermediary_name: 'Example Settlement Clearing AG',
       source: 'observation.pending.counterparty_name'
     }
   );

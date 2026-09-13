@@ -71,7 +71,7 @@ test('renders the EPC payload as a PNG with error correction level M', async () 
   assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 });
 
-test('serves GiroCode metadata and PNG only to the owning Banking user', async () => {
+test('serves GiroCode metadata and PNG to Banking-authorized household users without exposing IBAN', async () => {
   const previousKey = config.secrets.dataEncryptionKey;
   config.secrets.dataEncryptionKey = TEST_KEY;
   const database = giroCodeFixture();
@@ -80,7 +80,6 @@ test('serves GiroCode metadata and PNG only to the owning Banking user', async (
     resolveSession: async () => bankingUser(7)
   });
   const { server, origin } = await listen(ownerApp);
-  let ownerClosed = false;
   let other: { server: Server; origin: string } | null = null;
   try {
     const metadata = await fetch(
@@ -109,6 +108,17 @@ test('serves GiroCode metadata and PNG only to the owning Banking user', async (
       [137, 80, 78, 71, 13, 10, 26, 10]
     );
 
+    other = await listen(createApp({
+      database,
+      resolveSession: async () => bankingUser(99)
+    }));
+    const householdPng = await fetch(
+      `${other.origin}/api/extensions/banking/weekly-budget/transfers/1/girocode.png`,
+      { headers: { cookie: 'yuvomi.sid=other' } }
+    );
+    assert.equal(householdPng.status, 200);
+    assert.equal(householdPng.headers.get('content-type'), 'image/png');
+
     database.prepare(`
       UPDATE transfer_suggestions
       SET computed_amount_cents = 0, payload_sha256 = NULL
@@ -119,20 +129,8 @@ test('serves GiroCode metadata and PNG only to the owning Banking user', async (
       { headers: { cookie: 'yuvomi.sid=owner' } }
     );
     assert.equal(noTransfer.status, 409);
-    await close(server);
-    ownerClosed = true;
-
-    other = await listen(createApp({
-      database,
-      resolveSession: async () => bankingUser(99)
-    }));
-    const denied = await fetch(
-      `${other.origin}/api/extensions/banking/weekly-budget/transfers/1/girocode.png`,
-      { headers: { cookie: 'yuvomi.sid=other' } }
-    );
-    assert.equal(denied.status, 404);
   } finally {
-    if (!ownerClosed) await close(server);
+    await close(server);
     if (other) await close(other.server);
     database.close();
     config.secrets.dataEncryptionKey = previousKey;

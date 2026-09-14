@@ -2,6 +2,11 @@
 
 ## 2026-09-14
 
+- Produktionskorrektur nach dem Rollout: `/opt/yuvomi/modules/banking` und seine
+  Unterverzeichnisse auf `755` gesetzt, damit der Yuvomi-Prozess (`node`, UID 1000)
+  `module.json` lesen kann. Backup `yuvomi-2026-09-14_205148.tar.zst.age` war vorher
+  erfolgreich erstellt und hochgeladen; Yuvomi danach neu gestartet und verifiziert.
+
 - `017c6fd` – automatische Abbucher-Erkennung umgesetzt: append-only Migration 024,
   owner-gescopte Payee-Identifier/Evidenz, Resolver mit Kandidaten-/Ambiguitätslogik,
   Payee-APIs, Backfill-CLI, lokale Payee-Kategoriepriorität sowie Tabelle und Dialog.

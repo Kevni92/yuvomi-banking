@@ -62,6 +62,23 @@ export function installPopoverGuard(container, context) {
     closeAll();
   }, captureOptions);
 
+  // The floating menu owns the focus after it opens. A focus change does not
+  // necessarily produce a pointer event (keyboard navigation, assistive
+  // technology and programmatic focus all bypass pointerdown), so dismiss the
+  // menu when focus really leaves it. Keep it open while focus moves between
+  // controls inside the same menu, for example from the search field to an
+  // option button.
+  document.addEventListener('focusout', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const next = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+    for (const popover of document.querySelectorAll(POPOVER_SELECTOR)) {
+      if (popover.hidden || !popover.contains(target)) continue;
+      if (!next || !popover.contains(next)) popover.hidden = true;
+    }
+    syncTransactionMenuAria(container);
+  }, captureOptions);
+
   // A detached floating menu should not survive a viewport/app focus change.
   window.addEventListener('blur', () => closeAll(), passiveOptions);
   window.addEventListener('resize', () => closeAll(), passiveOptions);

@@ -24,3 +24,10 @@ test('popover guard keeps only the active popover and supports Escape dismissal'
   assert.match(guard, /event\.key !== 'Escape'/);
   assert.match(guard, /aria-expanded/);
 });
+
+test('popover guard dismisses a menu when focus leaves its subtree', () => {
+  assert.match(guard, /addEventListener\('focusout'/);
+  assert.match(guard, /event\.relatedTarget instanceof Element/);
+  assert.match(guard, /popover\.contains\(target\)/);
+  assert.match(guard, /!next \|\| !popover\.contains\(next\)/);
+});

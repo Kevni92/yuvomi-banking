@@ -8,6 +8,8 @@ export type TransactionStatus = 'BOOK' | 'PDNG' | 'UNKNOWN';
 
 export interface TransactionQuery {
   userId: number;
+  /** Internal owner-checked filter used by the recurring-payee dialog. */
+  payeeId?: number;
   q?: string;
   accountId?: number;
   categoryIds?: number[];
@@ -335,6 +337,10 @@ function buildWhere(query: TransactionQuery): { where: string; params: Array<str
   if (query.accountId !== undefined) {
     clauses.push('transactions.account_id = ?');
     params.push(query.accountId);
+  }
+  if (query.payeeId !== undefined) {
+    clauses.push('transactions.payee_id = ?');
+    params.push(query.payeeId);
   }
   if (query.categoryIds?.length) {
     clauses.push(`transactions.category_id IN (${query.categoryIds.map(() => '?').join(', ')})`);

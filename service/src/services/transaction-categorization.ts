@@ -7,6 +7,7 @@ import {
   redactCategorizationText
 } from '../openai/categorizer.js';
 import { applyCategoryRulesForAccount } from './category-rules.js';
+import { applyPayeeCategoriesForOwner } from './recurring-payees.js';
 import { deriveTransactionSemantics } from './transaction-semantics.js';
 
 // Keep this threshold explicit: 0.75 is the current product decision. Revisit
@@ -46,6 +47,9 @@ export async function categorizeUnresolvedTransactions(
   if (Number.isNaN(now.getTime())) throw new Error('Categorization time is invalid.');
 
   applyRulesForUser(database, yuvomiUserId, now);
+  // Payee defaults are the highest local non-manual priority and must be
+  // applied before the unresolved set is prepared for OpenAI.
+  applyPayeeCategoriesForOwner(database, yuvomiUserId, now);
   const categories = activeCategories(database);
   const candidates = unresolvedTransactions(database, yuvomiUserId);
   if (candidates.length === 0) {
@@ -139,7 +143,7 @@ function persistCategorizationResults(
   const timestamp = now.toISOString();
   const updateCategorized = database.prepare(`
     UPDATE transactions SET category_id = ?, category_source = 'ai',
-      category_confidence = ?, updated_at = ?
+      category_confidence = ?, category_origin_payee_id = NULL, updated_at = ?
     WHERE id = ? AND category_id IS NULL AND account_id IN (
       SELECT bank_accounts.id
       FROM bank_accounts

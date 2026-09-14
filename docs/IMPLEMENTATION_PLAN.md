@@ -15,6 +15,7 @@
 | 9 | Erledigt | EPC069-12-v3.1-Payload, Empfängersnapshot, SHA-256-Fingerprint, geschützte Metadaten-/PNG-API sowie Anzeige und Download in der Wochenbudget-UI |
 | 10 | Weitgehend erledigt | Cutoff-Scheduler, zwei tägliche Kontosyncs, verschlüsselte Banking-Push-Subscriptions, Outbox, VAPID-Zustellung, Retry, Empfängerwahl, QR-Vorschau und Fehler-Push nach endgültigem Stichtagsfehler umgesetzt; echte Provider-/Browser-E2E und Produktionshärtung offen |
 | 11 | Teilweise erledigt | Produktions-Dockerfile, Compose-Deployment mit persistentem Volume, read-only Secrets, Healthcheck und Reverse-Proxy-Vorlagen umgesetzt; reale Server-/Provider-E2E und deployment-spezifische Abnahme offen |
+| 12 | Erledigt | Owner-gescopte Payee-Identität, konservativer Resolver, wiederkehrende Abbucher-Tabelle/Dialog, Payee-Kategorien, Backfill-CLI sowie Migration und Sicherheits-/Regressionstests umgesetzt |
 
 ## Phase 1 - Technische Basis
 
@@ -153,3 +154,16 @@ Die vollständige Spezifikation und Abnahmekriterien stehen in
 - Audit Log
 - Datenexport
 - Datenlöschung
+
+## Phase 12 - Automatische Abbucher-Erkennung
+
+Die Umsetzung folgt [`AUTOM_ABBUCHER.md`](AUTOM_ABBUCHER.md). Die append-only Migration
+`024_recurring_payees.sql`, Resolver-/Aggregationsservices, geschützten Payee-Endpunkte,
+Backfill-CLI und Frontend sind umgesetzt. Der Backfill bleibt standardmäßig ein Dry-run;
+`--apply` ist ein expliziter lokaler Deployment-Schritt nach erfolgreichem Backup.
+
+- stabile, domänenseparierte Payee-Identifier und Evidence
+- Kandidaten-, Bestätigungs- und Ambiguitätszustände
+- lokale Payee-Kategorie vor übrigen Regeln und AI
+- owner-gescopte, cache-freie APIs mit Origin-/CSRF-Schutz
+- wiederverwendete Transaktionstabelle im Payee-Dialog

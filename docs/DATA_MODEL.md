@@ -40,6 +40,20 @@ Wichtig:
 - Händlernormalisierung
 - Logo
 
+### Payee und Payee-Identifier
+
+Ein `payee` ist eine owner-gescopte, über mehrere ausgehende Umsätze stabile Gegenpartei.
+`payees.status` unterscheidet `candidate`, `confirmed` und `ignored`; Zähler und erste/
+letzte Buchung werden nicht redundant gespeichert, sondern aus den verknüpften Umsätzen
+aggregiert.
+
+`payee_identifiers` enthält ausschließlich domänenseparierte HMAC-SHA256-Werte für
+allowlist-geprüfte Merkmale wie SEPA-Gläubiger-ID, Gegenkonto-IBAN, zusätzliche
+Kontoidentifikation, Merchant-Key oder konservativ normalisierte Namen. Die legacy-
+`counterparty_id`-HMAC wird für bestehende IBAN-Regeln kompatibel wiederverwendet. Die
+Tabelle `transaction_payee_evidence` bewahrt die technische Quelle und Stärke der
+Entscheidung pro Umsatz, niemals Klartext-Identifier.
+
 ### Transaction
 
 Normalisierter Bankumsatz.
@@ -63,6 +77,13 @@ individuelle Entscheidung am Umsatz hat Vorrang vor dem Kategorie-Standard.
 Pending/Booked-Datensätze werden nur bei einem eindeutigen Match über Account,
 Betrag, Währung, Richtung, Gegenpartei, normalisierten Verwendungszweck,
 optionalen MCC und ein plausibles Buchungsfenster zusammengeführt.
+
+Die Migration `024_recurring_payees.sql` ergänzt `transactions` um `payee_id`,
+`payee_match_state`, Methode/Confidence und `category_origin_payee_id`. Wiederkehrend
+zählen ausschließlich gebuchte ausgehende Umsätze; eingehende, eigene Transfers,
+Bargeld- und technische Parteien werden ausgeschlossen. Das Origin-Feld erlaubt beim
+Entfernen einer Payee-Kategorie ein präzises Zurücknehmen automatischer Zuordnungen,
+ohne manuelle Einzelentscheidungen zu überschreiben.
 
 ### Category
 

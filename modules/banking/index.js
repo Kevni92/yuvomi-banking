@@ -279,9 +279,22 @@ function renderTransactionsPanelMarkup() {
         <p class="banking-feedback" data-transactions-feedback role="status"></p>
         <div class="banking-transactions-table-wrap" data-banking-transactions-table><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
         <div data-banking-transactions-pagination></div>
+        <section class="banking-recurring-payees" data-banking-recurring-payees aria-labelledby="banking-recurring-payees-title">
+          <div class="banking-recurring-payees__header">
+            <div><h3 id="banking-recurring-payees-title">${esc(localized('recurringPayeesTitle', 'Recurring payees'))}</h3><p>${esc(localized('recurringPayeesDescription', 'Payees with at least two booked outgoing transactions.'))}</p></div>
+            <button class="btn btn--secondary" type="button" data-action="reload-payees">${esc(localized('reload', 'Reload'))}</button>
+          </div>
+          <p class="banking-feedback" data-payees-feedback role="status"></p>
+          <div class="banking-transactions-table-wrap" data-banking-payees-table><p class="banking-muted">${esc(localized('loading', 'Loading ...'))}</p></div>
+          <div data-banking-payees-pagination></div>
+        </section>
         <dialog class="banking-transaction-dialog" data-banking-transaction-dialog aria-labelledby="banking-transaction-dialog-title">
           <div class="banking-transaction-dialog__header"><h2 id="banking-transaction-dialog-title">${esc(localized('transactionDetails', 'Transaction details'))}</h2><button class="btn btn--secondary" type="button" data-action="close-transaction-details">${esc(localized('transactionDetailsClose', 'Close'))}</button></div>
           <div class="banking-transaction-dialog__body" data-banking-transaction-dialog-content></div>
+        </dialog>
+        <dialog class="banking-payee-dialog" data-banking-payee-dialog aria-labelledby="banking-payee-dialog-title">
+          <div class="banking-payee-dialog__header"><div><h2 id="banking-payee-dialog-title"></h2><p data-payee-dialog-summary></p></div><button class="btn btn--secondary" type="button" data-action="close-payee-dialog">${esc(localized('transactionDetailsClose', 'Close'))}</button></div>
+          <div class="banking-payee-dialog__body"><div data-payee-dialog-category></div><p class="banking-feedback" data-payee-dialog-feedback role="status"></p><div data-banking-payee-transactions-table></div><div data-banking-payee-transactions-pagination></div></div>
         </dialog>
       </div>
     </details>
@@ -298,6 +311,7 @@ function configureMainInteractions(container, permission, signal) {
   const accountsPanel = container.querySelector('[data-banking-accounts-panel]');
   const transactionsHost = container.querySelector('[data-banking-transactions]');
   const transactionsPanel = container.querySelector('[data-banking-transactions-panel]');
+  const payeesHost = container.querySelector('[data-banking-recurring-payees]');
 
   if (!canWrite) runCategorizationButton.disabled = true;
   reloadWeeklyBudget.addEventListener('click', () => {
@@ -423,6 +437,11 @@ function configureMainInteractions(container, permission, signal) {
     }
     if (event.target.closest('[data-action="close-transaction-details"]')) {
       container.querySelector('[data-banking-transaction-dialog]')?.close();
+      if (container.bankingPayeeResume?.payeeId) {
+        const payeeId = container.bankingPayeeResume.payeeId;
+        container.bankingPayeeResume = null;
+        void openPayeeDialog({ container, payeeId, signal });
+      }
       return;
     }
     const detailButton = event.target.closest('[data-action="transaction-details"]');
@@ -465,6 +484,95 @@ function configureMainInteractions(container, permission, signal) {
     if (row && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();
       void openTransactionDetail({ container, transactionId: row.dataset.transactionId, signal });
+    }
+  }, { signal });
+  payeesHost?.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-action]');
+    if (button?.dataset.action === 'reload-payees') {
+      void loadPayeeList({ container, signal });
+      return;
+    }
+    if (button?.dataset.action === 'show-payee-transactions') {
+      void openPayeeDialog({ container, payeeId: button.dataset.payeeId, signal });
+      return;
+    }
+    if (button?.dataset.action === 'remove-payee-category') {
+      void removePayeeCategory({ container, payeeId: button.dataset.payeeId, signal });
+      return;
+    }
+    const pageButton = event.target.closest('[data-payee-page]');
+    if (pageButton && !pageButton.disabled) {
+      const state = container.bankingPayeeListState;
+      const page = Number(pageButton.dataset.payeePage);
+      state.offset = page < 1 ? Math.max(0, state.offset + page * state.limit) : Math.max(0, (page - 1) * state.limit);
+      void loadPayeeList({ container, signal });
+    }
+  }, { signal });
+  payeesHost?.addEventListener('change', (event) => {
+    const select = event.target.closest('[data-payee-category-id]');
+    if (select) void updatePayeeCategory({ container, select, signal });
+  }, { signal });
+  const payeeDialog = container.querySelector('[data-banking-payee-dialog]');
+  payeeDialog?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (event.target.closest('[data-action="close-payee-dialog"]')) {
+      payeeDialog.close();
+      return;
+    }
+    if (event.target.closest('[data-action="remove-payee-dialog-category"]')) {
+      void removePayeeCategory({ container, payeeId: container.bankingPayeeTransactionState?.payeeId, signal });
+      return;
+    }
+    const detailButton = event.target.closest('[data-action="transaction-details"]');
+    if (detailButton) {
+      const state = container.bankingPayeeTransactionState;
+      container.bankingPayeeResume = state ? { payeeId: state.payeeId } : null;
+      payeeDialog.close();
+      void openTransactionDetail({ container, transactionId: detailButton.dataset.transactionId, signal });
+      return;
+    }
+    const sortButton = event.target.closest('[data-payee-transaction-sort]');
+    if (sortButton) {
+      const state = container.bankingPayeeTransactionState;
+      if (state.sort === sortButton.dataset.payeeTransactionSort) state.order = state.order === 'asc' ? 'desc' : 'asc';
+      else { state.sort = sortButton.dataset.payeeTransactionSort; state.order = 'desc'; }
+      state.offset = 0;
+      void loadPayeeTransactions({ container, signal });
+      return;
+    }
+    const pageButton = event.target.closest('[data-payee-transaction-page]');
+    if (pageButton && !pageButton.disabled) {
+      const state = container.bankingPayeeTransactionState;
+      const page = Number(pageButton.dataset.payeeTransactionPage);
+      state.offset = page < 1 ? Math.max(0, state.offset + page * state.limit) : Math.max(0, (page - 1) * state.limit);
+      void loadPayeeTransactions({ container, signal });
+    }
+  }, { signal });
+  payeeDialog?.addEventListener('change', (event) => {
+    event.stopPropagation();
+    const categorySelect = event.target.closest('[data-payee-dialog-category-id]');
+    if (categorySelect) {
+      void updatePayeeCategory({ container, select: categorySelect, signal });
+      return;
+    }
+    const transactionCategorySelect = event.target.closest('select[data-transaction-category-id]');
+    if (transactionCategorySelect) {
+      void updateTransactionCategory({ container, select: transactionCategorySelect, signal });
+      return;
+    }
+    const weeklyBudgetSelect = event.target.closest('select[data-weekly-budget-override]');
+    if (weeklyBudgetSelect) {
+      void updateTransactionWeeklyBudget({ container, select: weeklyBudgetSelect, signal });
+      return;
+    }
+    const pageSize = event.target.closest('[data-payee-transaction-page-size]');
+    if (pageSize) {
+      const value = Number(pageSize.value);
+      if ([10, 25, 50, 100].includes(value)) {
+        container.bankingPayeeTransactionState.limit = value;
+        container.bankingPayeeTransactionState.offset = 0;
+        void loadPayeeTransactions({ container, signal });
+      }
     }
   }, { signal });
   transactionsPanel.addEventListener('toggle', () => {
@@ -653,10 +761,13 @@ async function loadMainView(container, signal, canWrite) {
   else renderError(categorizationHost.querySelector('[data-categorization-suggestions]'), suggestionsResult.reason);
   if (appliedResult.status === 'fulfilled') renderCategorizationApplied(categorizationHost, appliedResult.value?.data);
   container.bankingTransactionState = createTransactionState();
+  container.bankingPayeeListState = createPayeeListState();
+  container.bankingPayeeTransactionState = null;
   container.bankingTransactionAccounts = accounts;
   container.bankingTransactionCategories = categories;
   renderTransactionFilters(container.querySelector('[data-banking-transactions]'), accounts, categories, container.bankingTransactionState);
   await loadTransactionTable({ container, signal, categories });
+  await loadPayeeList({ container, signal });
 }
 
 async function loadSettingsView(container, signal, canWrite) {
@@ -911,6 +1022,14 @@ function createTransactionState() {
     sort: 'date', order: 'desc', limit: 25, offset: 0, requestId: 0, controller: null,
     filtersOpen: readTransactionFilterPanel(), columns: readTransactionColumns()
   };
+}
+
+function createPayeeListState() {
+  return { sort: 'last_date', order: 'desc', limit: 50, offset: 0, requestId: 0, controller: null };
+}
+
+function createPayeeTransactionState(payeeId) {
+  return { payeeId: String(payeeId), payee: true, sort: 'date', order: 'desc', limit: 25, offset: 0, requestId: 0, controller: null, columns: { account: true, category: true, weeklyBudget: true, status: true } };
 }
 
 async function loadBankingPushPanel(container, signal, canWrite) {
@@ -2589,12 +2708,223 @@ async function loadTransactionTable({ container, signal, categories = container.
   }
 }
 
+async function loadPayeeList({ container, signal }) {
+  const state = container.bankingPayeeListState;
+  const tableHost = container.querySelector('[data-banking-payees-table]');
+  const paginationHost = container.querySelector('[data-banking-payees-pagination]');
+  if (!state || !tableHost || !paginationHost) return;
+  state.controller?.abort();
+  const controller = new AbortController();
+  state.controller = controller;
+  const requestId = ++state.requestId;
+  signal.addEventListener('abort', () => controller.abort(), { once: true });
+  const params = new URLSearchParams({ recurring: '1', sort: state.sort, order: state.order, limit: String(state.limit), offset: String(state.offset) });
+  try {
+    const payload = await loadJson(`payees?${params.toString()}`, { signal: controller.signal });
+    if (signal.aborted || controller.signal.aborted || requestId !== state.requestId) return;
+    container.bankingPayeeCache = Array.isArray(payload?.data?.payees) ? payload.data.payees : [];
+    renderPayeeList(tableHost, payload?.data, container.bankingTransactionCategories ?? [], container.dataset.bankingPermission === 'write');
+    renderPayeePagination(paginationHost, payload?.data?.pagination, state);
+  } catch (error) {
+    if (signal.aborted || controller.signal.aborted || requestId !== state.requestId) return;
+    renderError(tableHost, error);
+    paginationHost.replaceChildren();
+  }
+}
+
+function renderPayeeList(host, payload, categories, canWrite) {
+  const payees = Array.isArray(payload?.payees) ? payload.payees : [];
+  if (!payees.length) {
+    host.replaceChildren();
+    host.insertAdjacentHTML('beforeend', `<p class="banking-muted">${esc(localized('recurringPayeesEmpty', 'No recurring payees found yet.'))}</p>`);
+    return;
+  }
+  const rows = payees.map((payee) => {
+    const id = String(payee?.id ?? '');
+    const name = String(payee?.display_name || localized('recurringPayee', 'Payee'));
+    const categoryId = String(payee?.category?.id ?? '');
+    const candidate = payee?.status === 'candidate';
+    const categoryOptions = payeeCategoryOptions(categories, categoryId);
+    const last = payee?.last_amount && payee?.currency
+      ? formatMoney(payee.last_amount, payee.currency)
+      : payee?.currency === null && payee?.last_amount
+        ? `${payee.last_amount} · ${localized('recurringPayeesMultipleCurrencies', 'multiple currencies')}`
+        : '–';
+    const status = candidate ? `<small class="banking-recurring-payee__candidate">${esc(localized('recurringPayeeCandidate', 'Recognition not confirmed'))}</small>` : '';
+    return `<tr class="banking-transactions-table__row">
+      <td><strong>${esc(name)}</strong>${status}</td>
+      <td>${esc(String(payee?.booked_transaction_count ?? 0))}${Number(payee?.pending_transaction_count) > 0 ? ` <small>+${esc(String(payee.pending_transaction_count))} ${esc(localized('recurringPayeePendingCount', 'pending'))}</small>` : ''}</td>
+      <td>${esc(formatDate(payee?.last_booking_date) || '–')} · ${esc(last)}</td>
+      <td><div class="banking-recurring-payee__category"><select class="banking-table-select" data-payee-category-id="${esc(id)}" data-current-category-id="${esc(categoryId)}" ${canWrite && payeeCategoryOptionsAvailable(categories) ? '' : 'disabled'}><option value="" ${categoryId ? '' : 'selected'}>${esc(localized('recurringPayeeNoCategory', 'No fixed category'))}</option>${categoryOptions}</select>${categoryId && canWrite ? `<button class="btn btn--secondary" type="button" data-action="remove-payee-category" data-payee-id="${esc(id)}">${esc(localized('recurringPayeeRemoveCategory', 'Remove'))}</button>` : ''}</div>${Number(payee?.manual_exception_count) > 0 ? `<small class="banking-recurring-payee__exceptions">${esc(localized('recurringPayeeManualExceptions', '{count} manual exception(s)', { count: payee.manual_exception_count }))}</small>` : ''}</td>
+      <td><button class="btn btn--secondary" type="button" data-action="show-payee-transactions" data-payee-id="${esc(id)}">${esc(localized('recurringPayeeShowTransactions', 'Show transactions'))}</button></td>
+    </tr>`;
+  }).join('');
+  host.replaceChildren();
+  host.insertAdjacentHTML('beforeend', `<table class="banking-transactions-table banking-payees-table"><thead><tr><th scope="col">${esc(localized('recurringPayee', 'Payee'))}</th><th scope="col">${esc(localized('recurringPayeeCount', 'Debits'))}</th><th scope="col">${esc(localized('recurringPayeeLastDebit', 'Last debit'))}</th><th scope="col">${esc(localized('recurringPayeeCategory', 'Category'))}</th><th scope="col">${esc(localized('recurringPayeeShowTransactions', 'Action'))}</th></tr></thead><tbody>${rows}</tbody></table>`);
+}
+
+function payeeCategoryOptions(categories, currentCategoryId) {
+  return (Array.isArray(categories) ? categories : [])
+    .filter((category) => category?.active !== false && category?.type === 'expense' && /^\d+$/.test(String(category?.id ?? '')))
+    .map((category) => `<option value="${esc(String(category.id))}" ${String(category.id) === String(currentCategoryId) ? 'selected' : ''}>${esc(String(category.name || 'Category'))}</option>`)
+    .join('');
+}
+
+function payeeCategoryOptionsAvailable(categories) {
+  return payeeCategoryOptions(categories, '').length > 0;
+}
+
+function renderPayeePagination(host, pagination, state) {
+  const total = Number(pagination?.total) || 0;
+  const from = total === 0 ? 0 : state.offset + 1;
+  const to = total === 0 ? 0 : Math.min(state.offset + state.limit, total);
+  const pageCount = Math.max(1, Math.ceil(total / state.limit));
+  const currentPage = Math.floor(state.offset / state.limit) + 1;
+  const hasPrevious = state.offset > 0;
+  const hasNext = to < total;
+  host.replaceChildren();
+  host.insertAdjacentHTML('beforeend', `<div class="banking-transactions-pagination"><span>${esc(localized('paginationSummary', '{from}–{to} of {total}', { from, to, total }))}</span><div><button class="btn btn--secondary" type="button" data-payee-page="-1" ${hasPrevious ? '' : 'disabled'}>${esc(localized('previousPage', 'Previous'))}</button><button class="btn btn--secondary" type="button" data-payee-page="1" ${hasNext ? '' : 'disabled'}>${esc(localized('nextPage', 'Next'))}</button><span aria-label="${esc(localized('paginationSummary', '{from}–{to} of {total}', { from: currentPage, to: pageCount, total: pageCount }))}">${esc(`${currentPage}/${pageCount}`)}</span></div></div>`);
+}
+
+async function updatePayeeCategory({ container, select, signal }) {
+  const payeeId = select?.dataset?.payeeCategoryId;
+  const categoryId = Number(select?.value);
+  if (!/^\d+$/.test(payeeId || '') || !Number.isSafeInteger(categoryId) || categoryId < 1) return;
+  const previous = select.dataset.currentCategoryId || '';
+  const payee = (container.bankingPayeeCache ?? []).find((item) => String(item?.id) === payeeId);
+  if (payee?.status === 'candidate' && typeof window.confirm === 'function'
+    && !window.confirm(localized('recurringPayeeConfirmDescription', 'Confirm this payee recognition for the existing transactions?'))) {
+    select.value = previous;
+    return;
+  }
+  select.disabled = true;
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson(`payees/${encodeURIComponent(payeeId)}/category`, {
+      method: 'PATCH', headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
+      body: { category_id: categoryId, confirm_candidate: true }, signal
+    });
+    select.dataset.currentCategoryId = String(categoryId);
+    await reloadTransactionsAndBudget(container, signal);
+    await loadPayeeList({ container, signal });
+    if (container.bankingPayeeTransactionState?.payeeId === payeeId) await loadPayeeTransactions({ container, signal });
+  } catch (error) {
+    if (!signal.aborted) {
+      select.value = previous;
+      const feedback = container.querySelector('[data-payees-feedback]');
+      if (feedback) feedback.textContent = error instanceof Error ? error.message : localized('categorySaveFailed', 'Category could not be saved.');
+    }
+  } finally {
+    if (!signal.aborted) select.disabled = false;
+  }
+}
+
+async function removePayeeCategory({ container, payeeId, signal }) {
+  if (!/^\d+$/.test(payeeId || '')) return;
+  try {
+    const csrf = await loadJson('csrf', { signal });
+    await loadJson(`payees/${encodeURIComponent(payeeId)}/category`, {
+      method: 'DELETE', headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' }, signal
+    });
+    await reloadTransactionsAndBudget(container, signal);
+    await loadPayeeList({ container, signal });
+    if (container.bankingPayeeTransactionState?.payeeId === String(payeeId)) await loadPayeeTransactions({ container, signal });
+  } catch (error) {
+    if (!signal.aborted) {
+      const feedback = container.querySelector('[data-payees-feedback]');
+      if (feedback) feedback.textContent = error instanceof Error ? error.message : localized('recurringPayeeCategoryRemoveFailed', 'Payee category could not be removed.');
+    }
+  }
+}
+
+async function openPayeeDialog({ container, payeeId, signal }) {
+  if (!/^\d+$/.test(payeeId || '')) return;
+  const dialog = container.querySelector('[data-banking-payee-dialog]');
+  if (!dialog) return;
+  container.bankingPayeeTransactionState = createPayeeTransactionState(payeeId);
+  const title = dialog.querySelector('[data-payee-dialog-summary]');
+  const body = dialog.querySelector('[data-banking-payee-transactions-table]');
+  if (title) title.textContent = localized('loading', 'Loading ...');
+  if (body) body.replaceChildren();
+  if (!dialog.open && typeof dialog.showModal === 'function') dialog.showModal();
+  await loadPayeeTransactions({ container, signal });
+}
+
+async function loadPayeeTransactions({ container, signal }) {
+  const state = container.bankingPayeeTransactionState;
+  const dialog = container.querySelector('[data-banking-payee-dialog]');
+  const tableHost = dialog?.querySelector('[data-banking-payee-transactions-table]');
+  const paginationHost = dialog?.querySelector('[data-banking-payee-transactions-pagination]');
+  if (!state || !dialog || !tableHost || !paginationHost) return;
+  state.controller?.abort();
+  const controller = new AbortController();
+  state.controller = controller;
+  const requestId = ++state.requestId;
+  signal.addEventListener('abort', () => controller.abort(), { once: true });
+  const params = new URLSearchParams({ sort: state.sort, order: state.order, limit: String(state.limit), offset: String(state.offset) });
+  try {
+    const payload = await loadJson(`payees/${encodeURIComponent(state.payeeId)}/transactions?${params.toString()}`, { signal: controller.signal });
+    if (signal.aborted || controller.signal.aborted || requestId !== state.requestId) return;
+    const payee = payload?.data?.payee;
+    container.bankingPayeeCache = [payee, ...(container.bankingPayeeCache ?? []).filter((item) => String(item?.id) !== state.payeeId)];
+    const title = dialog.querySelector('#banking-payee-dialog-title');
+    const summary = dialog.querySelector('[data-payee-dialog-summary]');
+    if (title) title.textContent = String(payee?.display_name || localized('recurringPayee', 'Payee'));
+    if (summary) summary.textContent = `${payee?.booked_transaction_count ?? 0} · ${formatDate(payee?.first_booking_date) || '–'} – ${formatDate(payee?.last_booking_date) || '–'}${Number(payee?.manual_exception_count) ? ` · ${localized('recurringPayeeManualExceptions', '{count} manual exception(s)', { count: payee.manual_exception_count })}` : ''}`;
+    renderPayeeDialogCategory(dialog, payee, container.bankingTransactionCategories ?? [], container.dataset.bankingPermission === 'write');
+    renderTransactionTable(tableHost, payload?.data, state, container.dataset.bankingPermission === 'write', container.bankingTransactionCategories ?? [], container.bankingTransactionAccounts ?? []);
+    renderTransactionPagination(paginationHost, payload?.data?.pagination, state);
+  } catch (error) {
+    if (signal.aborted || controller.signal.aborted || requestId !== state.requestId) return;
+    renderError(tableHost, error);
+    paginationHost.replaceChildren();
+  }
+}
+
+function renderPayeeDialogCategory(dialog, payee, categories, canWrite) {
+  const host = dialog.querySelector('[data-payee-dialog-category]');
+  if (!host) return;
+  const categoryId = String(payee?.category?.id ?? '');
+  const label = document.createElement('label');
+  label.className = 'banking-field';
+  const labelText = document.createElement('span');
+  labelText.textContent = localized('recurringPayeeCategory', 'Category');
+  const select = document.createElement('select');
+  select.className = 'banking-table-select';
+  select.dataset.payeeDialogCategoryId = String(payee?.id ?? '');
+  select.dataset.currentCategoryId = categoryId;
+  select.disabled = !(canWrite && payeeCategoryOptionsAvailable(categories));
+  const placeholder = createOption('', categoryId
+    ? String(payee?.category?.name || localized('recurringPayeeNoCategory', 'No fixed category'))
+    : localized('recurringPayeeNoCategory', 'No fixed category'));
+  placeholder.disabled = true;
+  placeholder.selected = !categoryId;
+  select.append(placeholder);
+  for (const category of (Array.isArray(categories) ? categories : [])) {
+    if (category?.active === false || category?.type !== 'expense' || !/^\d+$/.test(String(category?.id ?? ''))) continue;
+    const option = createOption(String(category.id), String(category.name || 'Category'));
+    option.selected = String(category.id) === categoryId;
+    select.append(option);
+  }
+  label.append(labelText, select);
+  host.replaceChildren(label);
+  if (categoryId && canWrite) {
+    const remove = document.createElement('button');
+    remove.className = 'btn btn--secondary';
+    remove.type = 'button';
+    remove.dataset.action = 'remove-payee-dialog-category';
+    remove.textContent = localized('recurringPayeeRemoveCategory', 'Remove');
+    host.append(' ', remove);
+  }
+}
+
 function renderTransactionTable(host, payload, state, canWrite, categories, accounts) {
   const transactions = Array.isArray(payload?.transactions) ? payload.transactions : [];
+  const sortAttribute = state.payee ? 'data-payee-transaction-sort' : 'data-transaction-sort';
   const sortHeader = (key, label) => {
     const active = state.sort === key;
     const ariaSort = active ? (state.order === 'asc' ? 'ascending' : 'descending') : 'none';
-    return `<th scope="col" aria-sort="${ariaSort}"><button class="banking-transactions-table__sort" type="button" data-transaction-sort="${esc(key)}">${esc(label)}${active ? ` <span aria-hidden="true">${state.order === 'asc' ? '↑' : '↓'}</span>` : ''}</button></th>`;
+    return `<th scope="col" aria-sort="${ariaSort}"><button class="banking-transactions-table__sort" type="button" ${sortAttribute}="${esc(key)}">${esc(label)}${active ? ` <span aria-hidden="true">${state.order === 'asc' ? '↑' : '↓'}</span>` : ''}</button></th>`;
   };
   const optionalColumn = (key) => state.columns[key] ? '' : ' hidden';
   const optionalSortHeader = (key, label, column) => sortHeader(key, label)
@@ -2642,13 +2972,15 @@ function renderTransactionPagination(host, pagination, state) {
   const currentPage = Math.floor(state.offset / state.limit) + 1;
   const pages = new Set([1, pageCount]);
   for (let page = Math.max(1, currentPage - 2); page <= Math.min(pageCount, currentPage + 2); page += 1) pages.add(page);
+  const pageAttribute = state.payee ? 'data-payee-transaction-page' : 'data-transaction-page';
   const pageButtons = [...pages].sort((left, right) => left - right).flatMap((page, index, list) => {
     const gap = index > 0 && page - list[index - 1] > 1 ? ['<span aria-hidden="true">…</span>'] : [];
-    return [...gap, `<button class="btn btn--secondary" type="button" data-transaction-page="${page}" ${page === currentPage ? 'aria-current="page" disabled' : ''}>${page}</button>`];
+    return [...gap, `<button class="btn btn--secondary" type="button" ${pageAttribute}="${page}" ${page === currentPage ? 'aria-current="page" disabled' : ''}>${page}</button>`];
   }).join('');
   host.replaceChildren();
-  host.insertAdjacentHTML('beforeend', `<div class="banking-transactions-pagination__pages">${pageButtons}</div><label class="banking-transactions-pagination__page-size"><span class="banking-sr-only">${esc(localized('transactionsPerPage', 'Transactions per page'))}</span><select class="banking-table-select" data-transaction-page-size>${[10, 25, 50, 100].map((limit) => `<option value="${limit}" ${limit === state.limit ? 'selected' : ''}>${limit}</option>`).join('')}</select></label>`);
-  host.insertAdjacentHTML('beforeend', `<div class="banking-transactions-pagination"><span>${esc(localized('paginationSummary', '{from}–{to} of {total}', { from, to, total }))}</span><div><button class="btn btn--secondary" type="button" data-transaction-page="-1" ${hasPrevious ? '' : 'disabled'}>${esc(localized('previousPage', 'Previous'))}</button><button class="btn btn--secondary" type="button" data-transaction-page="1" ${hasNext ? '' : 'disabled'}>${esc(localized('nextPage', 'Next'))}</button></div></div>`);
+  const sizeAttribute = state.payee ? 'data-payee-transaction-page-size' : 'data-transaction-page-size';
+  host.insertAdjacentHTML('beforeend', `<div class="banking-transactions-pagination__pages">${pageButtons}</div><label class="banking-transactions-pagination__page-size"><span class="banking-sr-only">${esc(localized('transactionsPerPage', 'Transactions per page'))}</span><select class="banking-table-select" ${sizeAttribute}>${[10, 25, 50, 100].map((limit) => `<option value="${limit}" ${limit === state.limit ? 'selected' : ''}>${limit}</option>`).join('')}</select></label>`);
+  host.insertAdjacentHTML('beforeend', `<div class="banking-transactions-pagination"><span>${esc(localized('paginationSummary', '{from}–{to} of {total}', { from, to, total }))}</span><div><button class="btn btn--secondary" type="button" ${pageAttribute}="-1" ${hasPrevious ? '' : 'disabled'}>${esc(localized('previousPage', 'Previous'))}</button><button class="btn btn--secondary" type="button" ${pageAttribute}="1" ${hasNext ? '' : 'disabled'}>${esc(localized('nextPage', 'Next'))}</button></div></div>`);
 }
 
 async function reloadTransactionsAndBudget(container, signal) {
@@ -2748,6 +3080,7 @@ async function updateTransactionCategory({ container, select, signal }) {
   if (!/^\d+$/.test(transactionId || '') || !Number.isSafeInteger(categoryId) || categoryId < 1) return;
   const previous = select.dataset.currentCategoryId || '';
   const host = select.closest('[data-banking-transactions]');
+  const inPayeeDialog = Boolean(select.closest('[data-banking-payee-dialog]'));
   const feedback = host?.querySelector('[data-transactions-feedback]');
   select.disabled = true;
   try {
@@ -2755,12 +3088,16 @@ async function updateTransactionCategory({ container, select, signal }) {
     const result = await loadJson(`transactions/${encodeURIComponent(transactionId)}/category`, {
       method: 'PATCH',
       headers: { 'x-banking-csrf': csrf?.csrf_token ?? '' },
-      body: { category_id: categoryId, remember_counterparty: true },
+      body: { category_id: categoryId, remember_counterparty: !inPayeeDialog },
       signal
     });
     select.dataset.currentCategoryId = String(categoryId);
     await reloadTransactionsAndBudget(container, signal);
     await refreshCategorizationReviews(container, signal);
+    await loadPayeeList({ container, signal });
+    if (inPayeeDialog && container.bankingPayeeTransactionState) {
+      await loadPayeeTransactions({ container, signal });
+    }
     if (feedback && !signal.aborted) {
       feedback.textContent = result?.data?.counterparty_rule_created
         ? localized('categoryRuleSaved', 'Category saved for this recipient and future transactions.')

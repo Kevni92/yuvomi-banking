@@ -13,6 +13,8 @@ import { createEncryptionService } from '../security/encryption.js';
 import type { EnableBankingClient } from '../enable-banking/client.js';
 import { enrichTransactionById } from '../services/transaction-enrichment.js';
 import { resolveTransactionById } from '../services/transaction-resolution.js';
+import { resolvePayeeForTransaction, applyPayeeCategoriesForAccount } from '../services/recurring-payees.js';
+import { applyCategoryRulesForAccount } from '../services/category-rules.js';
 import {
   noStore,
   mutationIsAllowed,
@@ -114,6 +116,18 @@ export function createTransactionRouter({
         hmacSecret: config.secrets.counterpartyHmac,
         now: new Date()
       });
+      const payeeResolution = resolvePayeeForTransaction({
+        database,
+        transactionId,
+        encryption: resolvedEncryption,
+        hmacSecret: config.secrets.counterpartyHmac,
+        now: new Date()
+      });
+      const transactionRow = database.prepare('SELECT account_id FROM transactions WHERE id = ?').get(transactionId) as { account_id: number } | undefined;
+      if (transactionRow) {
+        applyCategoryRulesForAccount(database, Number(transactionRow.account_id), new Date());
+        applyPayeeCategoriesForAccount(database, Number(transactionRow.account_id), new Date());
+      }
       const detail = getTransactionDetail(database, user.id, transactionId, resolvedEncryption);
       noStore(response);
       response.json({ data: {
@@ -121,7 +135,8 @@ export function createTransactionRouter({
         detail_fetched: result.detailFetched,
         merchant_resolved: Boolean(detail?.transaction.merchant_name) || result.merchantResolved,
         merchant_name: detail?.transaction.merchant_name ?? null,
-        provider_detail_state: result.state
+        provider_detail_state: result.state,
+        payee_match_state: payeeResolution.matched || payeeResolution.created ? 'matched' : payeeResolution.ambiguous ? 'ambiguous' : null
       } });
     } catch {
       noStore(response);

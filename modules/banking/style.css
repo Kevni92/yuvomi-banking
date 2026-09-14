@@ -1259,6 +1259,41 @@
 .banking-transaction-detail-raw { margin-top: var(--space-4, 1rem); }
 .banking-transaction-detail-raw pre { max-width: 100%; overflow-x: auto; overflow-y: visible; padding: var(--space-3, .75rem); border-radius: var(--radius-sm, 10px); background: var(--color-surface-3, rgba(0,0,0,.05)); font-size: .78rem; white-space: pre; }
 
+.banking-recurring-payees {
+  margin-top: var(--space-6, 1.5rem);
+  padding-top: var(--space-5, 1.25rem);
+  border-top: 1px solid var(--color-border-subtle, rgba(0, 0, 0, .08));
+}
+.banking-recurring-payees__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4, 1rem); margin-bottom: var(--space-3, .75rem); }
+.banking-recurring-payees__header h3, .banking-recurring-payees__header p { margin: 0; }
+.banking-recurring-payees__header p { margin-top: var(--space-1, .25rem); color: var(--color-text-secondary, #6b7280); }
+.banking-payees-table { min-width: 52rem; }
+.banking-payees-table th, .banking-payees-table td { vertical-align: top; }
+.banking-recurring-payee__candidate, .banking-recurring-payee__exceptions { display: block; margin-top: var(--space-1, .25rem); color: var(--color-text-secondary, #6b7280); }
+.banking-recurring-payee__category { display: flex; align-items: center; gap: var(--space-2, .5rem); min-width: 13rem; }
+.banking-recurring-payee__category .banking-table-select { flex: 1 1 auto; }
+.banking-payee-dialog {
+  box-sizing: border-box;
+  width: min(70rem, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  max-height: min(92vh, 64rem);
+  max-height: min(92dvh, 64rem);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: var(--radius-lg, 16px);
+  background: var(--color-surface, #fff);
+  color: inherit;
+}
+.banking-payee-dialog[open] { display: flex; flex-direction: column; }
+.banking-payee-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.banking-payee-dialog__header { flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4, 1rem); padding: var(--space-4, 1rem); border-bottom: 1px solid var(--color-border-subtle, rgba(0,0,0,.08)); }
+.banking-payee-dialog__header h2, .banking-payee-dialog__header p { margin: 0; }
+.banking-payee-dialog__header p { margin-top: var(--space-1, .25rem); color: var(--color-text-secondary, #6b7280); }
+.banking-payee-dialog__body { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: var(--space-4, 1rem); overscroll-behavior: contain; scrollbar-gutter: stable; }
+.banking-payee-dialog__body [data-banking-payee-transactions-table] { margin-top: var(--space-4, 1rem); }
+.banking-payee-dialog__body [data-banking-payee-transactions-table] .banking-transactions-table { min-width: 72rem; }
+
 @media (max-width: 767px) {
   .banking-connect-form,
   .banking-provider-settings__form,
@@ -1305,7 +1340,8 @@
 
 @media (max-width: 42rem) {
   .banking-transaction-dialog,
-  .banking-category-dialog {
+  .banking-category-dialog,
+  .banking-payee-dialog {
     width: calc(100vw - 1rem);
     max-width: calc(100vw - 1rem);
     max-height: calc(100vh - 1rem);
@@ -1317,7 +1353,9 @@
   .banking-transaction-dialog__body,
   .banking-category-dialog__header,
   .banking-category-dialog__body,
-  .banking-category-dialog__footer {
+  .banking-category-dialog__footer,
+  .banking-payee-dialog__header,
+  .banking-payee-dialog__body {
     padding: var(--space-3, .75rem);
   }
 

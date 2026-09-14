@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { setPayeeCategory } from './recurring-payees.js';
 import { deriveTransactionSemantics } from './transaction-semantics.js';
 
 type RuleType = 'counterparty' | 'merchant' | 'text';
@@ -89,7 +90,7 @@ export function assignManualTransactionCategory(
     database.exec('BEGIN IMMEDIATE;');
     transactionOpen = true;
     const transaction = database.prepare(`
-      SELECT transactions.id, transactions.account_id,
+      SELECT transactions.id, transactions.account_id, transactions.payee_id,
              counterparties.counterparty_id
       FROM transactions
       JOIN bank_accounts ON bank_accounts.id = transactions.account_id
@@ -102,6 +103,7 @@ export function assignManualTransactionCategory(
     `).get(input.transactionId, input.yuvomiUserId) as {
       id: number;
       account_id: number;
+      payee_id: number | null;
       counterparty_id: string | null;
     } | undefined;
     if (!transaction) {
@@ -112,6 +114,7 @@ export function assignManualTransactionCategory(
     database.prepare(`
       UPDATE transactions SET
         category_id = ?, category_source = 'manual', category_confidence = 1,
+        category_origin_payee_id = NULL,
         updated_at = ?
       WHERE id = ?
     `).run(input.categoryId, timestamp, input.transactionId);
@@ -123,6 +126,25 @@ export function assignManualTransactionCategory(
 
     let ruleCreated = false;
     let affectedTransactions = 1;
+    if (input.rememberCounterparty !== false && transaction.payee_id) {
+      // Payee defaults are the stable, owner-scoped memory. The current row
+      // remains an explicit manual exception and is therefore not overwritten.
+      database.exec('COMMIT;');
+      transactionOpen = false;
+      const payeeResult = setPayeeCategory(database, {
+        ownerId: input.yuvomiUserId,
+        payeeId: Number(transaction.payee_id),
+        categoryId: input.categoryId,
+        confirmCandidate: true,
+        now
+      });
+      return {
+        transactionId: input.transactionId,
+        categoryId: input.categoryId,
+        ruleCreated: true,
+        affectedTransactions: 1 + payeeResult.affected_transactions
+      };
+    }
     if (input.rememberCounterparty !== false && transaction.counterparty_id) {
       database.prepare(`
         DELETE FROM category_rules
@@ -147,7 +169,7 @@ export function assignManualTransactionCategory(
       const result = database.prepare(`
         UPDATE transactions SET
           category_id = ?, category_source = 'counterparty_rule',
-          category_confidence = 1, updated_at = ?
+          category_confidence = 1, category_origin_payee_id = NULL, updated_at = ?
         WHERE id != ?
           AND category_source IS NOT 'manual'
           AND counterparty_ref IN (
@@ -227,7 +249,7 @@ function applyRules(
   `).all(accountId) as unknown as TransactionRow[];
   const update = database.prepare(`
     UPDATE transactions SET category_id = ?, category_source = ?,
-      category_confidence = 1, updated_at = ?
+      category_confidence = 1, category_origin_payee_id = NULL, updated_at = ?
     WHERE id = ? AND COALESCE(category_source, '') != 'manual'
   `);
   const timestamp = now.toISOString();
@@ -270,7 +292,7 @@ function applySemanticCategories(database: DatabaseSync, accountId: number, now:
 
   const update = database.prepare(`
     UPDATE transactions SET category_id = ?, category_source = 'text_rule',
-      category_confidence = 1, updated_at = ?
+      category_confidence = 1, category_origin_payee_id = NULL, updated_at = ?
     WHERE id = ? AND category_id IS NULL
   `);
   const timestamp = now.toISOString();

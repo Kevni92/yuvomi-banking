@@ -59,12 +59,20 @@ Aufgaben:
 - Enable Banking API
 - SQLite
 - Kategorisierungsregeln
+- wiederkehrende Abbucher und owner-gescopte Payee-Kategorien
 - OpenAI-Batch-Kategorisierung
 - Händlerlogo-Cache
 - Scheduler
 - Wochenbudget
 - GiroCode
 - Banking-eigene Web-Push-Benachrichtigungen
+
+Die Transaktionsverarbeitung führt nach Provider-Beobachtungen und der bestehenden
+Einzelauflösung einen lokalen Payee-Resolver aus. Er speichert nur domänenseparierte
+Identifier-Hashes und Evidenzmetadaten, ordnet eindeutige ausgehende Buchungen einem
+Payee zu und lässt Konflikte beziehungsweise Zahlungsintermediäre ungeordnet. Eine
+bestätigte Payee-Kategorie wird anschließend vor Merchant-/Textregeln und AI angewendet;
+manuelle Einzelkategorien bleiben Ausnahmen.
 
 ## 4. Datenhaltung
 
@@ -84,6 +92,8 @@ Enthält:
 - AI-Ergebnisse
 - Händlerlogos
 - Wochenbudget-Einstellungen und Saldo-Snapshots
+- Payees, gehashte Payee-Identifier und Transaktions-Evidenz
+- Payee-Kategorien sowie die Herkunft automatischer Transaktionskategorien
 - historisierte Wochenperioden und Überweisungsvorschläge
 - Banking-Push-Abonnements und Zustellhistorie
 

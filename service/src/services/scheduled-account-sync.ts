@@ -18,6 +18,13 @@ import {
 import { reconcileWeeklyBudgetLifecycle } from './weekly-budget-revisions.js';
 import { enrichAccountTransactions } from './transaction-enrichment.js';
 import { enqueueWeeklyBudgetDailySummaryDeliveries } from './push-outbox.js';
+import { captureProviderObservationsForAccount } from './transaction-observations.js';
+import { resolveTransactionsForAccount } from './transaction-resolution.js';
+import {
+  applyPayeeCategoriesForAccount,
+  resolvePayeesForAccount
+} from './recurring-payees.js';
+import { applyCategoryRulesForAccount } from './category-rules.js';
 
 const RETRY_DELAYS_MS = [5, 15, 30].map((minutes) => minutes * 60_000);
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -266,6 +273,29 @@ export async function runScheduledAccountSync({
       encryption,
       manageTransaction: false
     });
+    captureProviderObservationsForAccount({
+      database, accountId: source.id,
+      transactions: providerResults[0].value.transactions,
+      now: syncedAt
+    });
+    captureProviderObservationsForAccount({
+      database, accountId: target.id,
+      transactions: providerResults[1].value.transactions,
+      now: syncedAt
+    });
+    for (const account of [source, target]) {
+      resolveTransactionsForAccount({
+        database, accountId: account.id, encryption,
+        hmacSecret: config.secrets.counterpartyHmac, now: syncedAt
+      });
+      resolvePayeesForAccount({
+        database, accountId: account.id, encryption,
+        hmacSecret: config.secrets.counterpartyHmac, now: syncedAt,
+        manageTransaction: false
+      });
+      applyCategoryRulesForAccount(database, account.id, syncedAt);
+      applyPayeeCategoriesForAccount(database, account.id, syncedAt);
+    }
     reconcileWeeklyBudgetLifecycle(database, configId, syncedAt);
     persistAccountBalanceSnapshots({
       database,
@@ -337,6 +367,18 @@ export async function runScheduledAccountSync({
         enrichAccountTransactions({ database, client, accountId: source.id, providerAccountId: source.providerAccountId, encryption, now: syncedAt }),
         enrichAccountTransactions({ database, client, accountId: target.id, providerAccountId: target.providerAccountId, encryption, now: syncedAt })
       ]);
+      for (const account of [source, target]) {
+        resolveTransactionsForAccount({
+          database, accountId: account.id, encryption,
+          hmacSecret: config.secrets.counterpartyHmac, now: syncedAt
+        });
+        resolvePayeesForAccount({
+          database, accountId: account.id, encryption,
+          hmacSecret: config.secrets.counterpartyHmac, now: syncedAt
+        });
+        applyCategoryRulesForAccount(database, account.id, syncedAt);
+        applyPayeeCategoriesForAccount(database, account.id, syncedAt);
+      }
     } catch {
       // Candidate state records retry eligibility; the next scheduled sync resumes it.
     }

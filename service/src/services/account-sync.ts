@@ -6,6 +6,7 @@ import { applyCategoryRulesForAccount } from './category-rules.js';
 import { enrichAccountTransactions, type EnrichAccountTransactionsResult } from './transaction-enrichment.js';
 import { captureProviderObservationsForAccount } from './transaction-observations.js';
 import { resolveTransactionsForAccount } from './transaction-resolution.js';
+import { applyPayeeCategoriesForAccount, resolvePayeesForAccount, type PayeeResolutionResult } from './recurring-payees.js';
 
 export async function syncBankAccount({
   database, client, accountId, providerAccountId, hmacSecret, encryption, query = {}, now = new Date(), maxDetails
@@ -19,7 +20,7 @@ export async function syncBankAccount({
   query?: Omit<TransactionQuery, 'continuationKey'>;
   now?: Date;
   maxDetails?: number;
-}): Promise<{ pages: number; imported: { inserted: number; updated: number }; enrichment: EnrichAccountTransactionsResult }> {
+}): Promise<{ pages: number; imported: { inserted: number; updated: number }; enrichment: EnrichAccountTransactionsResult; payees: PayeeResolutionResult }> {
   const provider = await client.getAllAccountTransactions(providerAccountId, query);
   const providerTransactions = provider.transactions as ProviderTransaction[];
   const imported = importTransactions({
@@ -53,8 +54,17 @@ export async function syncBankAccount({
     hmacSecret,
     now
   });
-  // Merchant rules may become matchable only after identity resolution.
+  const payees = resolvePayeesForAccount({
+    database,
+    accountId,
+    encryption,
+    hmacSecret,
+    now
+  });
+  // Merchant rules may become matchable only after identity resolution. The
+  // explicit Payee default is applied last and wins over other local defaults.
   applyCategoryRulesForAccount(database, accountId, now);
+  applyPayeeCategoriesForAccount(database, accountId, now);
 
-  return { pages: provider.pages, imported, enrichment };
+  return { pages: provider.pages, imported, enrichment, payees };
 }

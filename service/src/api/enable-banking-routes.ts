@@ -384,6 +384,7 @@ export function createEnableBankingRouter({
           pages: result.pages,
           imported: result.imported,
           enrichment: result.enrichment,
+          payees: result.payees,
           transactions: listPublicTransactions(database, user.id, account.id)
         }
       });

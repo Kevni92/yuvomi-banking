@@ -12,6 +12,7 @@ Geplante Kernfunktionen:
 - Hauptkonto und Budget-Konto über dieselbe provider-neutrale Provider-Schicht anbinden
 - Umsätze lokal in einer eigenen SQLite-Datenbank speichern
 - Gegenkonten stabil über eine HMAC-basierte `counterparty_id` erkennen
+- wiederkehrende Abbucher owner-weit über stabile, gehashte Evidenz gruppieren und lokal kategorisieren
 - Kategorien über lokale Regeln und OpenAI-Batch-Klassifizierung zuordnen
 - neue Kategorien nur vorschlagen, nicht automatisch anlegen
 - bekannte Händler mit lokal gecachten Logos darstellen
@@ -54,6 +55,11 @@ Session-Verifikation.
 
 Die vollständige Wochenbudget-Spezifikation steht in
 [`docs/WEEKLY_BUDGET.md`](docs/WEEKLY_BUDGET.md).
+
+Die Erkennung wiederkehrender Abbucher, ihre Sicherheitsgrenzen und der Backfill sind in
+[`docs/AUTOM_ABBUCHER.md`](docs/AUTOM_ABBUCHER.md) beschrieben. Die Payee-Identität bleibt
+owner-gescopt und wird ausschließlich als HMAC-Evidenz gespeichert; Klartext-IBANs und
+Provider-Rohdaten verlassen weder den Sidecar noch die neuen Aggregations-APIs.
 
 ## Projektstruktur
 

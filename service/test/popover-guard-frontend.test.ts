@@ -8,6 +8,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const moduleRoot = path.resolve(here, '../../../modules/banking');
 const entry = fs.readFileSync(path.join(moduleRoot, 'entry.js'), 'utf8');
 const guard = fs.readFileSync(path.join(moduleRoot, 'popover-guard.js'), 'utf8');
+const styles = fs.readFileSync(path.join(moduleRoot, 'visual-enhancements.css'), 'utf8');
 
 test('banking entry installs a capture-phase popover guard', () => {
   assert.match(entry, /installPopoverGuard/);
@@ -30,4 +31,10 @@ test('popover guard dismisses a menu when focus leaves its subtree', () => {
   assert.match(guard, /event\.relatedTarget instanceof Element/);
   assert.match(guard, /popover\.contains\(target\)/);
   assert.match(guard, /!next \|\| !popover\.contains\(next\)/);
+});
+
+test('hidden banking popovers stay visually hidden despite explicit layout display rules', () => {
+  assert.match(styles, /\.banking-category-picker-menu\[hidden\][\s\S]*display:\s*none\s*!important/);
+  assert.match(styles, /\.banking-transaction-filter-multiselect__menu\[hidden\]/);
+  assert.match(styles, /\.banking-category-icon-picker\[hidden\]/);
 });

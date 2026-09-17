@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-09-17
+
+- Banking-Modul auf Commit `2d25eb4` aktualisiert: Kalenderwochen-Widget, vier tägliche
+  Abrufzeiten und der intraday Tagesfortschritt sind unter `/opt/yuvomi/modules/banking`
+  installiert. Der Yuvomi-Container wurde neu geladen.
+- Backup-Gate erfolgreich: `yuvomi-2026-09-17_203217.tar.zst.age` wurde erstellt, geprüft,
+  verschlüsselt und nach `yuvomi-gdrive:Yuvomi-Backups/daily/2026-09-17_203217/` geladen.
+- Verifiziert: alle sieben Moduldateien per SHA-256 identisch, Yuvomi und Banking healthy,
+  alle vier HTTPS-Healthchecks erfolgreich, keine neuen Fehlerzeilen und weiterhin nur TCP
+  22/80/443 öffentlich.
+
+Rollback: die sieben vorherigen Moduldateien aus dem Backup gemäß `/opt/backups/RESTORE.md`
+wiederherstellen, den Yuvomi-Container neu laden und dieselben Hashes sowie Healthchecks prüfen.
+
 ## 2026-09-15
 
 - Wochenbudget-Day-Segment-Fortschritt produktiv ausgerollt: Die beiden Frontend-Assets

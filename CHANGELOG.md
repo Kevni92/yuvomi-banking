@@ -2,6 +2,20 @@
 
 ## 2026-09-17
 
+- Banking-Modul auf den Zielstand `9184c7a` aktualisiert: direkte Wochenbudget-Ausgaben
+  werden im Dashboard berücksichtigt und das Effective-Remaining-Widget ist registriert.
+  Der Yuvomi-Container wurde neu geladen.
+- Backup-Gate erfolgreich: `yuvomi-2026-09-17_222045.tar.zst.age` wurde erstellt, geprüft,
+  verschlüsselt und nach `yuvomi-gdrive:Yuvomi-Backups/daily/2026-09-17_222045/` geladen.
+- Verifiziert: `module.json` und `weekly-budget-effective-remaining.js` per SHA-256 identisch,
+  alle 204 Tests sowie alle HTTPS-Healthchecks erfolgreich, keine neuen Fehlerzeilen und
+  weiterhin nur TCP 22/80/443 öffentlich.
+
+Rollback: die beiden vorherigen Moduldateien aus dem Backup gemäß `/opt/backups/RESTORE.md`
+wiederherstellen, den Yuvomi-Container neu laden und Hashes sowie Healthchecks erneut prüfen.
+
+## 2026-09-17
+
 - Banking-Modul auf Commit `2d25eb4` aktualisiert: Kalenderwochen-Widget, vier tägliche
   Abrufzeiten und der intraday Tagesfortschritt sind unter `/opt/yuvomi/modules/banking`
   installiert. Der Yuvomi-Container wurde neu geladen.

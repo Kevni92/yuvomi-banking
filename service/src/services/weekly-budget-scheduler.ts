@@ -9,7 +9,7 @@ import { weeklyBudgetCutoffSchedule } from './weekly-budget-schedule.js';
 import {
   runDueScheduledAccountSyncJobs,
   type DueScheduledSyncOutcome
-} from './scheduled-account-sync.js';
+} from './scheduled-account-sync-four-times.js';
 import { enqueueWeeklyBudgetSyncFailureDeliveries } from './push-outbox.js';
 
 const RETRY_DELAYS_MS = [5, 15, 30].map((minutes) => minutes * 60_000);

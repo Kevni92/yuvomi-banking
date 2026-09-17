@@ -9,6 +9,7 @@ import { createGlobalBankingSessionResolver } from './auth/global-banking-sessio
 import { createEnableBankingRouter } from './api/enable-banking-routes.js';
 import { createEnableBankingSettingsRouter } from './api/enable-banking-settings-routes.js';
 import { createWeeklyBudgetRouter } from './api/weekly-budget-routes.js';
+import { createWeeklyBudgetSyncTimesRouter } from './api/weekly-budget-sync-times-routes.js';
 import { createCategoryRouter } from './api/category-routes.js';
 import { createAccountPreferencesRouter } from './api/account-preferences-routes.js';
 import { createPresentationSettingsRouter } from './api/presentation-settings-routes.js';
@@ -88,17 +89,11 @@ export function createApp({
         }
       });
     } catch {
-      // Do not expose upstream URLs, response bodies, cookies, or other
-      // implementation details to the browser.
       response.status(502).json({ error: 'Unable to verify Yuvomi session.' });
     }
   });
 
   if (database) {
-    // Banking is a global household module. Keep authentication/permissions on
-    // the actual Yuvomi actor, while data-scoped routers transparently use the
-    // owner id of the existing Banking setup. Push subscriptions intentionally
-    // remain per real Yuvomi user/device and therefore use resolveSession below.
     const resolveBankingSession = createGlobalBankingSessionResolver(database, resolveSession);
 
     app.use(`${API_PREFIX}`, createEnableBankingRouter({
@@ -108,6 +103,11 @@ export function createApp({
     }));
     app.use(`${API_PREFIX}`, createEnableBankingSettingsRouter({ database, resolveSession, clock }));
     app.use(`${API_PREFIX}`, createWeeklyBudgetRouter({
+      database,
+      resolveSession: resolveBankingSession,
+      clock
+    }));
+    app.use(`${API_PREFIX}`, createWeeklyBudgetSyncTimesRouter({
       database,
       resolveSession: resolveBankingSession,
       clock

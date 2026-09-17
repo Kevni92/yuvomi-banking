@@ -1,4 +1,5 @@
 import { render as renderEnhanced } from './enhanced-index.js';
+import { installFourDailySyncTimes } from './four-daily-sync-times.js';
 import { installMainLayoutPolish } from './layout-polish.js';
 import { installPopoverGuard } from './popover-guard.js';
 import { installPresentationSettings } from './presentation-settings.js';
@@ -88,6 +89,7 @@ export async function render(container, context) {
   }
 
   if (!context?.signal?.aborted) {
+    await installFourDailySyncTimes(container, context);
     await installPresentationSettings(container, context);
     await installMainLayoutPolish(container, context);
     installPopoverGuard(container, context);

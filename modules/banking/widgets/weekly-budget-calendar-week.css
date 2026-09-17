@@ -1,0 +1,95 @@
+/* Calendar-week presentation layered over the stable weekly-budget widget. */
+
+.banking-weekly-widget__week-progress {
+  overflow: visible;
+}
+
+.banking-weekly-widget__week-segment {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+  background: color-mix(in srgb, var(--color-surface-3, rgba(255,255,255,.07)) 95%, transparent) !important;
+}
+
+.banking-weekly-widget__week-segment[data-state="past"],
+.banking-weekly-widget__week-segment[data-state="current"] {
+  background: color-mix(in srgb, var(--color-surface-3, rgba(255,255,255,.07)) 95%, transparent) !important;
+}
+
+.banking-weekly-widget__week-segment-fill {
+  position: absolute;
+  z-index: 1;
+  inset: -1px auto -1px -1px;
+  width: calc(var(--week-segment-progress, 0%) + 1px);
+  max-width: calc(100% + 2px);
+  border: 1px solid color-mix(in srgb, var(--color-accent, #9b7cff) 58%, transparent);
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8e6bff, #ad87ff);
+  box-shadow: 0 0 .34rem color-mix(in srgb, #9874ff 28%, transparent);
+  pointer-events: none;
+}
+
+.banking-weekly-widget__week-segment[data-state="current"] .banking-weekly-widget__week-segment-fill {
+  border-color: color-mix(in srgb, var(--color-accent, #9b7cff) 78%, transparent);
+  box-shadow: 0 0 .45rem color-mix(in srgb, #9874ff 40%, transparent);
+}
+
+.banking-weekly-widget__cutoff-marker {
+  --cutoff-position: 50%;
+  position: absolute;
+  z-index: 3;
+  top: -.22rem;
+  bottom: -.22rem;
+  left: var(--cutoff-position);
+  width: 2px;
+  border-radius: 2px;
+  background: #ff646c;
+  box-shadow: 0 0 .25rem color-mix(in srgb, #ff646c 55%, transparent);
+  transform: translateX(-1px);
+  pointer-events: none;
+}
+
+.banking-weekly-widget__cutoff-label {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + .28rem);
+  color: #ff7078;
+  font-size: .55rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translateX(18%);
+}
+
+.banking-weekly-widget__trend-labels {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: .2rem;
+  margin-top: -.18rem;
+}
+
+.banking-weekly-widget__trend-labels > span {
+  color: var(--color-text-secondary, #929297);
+  font-size: .58rem;
+  font-weight: 650;
+  line-height: 1;
+  text-align: center;
+}
+
+.banking-weekly-widget__trend-labels > span[data-state="current"] {
+  color: var(--color-text-primary, #f7f7f7);
+}
+
+.banking-weekly-widget__sparkline-cutoff {
+  stroke: #ff646c;
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 .12rem color-mix(in srgb, #ff646c 45%, transparent));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .banking-weekly-widget__week-segment-fill {
+    transition: none;
+  }
+}

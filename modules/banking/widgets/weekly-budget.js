@@ -182,11 +182,12 @@ export async function renderWidget(container) {
       document.documentElement.lang
     );
     renderWeekProgress(weekProgress, weekLabels, segments);
-    const completedDays = segments.filter((segment) => segment.state !== 'future').length;
-    weekProgress.setAttribute('aria-valuenow', String(completedDays));
+    const dayPosition = segments.filter((segment) => segment.state !== 'future').length;
+    const elapsedDayProgress = segments.reduce((sum, segment) => sum + segment.progress, 0);
+    weekProgress.setAttribute('aria-valuenow', String(elapsedDayProgress));
     weekSummary.textContent = message(
-      `${completedDays} von 7 Tagen`,
-      `${completedDays} of 7 days`
+      `${dayPosition} von 7 Tagen`,
+      `${dayPosition} of 7 days`
     );
   } catch {
     state.hidden = false;
@@ -262,10 +263,44 @@ export function calculateBudgetTrendState(budgetRatio, remainingWeekRatio, toler
   return 'on';
 }
 
+export function calculateLocalDayProgress(now = Date.now(), timezone = 'Europe/Berlin') {
+  const date = now instanceof Date ? now : new Date(Number(now));
+  if (!Number.isFinite(date.getTime())) return 0;
+
+  const readLocalTime = (timeZone) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    }).formatToParts(date);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    const hour = Number(values.hour);
+    const minute = Number(values.minute);
+    const second = Number(values.second);
+    if (![hour, minute, second].every(Number.isFinite)) throw new Error('Invalid local time.');
+    return (hour * 60 * 60 + minute * 60 + second) / (24 * 60 * 60);
+  };
+
+  try {
+    return clamp(readLocalTime(
+      typeof timezone === 'string' && timezone ? timezone : 'UTC'
+    ), 0, 1);
+  } catch {
+    try {
+      return clamp(readLocalTime('UTC'), 0, 1);
+    } catch {
+      return 0;
+    }
+  }
+}
+
 export function buildBudgetWeekSegments(periodEndDate, now = Date.now(), timezone = 'Europe/Berlin', locale = 'de') {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(periodEndDate ?? ''))) return [];
   const weekStart = addIsoDays(periodEndDate, -7);
   const today = localIsoDate(now, timezone);
+  const currentDayProgress = calculateLocalDayProgress(now, timezone);
   const german = String(locale).toLowerCase().startsWith('de');
   const labels = german
     ? ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
@@ -276,7 +311,8 @@ export function buildBudgetWeekSegments(periodEndDate, now = Date.now(), timezon
     return {
       date,
       label: labels[weekday],
-      state: date < today ? 'past' : date === today ? 'current' : 'future'
+      state: date < today ? 'past' : date === today ? 'current' : 'future',
+      progress: date < today ? 1 : date === today ? currentDayProgress : 0
     };
   });
 }
@@ -339,6 +375,11 @@ function renderWeekProgress(progress, labels, segments) {
     const item = document.createElement('span');
     item.className = 'banking-weekly-widget__week-segment';
     item.dataset.state = segment.state;
+    const segmentProgress = Number(segment.progress);
+    const progressPercentage = Number.isFinite(segmentProgress)
+      ? clamp(segmentProgress * 100, 0, 100)
+      : 0;
+    item.style.setProperty('--week-segment-progress', `${progressPercentage}%`);
     progress.append(item);
 
     const label = document.createElement('span');

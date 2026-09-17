@@ -255,22 +255,33 @@
 }
 
 .banking-weekly-widget__week-segment {
+  position: relative;
   display: block;
+  overflow: hidden;
   height: .48rem;
   border: 1px solid color-mix(in srgb, var(--color-border, rgba(255,255,255,.12)) 75%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-surface-3, rgba(255,255,255,.07)) 95%, transparent);
 }
 
+.banking-weekly-widget__week-segment::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--week-segment-progress, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8e6bff, #ad87ff);
+  content: '';
+  pointer-events: none;
+}
+
 .banking-weekly-widget__week-segment[data-state="past"] {
   border-color: color-mix(in srgb, var(--color-accent, #9b7cff) 52%, transparent);
-  background: linear-gradient(90deg, #8e6bff, #ad87ff);
   box-shadow: 0 0 .32rem color-mix(in srgb, #9874ff 24%, transparent);
 }
 
 .banking-weekly-widget__week-segment[data-state="current"] {
   border-color: color-mix(in srgb, var(--color-accent, #9b7cff) 72%, transparent);
-  background: linear-gradient(90deg, #9a76ff, #b08cff);
   box-shadow: 0 0 .42rem color-mix(in srgb, #9874ff 35%, transparent);
 }
 

@@ -166,6 +166,12 @@ test('dashboard widget renders budget, trend and segmented week progress from lo
   assert.match(style, /\.banking-weekly-widget__budget-progress-fill\s*\{[^}]*linear-gradient/s);
   assert.match(style, /\.banking-weekly-widget__trend\s*\{[^}]*border-radius:/s);
   assert.match(style, /\.banking-weekly-widget__week-progress,[\s\S]*grid-template-columns:\s*repeat\(7,/s);
+  assert.match(style, /\.banking-weekly-widget__week-segment::before\s*\{[^}]*width:\s*var\(--week-segment-progress,/s);
+  assert.match(style, /--week-segment-progress/);
+  assert.doesNotMatch(
+    style,
+    /\.banking-weekly-widget__week-segment\[data-state="current"\]\s*\{[^}]*background:/s
+  );
   assert.match(style, /data-state="past"/);
   assert.match(style, /data-state="current"/);
 });
@@ -203,7 +209,8 @@ test('dashboard widget budget trend compares remaining money with remaining week
   const widget = await import(pathToFileURL(resolve(process.cwd(), '../modules/banking/widgets/weekly-budget.js')).href) as {
     calculateBudgetTrendState: (budgetRatio: number, remainingWeekRatio: number, tolerance?: number) => string;
     budgetColorForRatio: (ratio: number) => string;
-    buildBudgetWeekSegments: (periodEndDate: string, now?: number | Date, timezone?: string, locale?: string) => Array<{ date: string; label: string; state: string }>;
+    calculateLocalDayProgress: (now?: number | Date, timezone?: string) => number;
+    buildBudgetWeekSegments: (periodEndDate: string, now?: number | Date, timezone?: string, locale?: string) => Array<{ date: string; label: string; state: string; progress: number }>;
     buildBudgetTrendPoints: (current: unknown, transactions: unknown[], now?: number | Date) => number[];
   };
 
@@ -212,6 +219,14 @@ test('dashboard widget budget trend compares remaining money with remaining week
   assert.equal(widget.calculateBudgetTrendState(0.80, 0.40), 'over');
   assert.match(widget.budgetColorForRatio(0), /^hsl\(0 /);
   assert.match(widget.budgetColorForRatio(1), /^hsl\(120 /);
+
+  const localDay = (hour: number) => Date.parse(
+    `2026-09-15T${String(hour).padStart(2, '0')}:00:00+02:00`
+  );
+  assert.equal(widget.calculateLocalDayProgress(localDay(0), 'Europe/Berlin'), 0);
+  assert.equal(widget.calculateLocalDayProgress(localDay(6), 'Europe/Berlin'), 0.25);
+  assert.equal(widget.calculateLocalDayProgress(localDay(12), 'Europe/Berlin'), 0.5);
+  assert.equal(widget.calculateLocalDayProgress(localDay(18), 'Europe/Berlin'), 0.75);
 
   const segments = widget.buildBudgetWeekSegments(
     '2026-09-17',
@@ -222,6 +237,20 @@ test('dashboard widget budget trend compares remaining money with remaining week
   assert.equal(segments.length, 7);
   assert.deepEqual(segments.map((entry) => entry.label), ['Do', 'Fr', 'Sa', 'So', 'Mo', 'Di', 'Mi']);
   assert.equal(segments[2].state, 'current');
+  assert.equal(segments[0].progress, 1);
+  assert.equal(segments[1].progress, 1);
+  assert.equal(segments[2].progress, 0.5);
+  assert.deepEqual(segments.slice(3).map((entry) => entry.progress), [0, 0, 0, 0]);
+
+  const firstBudgetDay = widget.buildBudgetWeekSegments(
+    '2026-09-22',
+    Date.parse('2026-09-15T07:00:00+02:00'),
+    'Europe/Berlin',
+    'de'
+  );
+  assert.equal(firstBudgetDay[0].date, '2026-09-15');
+  assert.equal(firstBudgetDay[0].state, 'current');
+  assert.ok(Math.abs(firstBudgetDay[0].progress - (7 / 24)) < 1e-10);
 
   const current = {
     available_to_spend_cents: 4500,

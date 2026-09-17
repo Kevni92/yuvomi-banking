@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-09-15
+
+- Wochenbudget-Day-Segment-Fortschritt produktiv ausgerollt: Die beiden Frontend-Assets
+  unter `/opt/yuvomi/modules/banking/widgets` berechnen den aktuellen Tagesanteil in der
+  konfigurierten Zeitzone und stellen ihn als partielle Segmentfüllung dar.
+- Backup-Gate erfolgreich: `yuvomi-2026-09-15_071803.tar.zst.age` wurde erstellt, geprüft,
+  verschlüsselt und nach `yuvomi-gdrive:Yuvomi-Backups/daily/2026-09-15_071803/` geladen.
+- Verifiziert: lokale und serverseitige SHA-256-Hashes identisch, Yuvomi und Banking healthy,
+  alle HTTPS-Healthchecks erfolgreich, keine neuen Banking-Fehlerlogs, weiterhin nur TCP
+  22/80/443 öffentlich. Kein Containerneustart erforderlich (Module-Bind-Mount).
+
+Rollback: die beiden vorherigen Dateien aus dem unmittelbar vorherigen Backup gemäß
+`/opt/backups/RESTORE.md` wiederherstellen und die Hashes sowie die HTTPS-Healthchecks erneut
+prüfen; ein Neustart ist für die statischen Moduldateien nicht erforderlich.
+
 ## 2026-09-14
 
 - Produktionskorrektur nach dem Rollout: `/opt/yuvomi/modules/banking` und seine

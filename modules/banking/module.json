@@ -41,7 +41,7 @@
     "widgets": [
       {
         "id": "weekly-budget",
-        "entry": "widgets/weekly-budget-calendar-week.js",
+        "entry": "widgets/weekly-budget-effective-remaining.js",
         "label": "Wochenbudget",
         "labelKey": "widgets.weekly-budget",
         "icon": "wallet-cards",

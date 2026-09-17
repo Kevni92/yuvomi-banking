@@ -20,7 +20,7 @@ test('weekly-budget dashboard uses a fixed Monday-to-Sunday calendar week with w
     capabilities?: { widgets?: Array<{ id?: string; entry?: string }> };
   };
   const widget = manifest.capabilities?.widgets?.find((entry) => entry.id === 'weekly-budget');
-  assert.equal(widget?.entry, 'widgets/weekly-budget-calendar-week.js');
+  assert.equal(widget?.entry, 'widgets/weekly-budget-effective-remaining.js');
 
   const implementation = await import(pathToFileURL(
     resolve(moduleRoot, 'widgets/weekly-budget-calendar-week.js')

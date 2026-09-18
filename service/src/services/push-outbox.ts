@@ -2,6 +2,11 @@ import type { DatabaseSync } from 'node:sqlite';
 import { createEncryptionService } from '../security/encryption.js';
 import { formatEuroCents } from './weekly-budget.js';
 import { createGiroCodeImageCapability } from './girocode-image-tokens.js';
+import {
+  collectWeeklyBudgetDirectExpenses,
+  findWeeklyBudgetConfigById
+} from './weekly-budget-overview.js';
+import { weeklyBudgetWindow } from './weekly-budget-schedule.js';
 
 export type BankingNotificationType = 'proposal' | 'sync_failed' | 'test' | 'daily_summary';
 
@@ -130,22 +135,40 @@ export function enqueueWeeklyBudgetDailySummaryDeliveries(
   if (!Number.isFinite(Date.parse(input.scheduledAt))) {
     throw new Error('Scheduled account-sync time is invalid.');
   }
+  if (!(input.now instanceof Date) || Number.isNaN(input.now.getTime())) {
+    throw new Error('Notification time is invalid.');
+  }
 
-  const config = database.prepare(`
-    SELECT notification_enabled, notification_user_id
-    FROM weekly_budget_configs WHERE id = ?
-  `).get(input.configId) as {
-    notification_enabled: number;
-    notification_user_id: number | null;
-  } | undefined;
+  const config = findWeeklyBudgetConfigById(database, input.configId);
   if (!config || !config.notification_enabled || !config.notification_user_id) return 0;
+
+  const window = weeklyBudgetWindow({
+    now: input.now,
+    cutoffWeekday: Number(config.cutoff_weekday),
+    cutoffTime: config.cutoff_time,
+    timezone: config.timezone,
+    effectiveFromDate: config.effective_from_date
+  });
+  const directExpenseCents = collectWeeklyBudgetDirectExpenses(
+    database,
+    config,
+    window.periodStartDate,
+    window.periodEndDate
+  ).totalCents;
+  const effectiveAvailableBudgetCents = effectiveRemainingBudgetCents(
+    input.availableBudgetCents,
+    directExpenseCents
+  );
 
   const subscriptions = database.prepare(`
     SELECT id FROM banking_push_subscriptions
     WHERE yuvomi_user_id = ? AND status = 'active'
     ORDER BY id
   `).all(config.notification_user_id) as Array<{ id: number }>;
-  const payload = dailyWeeklyBudgetSummaryPayload(input);
+  const payload = dailyWeeklyBudgetSummaryPayload({
+    ...input,
+    availableBudgetCents: effectiveAvailableBudgetCents
+  });
   let queued = 0;
   for (const subscription of subscriptions) {
     const result = enqueuePushDelivery(database, {
@@ -159,6 +182,23 @@ export function enqueueWeeklyBudgetDailySummaryDeliveries(
     if (result.created) queued += 1;
   }
   return queued;
+}
+
+export function effectiveRemainingBudgetCents(
+  targetBalanceCents: number,
+  directExpenseCents: number
+): number {
+  if (!Number.isSafeInteger(targetBalanceCents)) {
+    throw new Error('Budget-account balance is invalid.');
+  }
+  if (!Number.isSafeInteger(directExpenseCents) || directExpenseCents < 0) {
+    throw new Error('Direct weekly-budget expenses are invalid.');
+  }
+  const result = Number(BigInt(targetBalanceCents) - BigInt(directExpenseCents));
+  if (!Number.isSafeInteger(result)) {
+    throw new Error('Effective remaining weekly budget exceeds the supported range.');
+  }
+  return result;
 }
 
 export function enqueueWeeklyBudgetSyncFailureDeliveries(
